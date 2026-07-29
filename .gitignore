@@ -1,0 +1,10 @@
+node_modules/
+keys/*.pem
+tesla-proxy
+data/
+*.log
+*.db
+.env
+tmp-github-upload/
+*.backup-phase*
+.claude/

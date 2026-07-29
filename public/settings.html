@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch - Settings</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container">
+    <div class="topbar-brand">
+      <svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="border-radius:6px;flex-shrink:0;" data-ws-mark="full"></svg>
+      <span>Watt<span style="color:var(--accent-solar)">Snatch</span></span>
+    </div>
+    <button id="topbar-hamburger" class="topbar-hamburger" aria-label="Menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <rect y="3"  width="20" height="2" rx="1"/>
+        <rect y="9"  width="20" height="2" rx="1"/>
+        <rect y="15" width="20" height="2" rx="1"/>
+      </svg>
+    </button>
+    <nav class="topbar-nav">
+      <a href="/">Dashboard</a>
+      <a href="/data">Data</a>
+      <a href="/drives">Drives</a>
+      <a href="/bills">Bills</a>
+      <a href="/retailer">Retailers</a>
+      <a href="/logs">Logs</a>
+      <a href="/settings" class="active">Settings</a>
+    </nav>
+    <div class="topbar-right"></div>
+  </div>
+</header>
+
+<main class="page-content">
+  <div class="container" style="max-width:720px">
+    <div class="page-title">Settings</div>
+
+    <div id="settings-message" class="alert alert-success hidden mb-2"></div>
+
+    <form id="settings-form">
+
+      <!-- Charging preferences -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Charging Preferences</div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_min_charge_amps">Min Charge Amps</label>
+            <input type="number" id="setting_min_charge_amps" min="1" max="32" step="1" placeholder="5">
+          </div>
+          <div class="form-group">
+            <label for="setting_max_charge_amps">Max Charge Amps</label>
+            <input type="number" id="setting_max_charge_amps" min="1" max="48" step="1" placeholder="32">
+          </div>
+          <div class="form-group">
+            <label for="setting_hold_minutes">Hold Minutes</label>
+            <input type="number" id="setting_hold_minutes" min="1" max="30" step="1" placeholder="3">
+            <span class="text-secondary text-xs mt-1">Wait before stopping when solar drops</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_smoothing_window">Smoothing Window</label>
+            <input type="number" id="setting_smoothing_window" min="1" max="10" step="1" placeholder="3">
+            <span class="text-secondary text-xs mt-1">Number of readings to average</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_polling_interval_seconds">Poll Interval (seconds)</label>
+            <input type="number" id="setting_polling_interval_seconds" min="5" max="60" step="1" placeholder="15">
+          </div>
+          <div class="form-group">
+            <label for="setting_charger_voltage">Charger Voltage (V)</label>
+            <input type="number" id="setting_charger_voltage" min="110" max="260" step="1" placeholder="240">
+          </div>
+        </div>
+      </div>
+
+      <!-- Region & Currency -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Region</div>
+        </div>
+        <div class="form-group">
+          <label for="setting_country">Country</label>
+          <select id="setting_country">
+            <option value="AU">Australia</option>
+            <option value="US">United States</option>
+          </select>
+          <span class="text-secondary text-xs mt-1" style="display:block">
+            Drives which utility rate plan templates are available below, and how dollar values are labelled. Doesn't change how anything is calculated internally.
+          </span>
+        </div>
+        <div class="form-group" style="margin-top:1rem">
+          <label for="setting_grid_retailer_domain">Grid icon (your electricity retailer)</label>
+          <div style="display:flex;align-items:center;gap:0.75rem">
+            <img id="grid-retailer-icon-preview" src="" alt="" width="28" height="28" style="border-radius:50%;object-fit:cover;background:var(--border);flex-shrink:0;visibility:hidden">
+            <input type="text" id="setting_grid_retailer_domain" placeholder="e.g. agl.com.au, originenergy.com.au, pge.com" style="flex:1">
+          </div>
+          <span class="text-secondary text-xs mt-1">
+            The dashboard's Grid icon shows your retailer's website favicon. Enter your retailer's domain (not their name), or leave blank for a generic icon. Doesn't affect any calculations, purely cosmetic.
+          </span>
+        </div>
+        <div class="form-group" style="margin-top:1rem">
+          <label for="setting_retailer_network_distributor">Electricity distributor (network area)</label>
+          <input type="text" id="setting_retailer_network_distributor" placeholder="e.g. Energex, Ausgrid, CitiPower" style="width:100%">
+          <span class="text-secondary text-xs mt-1">
+            Used by the Retailers page to fetch live plan data for your specific network area from the AER's public Consumer Data Right register (energymadeeasy.gov.au). Only covers Australia's NECF states (QLD, NSW, VIC, SA, TAS, ACT) - this must exactly match your distributor's name in that register, e.g. "Energex" not "Energex Ltd".
+          </span>
+        </div>
+      </div>
+
+      <!-- Electricity Rate -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Electricity Rate</div>
+          <span id="current-rate-badge" style="font-size:0.875rem;font-weight:600;color:var(--accent-solar)">-</span>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
+          <label class="toggle-switch" style="flex-shrink:0">
+            <input type="checkbox" id="electricity_rate_mode_toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:0.85rem;font-weight:600">Time-of-use billing</span>
+          <span style="font-size:0.78rem;color:var(--text-secondary)">(off = flat rate)</span>
+        </div>
+
+        <!-- Flat rate -->
+        <div id="flat-rate-section">
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+            Record rate changes with the date they took effect. Savings calculations automatically use the right rate for each period.
+          </p>
+          <div class="rates-table-wrap">
+          <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:1rem">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500">Effective from</th>
+                <th style="text-align:right;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500"><span class="currency-unit-label" data-unit="kwh">Rate (AUD/kWh)</span></th>
+                <th style="width:32px"></th>
+              </tr>
+            </thead>
+            <tbody id="rates-tbody"></tbody>
+          </table>
+          </div>
+          <div class="rate-add-row">
+            <div class="form-group" style="margin:0;flex:1;min-width:130px">
+              <label for="new-rate-date">Effective from</label>
+              <input type="date" id="new-rate-date">
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:110px">
+              <label for="new-rate-value"><span class="currency-unit-label" data-unit="kwh">Rate (AUD/kWh)</span></label>
+              <input type="number" id="new-rate-value" min="0.01" max="5" step="0.01" placeholder="0.30">
+            </div>
+            <button type="button" id="add-rate-btn" class="btn btn-primary btn-sm" style="margin-bottom:1px">Add</button>
+          </div>
+          <div id="rate-message" class="alert hidden" style="margin-top:0.75rem"></div>
+        </div>
+
+        <!-- Time-of-use rate -->
+        <div id="tou-rate-section" style="display:none">
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+            Define named rate windows (e.g. Peak, Shoulder) - anything outside them uses the default (off-peak) rate. Like flat rates, a new rate card takes effect from the date you choose; past periods keep using whatever card was active at the time.
+          </p>
+          <div class="rates-table-wrap">
+          <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:1rem">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500">Effective from</th>
+                <th style="text-align:left;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500">Windows</th>
+                <th style="text-align:right;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500">Default rate</th>
+                <th style="width:32px"></th>
+              </tr>
+            </thead>
+            <tbody id="tou-configs-tbody"></tbody>
+          </table>
+          </div>
+
+          <div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.5rem">New rate card</div>
+          <div id="tou-windows-editor-list" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem"></div>
+          <button type="button" id="add-tou-window-row" class="btn btn-secondary btn-sm" style="margin-bottom:1rem">+ Add Window</button>
+
+          <div class="rate-add-row">
+            <div class="form-group" style="margin:0;flex:1;min-width:130px">
+              <label for="new-tou-date">Effective from</label>
+              <input type="date" id="new-tou-date">
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:140px">
+              <label for="new-tou-default-rate"><span class="currency-unit-label" data-unit="kwh-default">Default rate (AUD/kWh)</span></label>
+              <input type="number" id="new-tou-default-rate" min="0.01" max="5" step="0.01" placeholder="0.20">
+            </div>
+            <button type="button" id="add-tou-config-btn" class="btn btn-primary btn-sm" style="margin-bottom:1px">Save Rate Card</button>
+          </div>
+          <div id="tou-message" class="alert hidden" style="margin-top:0.75rem"></div>
+        </div>
+
+        <div id="rate-template-section" style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border);display:none">
+          <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.4rem">Rate plan templates</div>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 0.75rem">
+            Pre-fill the time-of-use windows above from a common utility rate plan for your country. This inserts a new rate card you can then hand-edit - it's a starting point, not a live link to the utility.
+          </p>
+          <div style="display:flex;align-items:flex-end;gap:0.75rem;flex-wrap:wrap">
+            <div class="form-group" style="margin:0;flex:1;min-width:220px">
+              <label for="rate-template-select">Template</label>
+              <select id="rate-template-select"></select>
+            </div>
+            <button type="button" id="rate-template-apply-btn" class="btn btn-secondary btn-sm">Apply Template</button>
+          </div>
+          <div id="rate-template-note" class="text-secondary text-xs mt-1" style="display:block;margin-top:0.5rem"></div>
+          <div id="rate-template-message" class="alert hidden" style="margin-top:0.75rem"></div>
+        </div>
+      </div>
+
+      <!-- Export / Feed-in Rate (time-varying, e.g. NEM 3.0) -->
+      <div class="card mb-2" id="export-rate-card">
+        <div class="card-header">
+          <div class="card-label">Export / Feed-in Rate</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          By default your export credit is the single flat rate set in Tariff Configuration below. Applying a rate template with time-varying export windows (e.g. California's NEM 3.0, where export credit is much lower at midday than in the evening) switches this to time-of-use automatically - shown here read-only since it's normally populated by a template rather than hand-built.
+        </p>
+        <div class="rates-table-wrap">
+        <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:0.5rem">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500">Effective from</th>
+              <th style="text-align:left;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500">Windows</th>
+              <th style="text-align:right;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500">Default rate</th>
+              <th style="width:32px"></th>
+            </tr>
+          </thead>
+          <tbody id="export-configs-tbody"></tbody>
+        </table>
+        </div>
+        <div id="export-config-empty" class="text-secondary text-xs" style="display:none">No time-varying export rate configured - using the flat feed-in tariff below.</div>
+      </div>
+
+      <!-- Grid Carbon Intensity source (best-effort, optional) -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Grid Carbon Intensity Source</div>
+        </div>
+        <p id="grid-intensity-note-au" style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          AEMO covers Australia and needs no setup - nothing to configure here.
+        </p>
+        <p id="grid-intensity-note-us" style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem;display:none">
+          WattTime and ElectricityMaps are optional, best-effort providers - implemented from their public API docs without a live account to verify against.
+        </p>
+        <div class="form-group">
+          <label for="setting_grid_intensity_provider">Provider</label>
+          <select id="setting_grid_intensity_provider">
+            <option value="aemo">AEMO (Australia)</option>
+            <option value="watttime">WattTime</option>
+            <option value="electricitymaps">ElectricityMaps</option>
+          </select>
+        </div>
+        <div id="grid-intensity-us-fields" class="grid-2" style="display:none">
+          <div class="form-group">
+            <label for="setting_grid_intensity_region">Region / Zone</label>
+            <input type="text" id="setting_grid_intensity_region" placeholder="e.g. US-CAL-CISO (ElectricityMaps) or CAISO_NORTH (WattTime)">
+          </div>
+          <div class="form-group">
+            <label for="setting_watttime_username">WattTime Username</label>
+            <input type="text" id="setting_watttime_username" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="setting_watttime_password">WattTime Password</label>
+            <input type="password" id="setting_watttime_password" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="setting_electricitymaps_api_key">ElectricityMaps API Key</label>
+            <input type="password" id="setting_electricitymaps_api_key" autocomplete="new-password">
+          </div>
+        </div>
+      </div>
+
+      <!-- ERCOT Real-Time Pricing (Texas, best-effort/optional) -->
+      <div class="card mb-2" id="ercot-pricing-card">
+        <div class="card-header">
+          <div class="card-label">ERCOT Real-Time Pricing (Texas)</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Optional, off by default. A supplementary signal only - when enabled and the live wholesale price spikes, non-urgent departure grid charging is delayed (never past a safe margin before your departure time). Does not replace your regular electricity rate. Implemented from ERCOT's public API documentation without a live account to verify against - treat as best-effort.
+        </p>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
+          <label class="toggle-switch" style="flex-shrink:0">
+            <input type="checkbox" id="ercot_pricing_enabled_toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:0.85rem;font-weight:600">Enable ERCOT pricing signal</span>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_ercot_api_username">API Username</label>
+            <input type="text" id="setting_ercot_api_username" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="setting_ercot_api_password">API Password</label>
+            <input type="password" id="setting_ercot_api_password" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="setting_ercot_settlement_point">Settlement Point</label>
+            <input type="text" id="setting_ercot_settlement_point" placeholder="e.g. LZ_HOUSTON">
+          </div>
+        </div>
+      </div>
+
+      <!-- Tariff Configuration -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Tariff Configuration</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1.25rem">
+          Record tariff changes with the date they took effect. Financial calculations automatically use the right rate for each period.
+        </p>
+
+        <!-- Feed-in Tariff history -->
+        <div style="margin-bottom:1.5rem">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+            <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-secondary)">Feed-in Tariff</div>
+            <span id="current-feed-in-badge" style="font-size:0.875rem;font-weight:600;color:var(--accent-solar)">-</span>
+          </div>
+          <div class="rates-table-wrap">
+          <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:0.875rem">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500">Effective from</th>
+                <th style="text-align:right;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500"><span class="currency-unit-label" data-unit="kwh">Rate (AUD/kWh)</span></th>
+                <th style="width:32px"></th>
+              </tr>
+            </thead>
+            <tbody id="feed-in-tbody"></tbody>
+          </table>
+          </div>
+          <div class="rate-add-row">
+            <div class="form-group" style="margin:0;flex:1;min-width:130px">
+              <label for="new-feed-in-date">Effective from</label>
+              <input type="date" id="new-feed-in-date">
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:110px">
+              <label for="new-feed-in-value"><span class="currency-unit-label" data-unit="kwh">Rate (AUD/kWh)</span></label>
+              <input type="number" id="new-feed-in-value" min="0" max="2" step="0.01" placeholder="0.05">
+            </div>
+            <button type="button" id="add-feed-in-btn" class="btn btn-primary btn-sm" style="margin-bottom:1px">Add</button>
+          </div>
+          <div id="feed-in-message" class="alert hidden" style="margin-top:0.75rem"></div>
+        </div>
+
+        <!-- Daily Supply Charge history -->
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+            <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-secondary)">Daily Supply Charge</div>
+            <span id="current-supply-badge" style="font-size:0.875rem;font-weight:600;color:var(--accent-solar)">-</span>
+          </div>
+          <p style="font-size:0.79rem;color:var(--text-secondary);margin:0 0 0.5rem">Fixed daily charge for grid connection.</p>
+          <div class="rates-table-wrap">
+          <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:0.875rem">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500">Effective from</th>
+                <th style="text-align:right;padding:0.35rem 0.5rem;color:var(--text-secondary);font-weight:500"><span class="currency-unit-label" data-unit="day">Charge (AUD/day)</span></th>
+                <th style="width:32px"></th>
+              </tr>
+            </thead>
+            <tbody id="supply-tbody"></tbody>
+          </table>
+          </div>
+          <div class="rate-add-row">
+            <div class="form-group" style="margin:0;flex:1;min-width:130px">
+              <label for="new-supply-date">Effective from</label>
+              <input type="date" id="new-supply-date">
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:110px">
+              <label for="new-supply-value"><span class="currency-unit-label" data-unit="day">Charge (AUD/day)</span></label>
+              <input type="number" id="new-supply-value" min="0" max="10" step="0.01" placeholder="0.95">
+            </div>
+            <button type="button" id="add-supply-btn" class="btn btn-primary btn-sm" style="margin-bottom:1px">Add</button>
+          </div>
+          <div id="supply-message" class="alert hidden" style="margin-top:0.75rem"></div>
+        </div>
+      </div>
+
+      <!-- Fuel Cost Comparison -->
+      <div class="card mb-2" id="fuel-cost-comparison-card">
+        <div class="card-header">
+          <div class="card-label">Fuel Cost Comparison</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Used in History to compare your EV charging cost against a comparable petrol or hybrid SUV.
+          Defaults are based on the Toyota RAV4 (closest Model Y RWD competitor). Units and defaults below adapt to the country selected above (km/litres for Australia, miles/gallons for the US) - the comparison math itself works the same either way, it's just "per 100 units of distance."
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_fuel_ev_kwh_per_100km">EV efficiency (kWh / 100 km)</label>
+            <input type="number" id="setting_fuel_ev_kwh_per_100km" min="5" max="40" step="0.1" placeholder="17.0">
+            <span class="text-secondary text-xs mt-1">Model Y RWD real-world AU average</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_fuel_petrol_price_aud">Petrol price (AUD / litre)</label>
+            <input type="number" id="setting_fuel_petrol_price_aud" min="0.50" max="5.00" step="0.01" placeholder="2.05">
+            <span class="text-secondary text-xs mt-1">Your local ULP price</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_fuel_petrol_l_per_100km">Petrol SUV (L / 100 km)</label>
+            <input type="number" id="setting_fuel_petrol_l_per_100km" min="3" max="25" step="0.1" placeholder="8.4">
+            <span class="text-secondary text-xs mt-1">e.g. Toyota RAV4 2.5L - 8.4 L/100km</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_fuel_hybrid_l_per_100km">Hybrid SUV (L / 100 km)</label>
+            <input type="number" id="setting_fuel_hybrid_l_per_100km" min="2" max="15" step="0.1" placeholder="4.9">
+            <span class="text-secondary text-xs mt-1">e.g. Toyota RAV4 Hybrid - 4.9 L/100km</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- myenergi Eddi -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">myenergi Eddi (Hot Water)</div>
+          <span id="myenergi-status-badge" style="font-size:0.8rem;color:var(--text-secondary)">Not configured</span>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Tracks solar energy diverted to your hot water tank. Find your API key in the myenergi app: Account &rarr; myenergi API.
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_myenergi_serial">Hub / Eddi Serial</label>
+            <input type="text" id="setting_myenergi_serial" placeholder="12345678">
+          </div>
+          <div class="form-group">
+            <label for="setting_myenergi_api_key">API Key</label>
+            <input type="password" id="setting_myenergi_api_key" placeholder="Enter API key">
+            <span class="text-secondary text-xs mt-1">myenergi app &rarr; Account &rarr; myenergi API</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_myenergi_poll_seconds">Poll Interval (seconds)</label>
+            <input type="number" id="setting_myenergi_poll_seconds" min="10" max="300" step="5" placeholder="30">
+          </div>
+        </div>
+      </div>
+
+      <!-- MELCloud AC Units -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">MELCloud AC Units</div>
+          <span id="melcloud-status-badge" style="font-size:0.8rem;color:var(--text-secondary)">Not configured</span>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Monitor your Mitsubishi AC units' status and energy consumption via MELCloud.
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_melcloud_email">MELCloud Email</label>
+            <input type="email" id="setting_melcloud_email" placeholder="your@email.com">
+            <span class="text-secondary text-xs mt-1">MELCloud account email</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_melcloud_password">MELCloud Password</label>
+            <input type="password" id="setting_melcloud_password" placeholder="Enter password">
+            <span class="text-secondary text-xs mt-1">Stored securely in macOS Keychain</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:0.5rem;margin-top:1rem">
+          <button type="button" id="melcloud-test-btn" class="btn btn-secondary btn-sm">Test Connection</button>
+          <button type="button" id="melcloud-save-btn" class="btn btn-primary btn-sm">Save Credentials</button>
+        </div>
+        <div id="melcloud-message" class="alert hidden" style="margin-top:0.75rem"></div>
+        <div id="melcloud-devices" style="margin-top:1rem;font-size:0.82rem;display:none">
+          <div style="font-weight:600;color:var(--text-primary);margin-bottom:0.5rem">Connected devices:</div>
+          <div id="melcloud-devices-list" style="color:var(--text-secondary)"></div>
+        </div>
+      </div>
+
+      <!-- Calendar (Trip Planning) -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Calendar (Trip Planning)</div>
+          <span id="cal-status-badge" style="font-size:0.8rem;color:var(--text-secondary)">Not configured</span>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Connects to a calendar to detect upcoming driving trips and ensure the car has enough charge.
+        </p>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
+          <label class="toggle-switch" style="flex-shrink:0">
+            <input type="checkbox" id="auto_trip_charging_enabled_toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:0.85rem;font-weight:600">Automatic overnight trip charging</span>
+        </div>
+        <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 1rem">
+          Every night, checks tomorrow's calendar trips and - if solar alone won't cover them - schedules exactly enough grid charging to reach the target safely, solar-first. On by default. Turn off to plan your own charging manually instead (e.g. via Departure Scheduling).
+        </p>
+        <div class="form-group" style="max-width:320px">
+          <label for="cal-provider-select">Provider</label>
+          <select id="cal-provider-select">
+            <option value="icloud">iCloud Calendar</option>
+            <option value="google">Google Calendar</option>
+            <option value="outlook">Outlook / Microsoft 365</option>
+          </select>
+        </div>
+        <div id="cal-status-detail" style="margin:0 0 1rem;font-size:0.82rem;display:none">
+          <div id="cal-status-text" style="color:var(--text-secondary)"></div>
+        </div>
+
+        <!-- iCloud panel -->
+        <div id="cal-panel-icloud" class="cal-panel">
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+            Use an <strong style="color:var(--text-primary)">app-specific password</strong> from
+            <a href="https://appleid.apple.com" target="_blank" style="color:var(--accent-solar)">appleid.apple.com</a> &rarr; Sign-In &amp; Security &rarr; App-Specific Passwords.
+          </p>
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="ical-username">Apple ID (email)</label>
+              <input type="email" id="ical-username" placeholder="you@icloud.com">
+            </div>
+            <div class="form-group">
+              <label for="ical-password">App-Specific Password</label>
+              <input type="password" id="ical-password" placeholder="xxxx-xxxx-xxxx-xxxx">
+              <span class="text-secondary text-xs mt-1">Stored securely in macOS Keychain</span>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label for="ical-calendars">Calendars to monitor (comma-separated, blank = all)</label>
+              <input type="text" id="ical-calendars" placeholder="Home, Work, Family">
+              <span class="text-secondary text-xs mt-1">Leave blank to monitor all calendars</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:0.5rem;margin-top:1rem">
+            <button type="button" id="ical-save-btn" class="btn btn-primary btn-sm">Save &amp; Connect</button>
+          </div>
+          <div id="ical-message" class="alert hidden" style="margin-top:0.75rem"></div>
+        </div>
+
+        <!-- Google Calendar panel -->
+        <div id="cal-panel-google" class="cal-panel" style="display:none">
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+            Requires your own Google Cloud OAuth app with the Calendar API enabled - create one at
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent-solar)">console.cloud.google.com/apis/credentials</a>,
+            add the redirect URI below as an authorized redirect URI, and enable the "Google Calendar API" under APIs &amp; Services.
+          </p>
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="setting_google_calendar_client_id">Client ID</label>
+              <input type="text" id="setting_google_calendar_client_id" placeholder="Google OAuth client ID">
+            </div>
+            <div class="form-group">
+              <label for="setting_google_calendar_client_secret">Client Secret</label>
+              <input type="password" id="setting_google_calendar_client_secret" placeholder="Google OAuth client secret">
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label for="setting_google_calendar_redirect_uri">Redirect URI</label>
+              <input type="url" id="setting_google_calendar_redirect_uri" placeholder="http://localhost:3001/auth/google-calendar/callback">
+            </div>
+          </div>
+          <div style="display:flex;gap:0.5rem;margin-top:1rem;align-items:center;flex-wrap:wrap">
+            <button type="button" id="google-cal-connect-btn" class="btn btn-primary btn-sm">Connect Google Calendar</button>
+            <button type="button" id="google-cal-disconnect-btn" class="btn btn-secondary btn-sm" style="display:none">Disconnect</button>
+            <span class="text-secondary text-xs">Click <strong>Save Settings</strong> below first, then Connect</span>
+          </div>
+          <div id="google-cal-message" class="alert hidden" style="margin-top:0.75rem"></div>
+        </div>
+
+        <!-- Outlook Calendar panel -->
+        <div id="cal-panel-outlook" class="cal-panel" style="display:none">
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+            Requires your own Azure App Registration - create one at
+            <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" style="color:var(--accent-solar)">portal.azure.com &rarr; App registrations</a>,
+            add the redirect URI below as a web platform redirect URI, and add the <code>Calendars.Read</code> delegated Microsoft Graph permission.
+          </p>
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="setting_outlook_calendar_client_id">Application (client) ID</label>
+              <input type="text" id="setting_outlook_calendar_client_id" placeholder="Azure app client ID">
+            </div>
+            <div class="form-group">
+              <label for="setting_outlook_calendar_client_secret">Client Secret</label>
+              <input type="password" id="setting_outlook_calendar_client_secret" placeholder="Azure app client secret value">
+            </div>
+            <div class="form-group">
+              <label for="setting_outlook_calendar_tenant_id">Tenant ID</label>
+              <input type="text" id="setting_outlook_calendar_tenant_id" placeholder="common">
+              <span class="text-secondary text-xs mt-1">Leave as "common" unless your organisation requires a specific tenant</span>
+            </div>
+            <div class="form-group">
+              <label for="setting_outlook_calendar_redirect_uri">Redirect URI</label>
+              <input type="url" id="setting_outlook_calendar_redirect_uri" placeholder="http://localhost:3001/auth/outlook-calendar/callback">
+            </div>
+          </div>
+          <div style="display:flex;gap:0.5rem;margin-top:1rem;align-items:center;flex-wrap:wrap">
+            <button type="button" id="outlook-cal-connect-btn" class="btn btn-primary btn-sm">Connect Outlook Calendar</button>
+            <button type="button" id="outlook-cal-disconnect-btn" class="btn btn-secondary btn-sm" style="display:none">Disconnect</button>
+            <span class="text-secondary text-xs">Click <strong>Save Settings</strong> below first, then Connect</span>
+          </div>
+          <div id="outlook-cal-message" class="alert hidden" style="margin-top:0.75rem"></div>
+        </div>
+
+        <div style="margin-top:1rem">
+          <button type="button" id="cal-refresh-btn" class="btn btn-secondary btn-sm" style="display:none">Refresh Now</button>
+        </div>
+
+        <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+          <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.4rem">Trip distance accuracy</div>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 0.75rem">
+            Without a key, trip destinations are geocoded via OpenStreetMap and distances are straight-line
+            ("as the crow flies") - this can be significantly shorter than the real driving distance, which
+            affects the energy planning for that trip. Add a Google Maps API key to use real driving distances
+            instead (Routes API + Geocoding API must be enabled on your Google Cloud project - note this is the
+            newer "Routes API", not the older "Distance Matrix API", which Google now rejects for new API keys).
+          </p>
+          <div class="form-group" style="max-width:420px">
+            <label for="setting_google_maps_api_key">Google Maps API Key</label>
+            <input type="password" id="setting_google_maps_api_key" placeholder="AIza…" autocomplete="off" spellcheck="false">
+            <span class="text-secondary text-xs mt-1">Get a key at <a href="https://console.cloud.google.com/google/maps-apis/credentials" target="_blank" style="color:var(--accent-solar)">console.cloud.google.com/google/maps-apis/credentials</a></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TeslaMate Integration -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">TeslaMate Integration</div>
+          <span id="teslamate-status-badge" style="font-size:0.8rem;color:var(--text-secondary)">Not configured</span>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Connect to your TeslaMate Postgres database (read-only) to show personalised efficiency, battery health, and arrival SoC on the dashboard.
+          Find the connection details in your TeslaMate <code>docker-compose.yml</code> - the default credentials are usually <code>teslamate / secret</code>.
+        </p>
+        <div class="form-group">
+          <label for="setting_teslamate_database_url">Connection URL</label>
+          <input type="text" id="setting_teslamate_database_url"
+            placeholder="postgresql://teslamate:secret@192.168.1.x:5432/teslamate"
+            autocomplete="off" spellcheck="false"
+            style="font-family:'JetBrains Mono',monospace;font-size:0.82rem">
+          <span class="text-secondary text-xs mt-1">Full Postgres connection URL - password goes inline, e.g. postgresql://teslamate:<strong>yourpassword</strong>@192.168.1.50:5432/teslamate</span>
+        </div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+          <button type="button" id="teslamate-test-btn" class="btn btn-secondary btn-sm">Test Connection</button>
+          <button type="button" id="teslamate-sync-btn" class="btn btn-secondary btn-sm">Sync Sessions</button>
+        </div>
+        <div id="teslamate-message" class="alert hidden" style="margin-top:0.75rem"></div>
+      </div>
+
+      <!-- Fleet Telemetry (Advanced) -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Fleet Telemetry (Advanced)</div>
+          <span id="telemetry-status-badge" style="font-size:0.8rem;color:var(--text-secondary)">Not configured</span>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Optional. Without this, WattSnatch polls the Tesla REST API as a fallback every ~2 minutes,
+          which works fine for solar diversion. Fleet Telemetry gives real-time (sub-second) car data instead,
+          but requires running your own public telemetry server first - see <code>TELEMETRY.md</code> in the repo
+          for the full setup guide before filling this in.
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_fleet_telemetry_hostname">Telemetry server hostname</label>
+            <input type="text" id="setting_fleet_telemetry_hostname"
+              placeholder="telemetry.yourdomain.com" autocomplete="off" spellcheck="false">
+            <span class="text-secondary text-xs mt-1">The public hostname your fleet-telemetry server is reachable at, on port 443</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_fleet_telemetry_port">Port</label>
+            <input type="text" id="setting_fleet_telemetry_port" placeholder="443">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="setting_fleet_telemetry_ca_cert">CA certificate <span style="font-weight:400;color:var(--text-secondary)">(optional)</span></label>
+          <textarea id="setting_fleet_telemetry_ca_cert" rows="3"
+            placeholder="Leave blank to use the Let's Encrypt E7 intermediate (default). Paste your CA's intermediate cert here if you're not using Let's Encrypt."
+            style="font-family:'JetBrains Mono',monospace;font-size:0.75rem"></textarea>
+        </div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+          <button type="button" id="telemetry-send-btn" class="btn btn-secondary btn-sm">Send Config to Tesla</button>
+        </div>
+        <div id="telemetry-message" class="alert hidden" style="margin-top:0.75rem"></div>
+      </div>
+
+      <!-- AI Briefing -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">AI Energy Briefing</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          The AI briefing on the dashboard is generated at 6:30 am and 9 pm. Uses OpenRouter (free tier) by default - add your key below.
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_openrouter_api_key">OpenRouter API Key</label>
+            <input type="password" id="setting_openrouter_api_key" placeholder="sk-or-…">
+            <span class="text-secondary text-xs mt-1">Free tier available at <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--accent-solar)">openrouter.ai/keys</a></span>
+          </div>
+          <div class="form-group">
+            <label for="setting_openrouter_model">Model <span style="font-weight:400;color:var(--text-secondary)">(optional)</span></label>
+            <input type="text" id="setting_openrouter_model" placeholder="openrouter/free">
+            <span class="text-secondary text-xs mt-1">Leave blank to use the default free model</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bill Analysis (AI) -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Bill Analysis (AI)</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Forward your electricity bills to <strong style="color:var(--text-primary)" id="bill-email-intro">bills@yourdomain.com</strong> - they'll be automatically processed within the hour.
+          Bills are analysed using Google Gemini to extract usage, charges, and solar export data.
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_gemini_api_key">Google Gemini API Key</label>
+            <input type="password" id="setting_gemini_api_key" placeholder="AIza…">
+            <span class="text-secondary text-xs mt-1">Get a key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent-solar)">aistudio.google.com/apikey</a></span>
+          </div>
+          <div class="form-group">
+            <label for="setting_gemini_model">Gemini Model</label>
+            <input type="text" id="setting_gemini_model" placeholder="gemini-2.0-flash">
+          </div>
+          <div class="form-group">
+            <label for="setting_cf_worker_url">Email Worker URL</label>
+            <input type="text" id="setting_cf_worker_url" placeholder="https://…workers.dev">
+          </div>
+          <div class="form-group">
+            <label for="setting_cf_worker_secret">Worker Shared Secret</label>
+            <input type="password" id="setting_cf_worker_secret" placeholder="secret">
+          </div>
+          <div class="form-group">
+            <label for="setting_bill_email_local">Bill Email Local Part</label>
+            <input type="text" id="setting_bill_email_local" placeholder="bills">
+          </div>
+          <div class="form-group">
+            <label for="setting_bill_email_domain">Bill Email Domain</label>
+            <input type="text" id="setting_bill_email_domain" placeholder="yourdomain.com">
+            <span class="text-secondary text-xs mt-1" id="bill-email-preview">bills@yourdomain.com</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gateway -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Enphase Gateway</div>
+          <button type="button" id="regen-enphase-btn" class="btn btn-secondary btn-sm">Re-generate Token</button>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_gateway_ip">Gateway IP / Hostname</label>
+            <input type="text" id="setting_gateway_ip" placeholder="192.168.1.x or envoy.local">
+          </div>
+          <div class="form-group">
+            <label for="setting_enphase_serial">Gateway Serial</label>
+            <input type="text" id="setting_enphase_serial" placeholder="123456789012">
+          </div>
+          <div class="form-group">
+            <label for="setting_enphase_email">Enlighten Account Email</label>
+            <input type="email" id="setting_enphase_email" placeholder="you@example.com">
+          </div>
+        </div>
+      </div>
+
+      <!-- Tesla -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Tesla Fleet API</div>
+          <button type="button" id="reauth-tesla-btn" class="btn btn-secondary btn-sm">Re-authenticate Tesla</button>
+        </div>
+
+        <div style="margin-bottom:0.75rem;font-size:0.875rem;color:var(--text-secondary)">
+          Connected vehicle: <span id="tesla-vin-display" class="text-primary">-</span>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_tesla_client_id">Client ID</label>
+            <input type="text" id="setting_tesla_client_id" placeholder="Tesla app client ID">
+          </div>
+          <div class="form-group">
+            <label for="setting_tesla_redirect_uri">Redirect URI</label>
+            <input type="url" id="setting_tesla_redirect_uri" placeholder="https://yourapp.example.com/auth/tesla/callback">
+          </div>
+          <div class="form-group">
+            <label for="setting_tesla_vin">Vehicle VIN</label>
+            <input type="text" id="setting_tesla_vin" placeholder="5YJ3E1EA…">
+          </div>
+        </div>
+      </div>
+
+      <!-- Vehicle Command Backend (Fleet API vs BLE) -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Vehicle Command Backend</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Command backend controls where charge start/stop/amps/limit commands are sent; vehicle state source controls
+          where battery/charging status data comes from - they can be set independently, or both switched to Bluetooth LE together.
+          <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" style="color:var(--accent-solar)">TeslaBleHttpProxy</a>
+          talks to the car directly over Bluetooth LE - no Tesla cloud round-trip - but only works while the car is within
+          BLE range (a few metres), so it's meant for home charging, not away-from-home control.
+        </p>
+        <div class="alert alert-warn" style="font-size:0.8rem;margin:0 0 1rem">
+          <strong>Not practically usable on macOS.</strong> TeslaBleHttpProxy needs macOS's CoreBluetooth framework, which
+          refuses unsigned/ad-hoc-signed code (a paid Apple Developer ID certificate is required) - it fails as a silent
+          crash, not a permission prompt. Run it on a Linux machine instead (a Raspberry Pi near the car works well) and
+          point the URL below at that machine - it doesn't need to be the same machine WattSnatch runs on.
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_tesla_command_backend">Command backend</label>
+            <select id="setting_tesla_command_backend">
+              <option value="fleet">Fleet API (default)</option>
+              <option value="ble">Bluetooth LE proxy</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="setting_tesla_state_source">Vehicle state source</label>
+            <select id="setting_tesla_state_source">
+              <option value="telemetry">Fleet Telemetry (default)</option>
+              <option value="ble">Bluetooth LE proxy</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="setting_tesla_ble_proxy_url">BLE Proxy URL</label>
+            <input type="url" id="setting_tesla_ble_proxy_url" placeholder="e.g. http://192.168.1.50:8080 (a Linux machine on your LAN)">
+          </div>
+        </div>
+        <p style="font-size:0.8rem;color:var(--text-secondary);margin:0.5rem 0 0">
+          Set <strong style="color:var(--text-primary)">both</strong> to Bluetooth LE for a fully cloud-free setup - no Fleet Telemetry, no Fleet API,
+          no Tesla token needed. In BLE state mode the car's presence is detected over Bluetooth (in range = at home),
+          so it replaces GPS geofencing too. Reading state over Bluetooth takes a few seconds and is polled about every 30s,
+          so it reacts a little slower than Fleet Telemetry's live push.
+        </p>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.5rem">
+          <button type="button" id="ble-test-btn" class="btn btn-secondary btn-sm">Test Connection</button>
+          <span id="ble-test-result" style="font-size:0.82rem;color:var(--text-secondary)"></span>
+        </div>
+        <span class="text-secondary text-xs mt-1" style="display:block;margin-top:0.5rem">
+          Checks that the proxy is reachable at that URL. It does not send any command to your car.
+          Only Bluetooth range and the paired key determine whether commands actually reach the vehicle.
+        </span>
+      </div>
+
+      <!-- Home location (geofencing) -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Home Location</div>
+          <button type="button" id="use-car-location-btn" class="btn btn-secondary btn-sm">Use car's current location</button>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          When set, solar charging only runs while the car is within this radius of home. Prevents the app from restricting charge rates at Superchargers or public chargers.
+          <br><strong style="color:var(--text-primary)">Southern Hemisphere:</strong> latitude must be negative (e.g. <code>-27.34</code>, not <code>27.34</code>).
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_home_latitude">Latitude</label>
+            <input type="number" id="setting_home_latitude" step="any" placeholder="-33.8688">
+          </div>
+          <div class="form-group">
+            <label for="setting_home_longitude">Longitude</label>
+            <input type="number" id="setting_home_longitude" step="any" placeholder="151.2093">
+          </div>
+          <div class="form-group">
+            <label for="setting_home_radius_km">Radius (km)</label>
+            <input type="number" id="setting_home_radius_km" step="0.1" min="0.1" max="10" placeholder="0.5">
+            <span class="text-secondary text-xs mt-1">How close to home counts as "at home"</span>
+          </div>
+        </div>
+        <div id="location-message" class="alert hidden mt-1"></div>
+
+        <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+          <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.4rem">Home Assistant link (car home/away sensor)</div>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 0.75rem">
+            Lets a Home Assistant <code>rest</code> sensor read this car's home/away state, using the geofence above.
+            Generate a key below, then add a REST sensor in HA pointing at
+            <code style="font-size:0.78rem">http://&lt;this-host&gt;:3001/api/car/location?key=&lt;your-key&gt;</code>.
+          </p>
+          <div style="display:flex;align-items:flex-end;gap:0.75rem;flex-wrap:wrap">
+            <div class="form-group" style="margin:0;flex:1;min-width:200px">
+              <label for="setting_ha_link_key">Link Key</label>
+              <input type="text" id="setting_ha_link_key" placeholder="click Generate, or paste your own" autocomplete="off" spellcheck="false" style="font-family:'JetBrains Mono',monospace;font-size:0.82rem">
+            </div>
+            <button type="button" id="ha-link-key-generate-btn" class="btn btn-secondary btn-sm">Generate</button>
+          </div>
+          <span class="text-secondary text-xs mt-1" style="display:block;margin-top:0.3rem">Saved with the Save Settings button below. Changing this invalidates any existing HA sensor using the old key.</span>
+        </div>
+      </div>
+
+      <!-- Home Assistant / MQTT -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Home Assistant / MQTT</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1.25rem">
+          Two independent, optional integrations over MQTT: turn on either, both, or neither.
+          <strong style="color:var(--text-primary)">Publishing</strong> sends WattSnatch's own sensors to Home Assistant.
+          <strong style="color:var(--text-primary)">Bring your own data</strong> does the reverse, feeding an existing
+          inverter's data (e.g. already showing up in Home Assistant) into WattSnatch instead of a direct gateway connection.
+        </p>
+
+        <!-- Output: WattSnatch -> HA -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin-bottom:0.4rem">
+          <div style="font-size:0.85rem;font-weight:600">Publish to Home Assistant</div>
+          <span id="mqtt-out-status" class="text-secondary text-xs">Not configured</span>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 0.75rem">
+          Publishes solar/grid/EV power and a full car device (battery, location, charging state) to your MQTT broker,
+          using Home Assistant's MQTT Discovery convention, so entities appear automatically in HA. The only thing needed
+          on the HA side is its own <strong>Settings → Devices &amp; Services → MQTT</strong> integration, already
+          connected to this same broker.
+        </p>
+        <div class="form-group">
+          <label for="setting_mqtt_broker_url">Broker URL</label>
+          <input type="text" id="setting_mqtt_broker_url" placeholder="mqtt://192.168.1.50:1883">
+          <span class="text-secondary text-xs mt-1">Usually the same broker your Home Assistant already uses. Use <code style="font-family:monospace">mqtts://</code> for TLS.</span>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_mqtt_username">Username <span class="text-secondary">(optional)</span></label>
+            <input type="text" id="setting_mqtt_username" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="setting_mqtt_password">Password <span class="text-secondary">(optional)</span></label>
+            <input type="password" id="setting_mqtt_password" autocomplete="new-password" placeholder="leave blank to keep unchanged">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.25rem">
+          <button type="button" id="mqtt-out-test-btn" class="btn btn-secondary btn-sm">Test Connection</button>
+          <span id="mqtt-out-test-result" class="text-xs"></span>
+        </div>
+
+        <div style="margin:1.5rem 0;border-top:1px solid var(--border)"></div>
+
+        <!-- Input: HA/inverter -> WattSnatch -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin-bottom:0.4rem">
+          <div style="font-size:0.85rem;font-weight:600">Bring your own inverter data</div>
+          <span id="mqtt-in-status" class="text-secondary text-xs">Not configured</span>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 0.75rem">
+          For any inverter WattSnatch doesn't talk to directly: map two of your existing sensors (solar production, and
+          either grid or house consumption) as plain-number MQTT topics, and WattSnatch derives the rest itself.
+          If that data already shows up as sensors in Home Assistant, the easiest way onto MQTT is HA's built-in
+          <strong>MQTT Statestream</strong> integration. Add this to <code style="font-family:monospace">configuration.yaml</code>:
+        </p>
+        <pre style="background:rgba(0,0,0,0.25);border-radius:6px;padding:0.75rem;font-size:0.76rem;overflow-x:auto;margin:0 0 0.75rem;color:var(--text-primary)"><code>mqtt_statestream:
+  base_topic: homeassistant/statestream
+  include:
+    entities:
+      - sensor.your_solar_power
+      - sensor.your_grid_power</code></pre>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          After restarting Home Assistant, those sensors publish live to e.g.
+          <code style="font-size:0.78rem">homeassistant/statestream/sensor/your_solar_power/state</code>, use that as a
+          topic below. Values like <code>"1234 W"</code> are fine too, the unit suffix is stripped automatically.
+        </p>
+
+        <div class="form-group">
+          <label for="setting_inverter_brand">Data source</label>
+          <select id="setting_inverter_brand"></select>
+          <span class="text-secondary text-xs mt-1">Set this to <strong>MQTT</strong> to make WattSnatch use the settings below as its live inverter data, instead of a direct gateway connection.</span>
+        </div>
+
+        <div class="form-group">
+          <label for="setting_mqtt_in_broker_url">Broker URL</label>
+          <input type="text" id="setting_mqtt_in_broker_url" placeholder="mqtt://192.168.1.50:1883">
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_mqtt_in_username">Username <span class="text-secondary">(optional)</span></label>
+            <input type="text" id="setting_mqtt_in_username" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="setting_mqtt_in_password">Password <span class="text-secondary">(optional)</span></label>
+            <input type="password" id="setting_mqtt_in_password" autocomplete="new-password" placeholder="leave blank to keep unchanged">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="setting_mqtt_in_topic_solar">Solar production topic</label>
+          <input type="text" id="setting_mqtt_in_topic_solar" placeholder="homeassistant/statestream/sensor/your_solar_power/state">
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_mqtt_in_second_type">Second signal</label>
+            <select id="setting_mqtt_in_second_type">
+              <option value="grid">Grid (net import/export)</option>
+              <option value="consumption">House consumption</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="setting_mqtt_in_topic_second">Second topic</label>
+            <input type="text" id="setting_mqtt_in_topic_second" placeholder="homeassistant/statestream/sensor/your_grid_power/state">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_mqtt_in_grid_sign">Grid sign <span class="text-secondary">(if second = Grid)</span></label>
+            <select id="setting_mqtt_in_grid_sign">
+              <option value="import_positive">Positive = importing</option>
+              <option value="export_positive">Positive = exporting (feed-in)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="setting_mqtt_in_scale">Units</label>
+            <select id="setting_mqtt_in_scale">
+              <option value="1">Watts (W)</option>
+              <option value="1000">Kilowatts (kW)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="setting_mqtt_in_stale_seconds">Stale timeout (seconds)</label>
+          <input type="number" id="setting_mqtt_in_stale_seconds" value="60" min="5">
+          <span class="text-secondary text-xs mt-1">If no fresh reading arrives within this window, WattSnatch treats the feed as down and pauses charge control. Set it comfortably above your source's publish interval.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.25rem">
+          <button type="button" id="mqtt-in-test-btn" class="btn btn-secondary btn-sm">Test Connection</button>
+          <span id="mqtt-in-test-result" class="text-xs"></span>
+        </div>
+      </div>
+
+      <!-- Battery (Sigenergy / Sungrow / Tesla Powerwall) -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Battery</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Connect a home battery to see its charge state alongside solar and the EV, and choose
+          whether it should charge first (its own default behavior) or be actively held back so
+          solar goes to the EV instead. Support for all three brands below is unverified against
+          real hardware - built from public protocol documentation, please open an issue if
+          yours behaves differently.
+        </p>
+        <div class="form-group">
+          <label for="setting_battery_brand">Battery brand</label>
+          <select id="setting_battery_brand"></select>
+        </div>
+
+        <div id="battery-fields-none" class="battery-brand-fields"></div>
+
+        <div id="battery-fields-sigenergy" class="battery-brand-fields" style="display:none">
+          <p style="font-size:0.8rem;color:var(--text-secondary);margin:0 0 0.75rem">
+            Requires Modbus TCP enabled in the Sigenergy configuration app with installer rights
+            (not available in the mySigen customer app). Read-only - Sigenergy exposes no
+            charge-power control register, so <strong>EV first priority has no effect</strong>
+            for this brand.
+          </p>
+          <div class="grid-2">
+            <div class="form-group"><label for="setting_sigenergy_host">Host / IP</label><input type="text" id="setting_sigenergy_host" placeholder="192.168.1.60"></div>
+            <div class="form-group"><label for="setting_sigenergy_port">Port</label><input type="number" id="setting_sigenergy_port" value="502"></div>
+          </div>
+          <div class="form-group"><label for="setting_sigenergy_unit_id">Modbus unit ID</label><input type="number" id="setting_sigenergy_unit_id" value="1"></div>
+        </div>
+
+        <div id="battery-fields-sungrow" class="battery-brand-fields" style="display:none">
+          <p style="font-size:0.8rem;color:var(--text-secondary);margin:0 0 0.75rem">
+            Requires the WiNet-S dongle (WiFi or LAN) on current firmware, over Modbus TCP. This
+            is the only brand where <strong>EV first priority actively works</strong> - it
+            commands the inverter to pause battery charging while the EV wants power.
+          </p>
+          <div class="grid-2">
+            <div class="form-group"><label for="setting_sungrow_host">Host / IP</label><input type="text" id="setting_sungrow_host" placeholder="192.168.1.61"></div>
+            <div class="form-group"><label for="setting_sungrow_port">Port</label><input type="number" id="setting_sungrow_port" value="502"></div>
+          </div>
+          <div class="form-group"><label for="setting_sungrow_unit_id">Modbus unit ID</label><input type="number" id="setting_sungrow_unit_id" value="1"></div>
+          <div class="grid-2">
+            <div class="form-group"><label for="setting_sungrow_max_charge_power_w">Max charge power (W)</label><input type="number" id="setting_sungrow_max_charge_power_w" placeholder="e.g. 5000"></div>
+            <div class="form-group"><label for="setting_sungrow_max_discharge_power_w">Max discharge power (W)</label><input type="number" id="setting_sungrow_max_discharge_power_w" placeholder="e.g. 5000"></div>
+          </div>
+          <span class="text-secondary text-xs mt-1">Required for EV first priority - these are the values WattSnatch restores when it hands control back to the inverter's own self-consumption mode. Use your inverter's rated max charge/discharge power.</span>
+        </div>
+
+        <div id="battery-fields-tesla_powerwall" class="battery-brand-fields" style="display:none">
+          <p style="font-size:0.8rem;color:var(--text-secondary);margin:0 0 0.75rem">
+            Connects to your Powerwall Gateway directly on your local network - no Tesla account
+            or internet connection needed for reading. Read-only - the local Gateway API exposes
+            no charge-power control, so <strong>EV first priority has no effect</strong> for this
+            brand.
+          </p>
+          <div class="form-group"><label for="setting_powerwall_host">Gateway host / IP</label><input type="text" id="setting_powerwall_host" placeholder="192.168.1.62"></div>
+          <div class="grid-2">
+            <div class="form-group"><label for="setting_powerwall_email">Gateway email</label><input type="text" id="setting_powerwall_email" autocomplete="off"></div>
+            <div class="form-group"><label for="setting_powerwall_password">Gateway password</label><input type="password" id="setting_powerwall_password" autocomplete="new-password" placeholder="leave blank to keep unchanged"></div>
+          </div>
+          <span class="text-secondary text-xs mt-1">The same "customer" login used for the Powerwall local web/app login - not your Tesla Account password.</span>
+        </div>
+
+        <div class="form-group" id="battery-priority-group" style="display:none">
+          <label for="setting_battery_priority">Priority when both the EV and battery want solar</label>
+          <select id="setting_battery_priority">
+            <option value="battery_first">Battery first (default - matches the battery's own behavior)</option>
+            <option value="ev_first">EV first</option>
+          </select>
+          <span id="battery-priority-caveat" class="text-xs mt-1" style="display:none;color:#fc814a">
+            The selected brand has no charge-power control - EV first has no effect and the battery will keep charging on its own schedule.
+          </span>
+        </div>
+
+        <div id="battery-test-row" style="display:none;align-items:center;gap:0.75rem;margin-top:0.25rem">
+          <button type="button" id="battery-test-btn" class="btn btn-secondary btn-sm">Test Connection</button>
+          <span id="battery-test-result" class="text-xs"></span>
+        </div>
+      </div>
+
+      <!-- Scheduled Charging -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Scheduled Charging</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Charge at maximum amps during defined time windows - useful for cheap overnight off-peak rates.
+          TOU peak periods take priority and will block scheduled charging.
+        </p>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
+          <label class="toggle-switch" style="flex-shrink:0">
+            <input type="checkbox" id="schedule_enabled">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:0.85rem;font-weight:600">Enable Scheduled Charging</span>
+        </div>
+        <div id="schedule-windows-list" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem"></div>
+        <button type="button" id="add-schedule-window" class="btn btn-secondary btn-sm">+ Add Window</button>
+      </div>
+
+      <!-- Time-of-Use / Peak Tariff -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Time-of-Use (Peak Tariff)</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Define your peak tariff periods. During these windows, grid charging is blocked and only solar excess is used.
+          Solar charging proceeds normally - this only prevents drawing from the grid.
+        </p>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
+          <label class="toggle-switch" style="flex-shrink:0">
+            <input type="checkbox" id="tou_enabled">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:0.85rem;font-weight:600">Enable TOU / Peak Blocking</span>
+        </div>
+        <div id="tou-windows-list" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem"></div>
+        <button type="button" id="add-tou-window" class="btn btn-secondary btn-sm">+ Add Peak Window</button>
+      </div>
+
+      <!-- Solcast Solar Forecasting -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Solcast Solar Forecasting</div>
+          <span id="solcast-status-badge" style="font-size:0.8rem;color:var(--text-secondary)">Not configured</span>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Get 48-hour ahead solar forecasts to optimize charging schedules and manage grid imports.
+          Get a free API key at <a href="https://solcast.com.au" target="_blank" style="color:var(--accent-solar)">solcast.com.au</a>.
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_solcast_api_key">Solcast API Key</label>
+            <input type="text" id="setting_solcast_api_key" placeholder="abcd1234-5678-…" autocomplete="off" spellcheck="false">
+            <span class="text-secondary text-xs mt-1">From Solcast account settings</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_solcast_resource_id">Resource ID</label>
+            <input type="text" id="setting_solcast_resource_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            <span class="text-secondary text-xs mt-1">From your Solcast site configuration</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notifications & Alerts -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Notifications &amp; Alerts</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Configure push notifications for charging alerts, solar milestones, and system faults.
+          Uses <a href="https://ntfy.sh" target="_blank" style="color:var(--accent-solar)">ntfy.sh</a> for delivery.
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_ntfy_base_url">ntfy.sh Base URL</label>
+            <input type="url" id="setting_ntfy_base_url" placeholder="http://localhost:8080">
+            <span class="text-secondary text-xs mt-1">Self-hosted or https://ntfy.sh</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_ntfy_topic">Topic Name</label>
+            <input type="text" id="setting_ntfy_topic" placeholder="wattsnatch">
+            <span class="text-secondary text-xs mt-1">Unique identifier for your notifications</span>
+          </div>
+        </div>
+        <div style="margin-top:0.75rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+          <button type="button" id="notif-brief-btn" class="btn btn-secondary btn-sm">Send Morning Brief</button>
+          <button type="button" id="notif-evening-btn" class="btn btn-secondary btn-sm">Send Evening Summary</button>
+          <button type="button" id="notif-test-btn" class="btn btn-secondary btn-sm">Test Ping</button>
+          <span id="notif-test-result" style="font-size:0.8rem;color:var(--text-secondary)"></span>
+        </div>
+      </div>
+
+      <!-- Panel Nicknames -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Panel Nicknames</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Give each panel a meaningful name (e.g. "North roof left", "Garage"). Shown on the dashboard panel health grid.
+        </p>
+        <div id="panel-nicknames-list" style="display:flex;flex-direction:column;gap:0.6rem">
+          <span style="font-size:0.8rem;color:var(--text-secondary)">Loading panels…</span>
+        </div>
+        <div style="margin-top:1rem;display:flex;align-items:center;gap:0.75rem">
+          <button type="button" id="panel-nicknames-save-btn" class="btn btn-secondary btn-sm">Save Nicknames</button>
+          <span id="panel-nicknames-result" style="font-size:0.8rem;color:var(--text-secondary)"></span>
+        </div>
+      </div>
+
+      <!-- System Configuration -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">System Configuration</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Advanced configuration constants. These affect charging behavior and financial calculations.
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_tesla_battery_kwh">Tesla Battery Capacity (kWh)</label>
+            <input type="number" id="setting_tesla_battery_kwh" min="10" max="200" step="0.1" placeholder="82">
+            <span class="text-secondary text-xs mt-1">Model Y Long Range: 82 kWh usable</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_soc_floor_pct">Minimum SoC Floor (%)</label>
+            <input type="number" id="setting_soc_floor_pct" min="5" max="50" step="1" placeholder="20">
+            <span class="text-secondary text-xs mt-1">Never dispatch below this. Default: 20%</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_solar_install_cost_aud">Solar System Install Cost ($)</label>
+            <input type="number" id="setting_solar_install_cost_aud" min="0" step="100" placeholder="0">
+            <span class="text-secondary text-xs mt-1">Optional - enables payback progress indicator</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-save-row" style="display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;gap:0.75rem;flex-wrap:wrap">
+        <button type="button" id="reset-btn" class="btn btn-danger btn-sm">Reset all &amp; re-run setup</button>
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+      </div>
+
+    </form>
+
+    <!-- ─── Security ─────────────────────────────────────────────── -->
+    <div class="card mb-2" style="margin-top:1.5rem" id="security-card">
+      <div class="card-header">
+        <div class="card-label">Security - Dashboard Password</div>
+      </div>
+      <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+        Protects access when the dashboard is exposed via the internet. Requires at least 8 characters.
+      </p>
+      <div id="security-msg" style="display:none;margin-bottom:0.75rem;padding:0.55rem 0.85rem;border-radius:var(--radius-md);font-size:0.85rem"></div>
+      <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:340px">
+        <input type="password" id="sec-current" placeholder="Current password (if set)" autocomplete="current-password"
+          style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-primary);font-size:0.9rem;padding:0.55rem 0.75rem">
+        <input type="password" id="sec-new" placeholder="New password (min 8 chars)" autocomplete="new-password"
+          style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-primary);font-size:0.9rem;padding:0.55rem 0.75rem">
+        <input type="password" id="sec-confirm" placeholder="Confirm new password" autocomplete="new-password"
+          style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-primary);font-size:0.9rem;padding:0.55rem 0.75rem">
+        <button type="button" id="sec-save-btn" class="btn btn-primary btn-sm" style="align-self:flex-start;margin-top:0.25rem">
+          Set Password
+        </button>
+      </div>
+    </div>
+
+    <!-- ─── Backup & Restore ────────────────────────────────────── -->
+    <div class="card mb-2" style="margin-top:1.5rem" id="backup-card">
+      <div class="card-header">
+        <div class="card-label">Backup &amp; Restore</div>
+      </div>
+      <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+        Downloads a zip of your database and local keys/certs to wherever your browser saves downloads (you'll get the normal "Save As" prompt if your browser is set to ask). Do this before every update - a bad update is a 10-second recovery if you have a recent backup, and a bigger problem if you don't.
+      </p>
+      <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 1rem">
+        The backup does <strong>not</strong> include credentials stored in your OS's secure keychain (myenergi/MELCloud/iCloud) - those stay on this machine and aren't affected by restoring a backup here. Restoring on a different machine will need those re-entered.
+      </p>
+      <a href="/api/backup/download" id="backup-download-plain" class="btn btn-primary btn-sm" download style="display:inline-block">Download Backup</a>
+
+      <div style="display:flex;align-items:flex-end;gap:0.75rem;flex-wrap:wrap;margin-top:0.75rem">
+        <div class="form-group" style="margin:0;flex:1;min-width:160px">
+          <label for="backup-password">Optional: encrypt with a password</label>
+          <input type="password" id="backup-password" placeholder="Leave blank for an unencrypted backup" autocomplete="new-password">
+        </div>
+        <button type="button" id="backup-download-encrypted" class="btn btn-secondary btn-sm">Download Encrypted</button>
+      </div>
+      <p style="font-size:0.75rem;color:var(--text-secondary);margin:0.4rem 0 0">
+        An encrypted backup is safer to store off this machine (cloud sync, USB drive, email) since it includes your Tesla command key. <strong>There is no password recovery for an encrypted backup</strong> - if you lose the password, the backup is unreadable.
+      </p>
+      <div id="backup-encrypted-status" style="font-size:0.78rem;margin:0.4rem 0 0"></div>
+
+      <p style="font-size:0.78rem;color:var(--text-secondary);margin:0.75rem 0 0">
+        To restore a backup or roll back after an update, run <code>npm run restore &lt;path-to-backup.zip&gt;</code> from the WattSnatch folder (add <code>.enc</code> to the filename and it'll prompt for the password) - see the <a href="https://wattsnatch.app/docs.html#updating" target="_blank" rel="noopener">Updating &amp; rollback docs</a>.
+      </p>
+
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+        <label class="toggle-switch" style="flex-shrink:0">
+          <input type="checkbox" id="auto_backup_enabled">
+          <span class="toggle-slider"></span>
+        </label>
+        <span style="font-size:0.85rem;font-weight:600">Automatic daily backups</span>
+      </div>
+      <p style="font-size:0.78rem;color:var(--text-secondary);margin:0.4rem 0 0.6rem">
+        Runs itself once a day - no button-pressing or cron jobs needed. Kept for a week, then thinned to one per week for about three months, then deleted. Stored in <code>~/.solarcharge/backups/auto/</code>; restore any of them the same way as a downloaded one.
+      </p>
+      <div id="auto-backup-status" style="font-size:0.78rem;color:var(--text-secondary)">-</div>
+
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+        <label class="toggle-switch" style="flex-shrink:0">
+          <input type="checkbox" id="check_for_updates">
+          <span class="toggle-slider"></span>
+        </label>
+        <span style="font-size:0.85rem;font-weight:600">Check for updates</span>
+      </div>
+      <p style="font-size:0.78rem;color:var(--text-secondary);margin:0.4rem 0 0">
+        Pings GitHub's public releases API (no personal data sent) roughly twice a day, and shows a badge in the top bar if a newer version exists.
+      </p>
+    </div>
+
+    <!-- ─── Import Data ─────────────────────────────────────────── -->
+    <div class="card mb-2" style="margin-top:1.5rem">
+      <div class="card-header">
+        <div class="card-label">Import Historical Data</div>
+      </div>
+
+      <!-- Eddi CSV import -->
+      <div style="margin-bottom:1.25rem">
+        <div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem">myenergi Eddi - hourly report CSV</div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 0.875rem">
+          Export a report from the myenergi app (Device → Export) and import it here to backfill hot water history before WattSnatch was running.
+        </p>
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+          <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
+            Choose CSV file
+            <input type="file" id="eddi-csv-input" accept=".csv,text/csv" style="display:none">
+          </label>
+          <span id="eddi-csv-filename" style="font-size:0.82rem;color:var(--text-secondary)">No file chosen</span>
+          <button type="button" id="eddi-csv-import-btn" class="btn btn-primary btn-sm" disabled>Import</button>
+        </div>
+        <div id="eddi-csv-result" class="alert hidden" style="margin-top:0.75rem"></div>
+      </div>
+    </div>
+
+    <style>
+      .window-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: var(--bg-base);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 0.5rem 0.75rem;
+        flex-wrap: wrap;
+      }
+      .window-days { display: flex; gap: 3px; flex-wrap: wrap; }
+      .rates-table-wrap { overflow-x: auto; }
+      .rate-add-row { display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap; }
+      .day-btn {
+        width: 26px; height: 26px; border-radius: 50%;
+        border: 1px solid var(--border);
+        background: none; color: var(--text-secondary);
+        font-size: 0.65rem; font-weight: 600; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .day-btn.active { background: var(--accent-solar); border-color: var(--accent-solar); color: #000; }
+      .window-time { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-secondary); }
+      .window-time input[type="time"] {
+        background: var(--bg-card); border: 1px solid var(--border);
+        border-radius: var(--radius-sm); color: var(--text-primary);
+        padding: 0.2rem 0.4rem; font-size: 0.8rem;
+      }
+      .window-remove {
+        margin-left: auto; background: none; border: none;
+        color: var(--text-secondary); cursor: pointer; font-size: 1rem; line-height: 1;
+        padding: 0 0.25rem;
+      }
+      .window-remove:hover { color: #fc814a; }
+
+      /* ─── Settings mobile ─── */
+      @media (max-width: 600px) {
+        .card { padding: 1rem; }
+        .card-header { margin-bottom: 0.75rem; }
+        /* Ensure save button is full-width on phone */
+        .settings-save-row { flex-direction: column; }
+        .settings-save-row .btn { width: 100%; justify-content: center; }
+        /* Solcast/myenergi input rows */
+        .grid-2 { gap: 0.75rem; }
+        .form-group { margin-bottom: 0.75rem; }
+        /* Rate/tariff/TOU "add new" rows: stack instead of squeezing three
+           items (two inputs + a button) onto one line that doesn't fit. */
+        .rate-add-row { flex-direction: column; align-items: stretch; }
+        .rate-add-row .form-group { min-width: 0 !important; }
+        .rate-add-row .btn { width: 100%; justify-content: center; }
+        /* TOU window rows (label + rate + day-picker + time range) also
+           don't fit on one line on a phone - stack them instead of letting
+           the day-picker overflow the viewport. */
+        .window-row { flex-direction: column; align-items: stretch; }
+        .window-row input[type="text"],
+        .window-row input[type="number"] { width: 100% !important; }
+        .window-remove { align-self: flex-end; margin-left: 0; }
+      }
+      @media (max-width: 400px) {
+        .card { padding: 0.875rem; }
+        /* Status badges next to card labels */
+        .card-header { align-items: flex-start; flex-wrap: wrap; gap: 0.35rem; }
+      }
+    </style>
+  </div>
+</main>
+
+<script src="/js/common.js"></script>
+<script src="/js/currency.js"></script>
+<script src="/js/settings.js"></script>
+</body>
+</html>

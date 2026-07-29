@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch - Retailer Comparison</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <style>
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .page-header h1 { margin: 0; font-size: 1.3rem; }
+    .period-btns { display: flex; gap: 0.5rem; }
+    .period-btn {
+      padding: 0.35rem 0.85rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-secondary);
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .period-btn.active, .period-btn:hover {
+      background: var(--accent-solar);
+      color: #000;
+      border-color: var(--accent-solar);
+    }
+
+    /* Summary cards */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .summary-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.9rem 1rem;
+    }
+    .summary-card .label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      margin-bottom: 0.3rem;
+    }
+    .summary-card .value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .summary-card .sub {
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      margin-top: 0.15rem;
+    }
+
+    /* Comparison table */
+    .table-wrap { overflow-x: auto; margin-bottom: 1.5rem; }
+    .comp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .comp-table th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      color: var(--text-secondary);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .comp-table td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .comp-table tr:last-child td { border-bottom: none; }
+    .comp-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .comp-table tr.current-row td { background: rgba(253,196,0,0.06); }
+
+    .mono { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .saving-positive { color: var(--accent-solar); }
+    .saving-negative { color: var(--accent-grid); }
+    .saving-zero     { color: var(--text-secondary); }
+    .rank-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      font-size: 0.72rem;
+      font-weight: 700;
+      background: var(--surface-3);
+      color: var(--text-secondary);
+    }
+    .rank-badge.rank-1 { background: #fdc400; color: #000; }
+    .rank-badge.rank-2 { background: #c0c0c0; color: #000; }
+    .rank-badge.rank-3 { background: #cd7f32; color: #fff; }
+
+    .plan-name { font-weight: 600; }
+    .plan-sub   { font-size: 0.72rem; color: var(--text-secondary); }
+
+    .pill {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 600;
+    }
+    .pill-tou      { background: rgba(119,82,254,0.15); color: #9b7fff; }
+    .pill-flat     { background: rgba(74,222,128,0.1);  color: #4ade80; }
+    .pill-variable { background: rgba(251,146,60,0.15); color: #fb923c; }
+
+    /* TOU breakdown */
+    .tou-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .tou-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      text-align: center;
+    }
+    .tou-card .lbl { font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 0.25rem; }
+    .tou-card .val { font-family: 'JetBrains Mono', monospace; font-size: 1rem; font-weight: 700; }
+    .tou-card .sub { font-size: 0.68rem; color: var(--text-secondary); margin-top: 0.1rem; }
+    .peak-color    { color: #f97316; }
+    .shoulder-color { color: #fdc400; }
+    .offpeak-color  { color: #4ade80; }
+
+    .disclaimer {
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .info-row td { background: rgba(251,146,60,0.05) !important; }
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-secondary);
+    }
+    .loading-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-secondary);
+    }
+    .spinner {
+      display: inline-block;
+      width: 24px; height: 24px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent-solar);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 0.75rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<header class="topbar">
+  <div class="container">
+    <div class="topbar-brand">
+      <svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="border-radius:6px;flex-shrink:0;" data-ws-mark="full"></svg>
+      <span>Watt<span style="color:var(--accent-solar)">Snatch</span></span>
+    </div>
+    <button id="topbar-hamburger" class="topbar-hamburger" aria-label="Menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <rect y="3"  width="20" height="2" rx="1"/>
+        <rect y="9"  width="20" height="2" rx="1"/>
+        <rect y="15" width="20" height="2" rx="1"/>
+      </svg>
+    </button>
+    <nav class="topbar-nav">
+      <a href="/">Dashboard</a>
+      <a href="/data">Data</a>
+      <a href="/drives">Drives</a>
+      <a href="/bills">Bills</a>
+      <a href="/retailer" class="active">Retailers</a>
+      <a href="/logs">Logs</a>
+      <a href="/settings">Settings</a>
+    </nav>
+    <div class="topbar-right"></div>
+  </div>
+</header>
+
+<main class="page-content">
+  <div class="container">
+
+    <div class="page-header">
+      <div>
+        <h1>Retailer Comparison</h1>
+        <p style="color:var(--text-secondary);font-size:0.85rem;margin:0.25rem 0 0">
+          Models your actual consumption against major SE QLD retailers
+        </p>
+      </div>
+      <div class="period-btns">
+        <button class="period-btn" data-days="30">30d</button>
+        <button class="period-btn active" data-days="90">90d</button>
+        <button class="period-btn" data-days="180">6mo</button>
+        <button class="period-btn" data-days="365">1yr</button>
+      </div>
+    </div>
+
+    <div id="live-status-bar" style="display:flex;align-items:center;gap:0.6rem;font-size:0.75rem;color:var(--text-secondary);margin:-0.5rem 0 1rem">
+      <span id="live-status-text">—</span>
+      <button id="refresh-rates-btn" class="btn btn-secondary btn-sm" style="padding:0.15rem 0.6rem;font-size:0.7rem" onclick="refreshLiveRates()">Refresh now</button>
+    </div>
+
+    <div id="loading-state" class="loading-state">
+      <div class="spinner"></div>
+      <div>Loading comparison data…</div>
+    </div>
+
+    <div id="content" style="display:none">
+      <!-- Your current plan -->
+      <div class="card mb-2" id="current-plan-card" style="padding:0.9rem 1.1rem">
+        <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-secondary);margin-bottom:0.5rem">
+          Your current plan
+        </div>
+        <div id="current-plan-detail" style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;line-height:1.6"></div>
+      </div>
+
+      <!-- Summary cards -->
+      <div class="summary-grid" id="summary-grid"></div>
+
+      <!-- TOU breakdown -->
+      <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin:0 0 0.75rem">
+        Usage by time-of-use period
+      </h3>
+      <div class="tou-grid" id="tou-grid"></div>
+
+      <!-- Comparison table -->
+      <h3 style="font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);margin:0 0 0.75rem">
+        Retailer comparison (sorted cheapest first)
+      </h3>
+      <div class="table-wrap">
+        <table class="comp-table" id="comp-table">
+          <thead>
+            <tr>
+              <th style="width:32px">#</th>
+              <th>Retailer / Plan</th>
+              <th>Type</th>
+              <th class="num-col">Usage cost</th>
+              <th class="num-col">Supply</th>
+              <th class="num-col">Export credit</th>
+              <th class="num-col">Period total</th>
+              <th class="num-col">Annualised</th>
+              <th class="num-col">vs. current</th>
+            </tr>
+          </thead>
+          <tbody id="comp-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="disclaimer" id="disclaimer"></div>
+    </div>
+
+    <div id="empty-state" class="empty-state" style="display:none">
+      <div style="font-size:2rem;margin-bottom:0.5rem">📊</div>
+      <div style="font-weight:600;margin-bottom:0.25rem">No data available</div>
+      <div style="font-size:0.85rem">Not enough telemetry data yet for the selected period.</div>
+    </div>
+
+  </div>
+</main>
+
+<script src="/js/common.js"></script>
+<script>
+  let _activeDays = 90;
+  let _data = null;
+
+  async function loadComparison(days) {
+    document.getElementById('loading-state').style.display = 'block';
+    document.getElementById('content').style.display       = 'none';
+    document.getElementById('empty-state').style.display   = 'none';
+
+    try {
+      const res = await fetch(`/api/retailer-comparison?days=${days}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
+      _data = json;
+      renderComparison(json);
+    } catch (err) {
+      document.getElementById('loading-state').style.display = 'none';
+      document.getElementById('empty-state').style.display   = 'block';
+      document.getElementById('empty-state').innerHTML = `
+        <div style="font-size:2rem;margin-bottom:0.5rem">⚠️</div>
+        <div style="font-weight:600;margin-bottom:0.25rem">Error loading data</div>
+        <div style="font-size:0.85rem">${err.message}</div>`;
+    }
+  }
+
+  function fmt(n) {
+    if (n == null) return '-';
+    return '$' + n.toFixed(2);
+  }
+  function fmtSaving(n) {
+    if (n == null) return '-';
+    if (n > 0.005) return `<span class="saving-positive mono">-$${n.toFixed(2)}</span>`;
+    if (n < -0.005) return `<span class="saving-negative mono">+$${Math.abs(n).toFixed(2)}</span>`;
+    return `<span class="saving-zero mono">$0.00</span>`;
+  }
+
+  function renderLiveStatus(m) {
+    const el = document.getElementById('live-status-text');
+    if (m.liveData && m.lastFetchedAt) {
+      const d = new Date(m.lastFetchedAt);
+      el.innerHTML = `🟢 Live plan data (${m.distributor}) &middot; last updated ${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+    } else {
+      el.innerHTML = `⚪ Using fallback estimates &middot; live data not fetched yet`;
+    }
+  }
+
+  async function refreshLiveRates() {
+    const btn = document.getElementById('refresh-rates-btn');
+    const el = document.getElementById('live-status-text');
+    btn.disabled = true;
+    const prevText = el.innerHTML;
+    el.innerHTML = 'Refreshing from energymadeeasy.gov.au&hellip; (can take up to a minute)';
+    try {
+      const res = await fetch('/api/retailer-rates/refresh', { method: 'POST' });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || 'Refresh failed');
+      await loadComparison(_activeDays);
+    } catch (err) {
+      el.innerHTML = `⚠️ Refresh failed: ${err.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function renderCurrentPlan(c) {
+    const el = document.getElementById('current-plan-detail');
+    let usageLine;
+    if (c.mode === 'tou' && c.touWindows && c.touWindows.length) {
+      usageLine = c.touWindows.map(w => `${w.label}: <b>${(w.rateAud*100).toFixed(2)}¢/kWh</b> (${w.startTime}–${w.endTime})`).join('<br>');
+    } else {
+      usageLine = `<b>${(c.rateAud*100).toFixed(2)}¢/kWh</b> (flat)`;
+    }
+    el.innerHTML = `
+      ${usageLine}<br>
+      Supply charge: <b>${(c.supplyDailyAud*100).toFixed(1)}¢/day</b> &middot;
+      Feed-in tariff: <b>${(c.fitAud*100).toFixed(1)}¢/kWh</b>
+    `;
+  }
+
+  function renderComparison(d) {
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('empty-state').style.display   = 'none';
+
+    if (!d.retailers || d.retailers.length === 0 || d.meta.slots === 0) {
+      document.getElementById('empty-state').style.display = 'block';
+      return;
+    }
+
+    document.getElementById('content').style.display = 'block';
+
+    renderLiveStatus(d.meta);
+    renderCurrentPlan(d.current);
+
+    // Summary cards
+    const c = d.current;
+    const m = d.meta;
+    const bestDeal = d.retailers.find(r => r.totalCost != null);
+    const bestSaving = bestDeal ? c.totalCost - bestDeal.totalCost : 0;
+
+    document.getElementById('summary-grid').innerHTML = `
+      <div class="summary-card">
+        <div class="label">Period</div>
+        <div class="value">${m.numDays}d</div>
+        <div class="sub">${m.slots.toLocaleString()} readings</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Grid imported</div>
+        <div class="value">${m.totalKwhImported.toFixed(1)} <span style="font-size:0.75rem">kWh</span></div>
+        <div class="sub">~${(m.totalKwhImported / m.numDays).toFixed(1)} kWh/day</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Solar exported</div>
+        <div class="value">${m.totalKwhExported.toFixed(1)} <span style="font-size:0.75rem">kWh</span></div>
+        <div class="sub">~${(m.totalKwhExported / m.numDays).toFixed(1)} kWh/day</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Current est. cost</div>
+        <div class="value">${fmt(c.totalCost)}</div>
+        <div class="sub">${fmt(c.annualised)} /yr</div>
+      </div>
+      ${bestSaving > 0 ? `
+      <div class="summary-card" style="border-color:rgba(253,196,0,0.3)">
+        <div class="label">Best potential saving</div>
+        <div class="value saving-positive">${fmt(bestSaving)}</div>
+        <div class="sub">over ${m.numDays}d vs ${bestDeal.name}</div>
+      </div>` : ''}
+    `;
+
+    // TOU breakdown
+    const tb = m.touBreakdown;
+    const touTotal = tb.peak + tb.shoulder + tb.offpeak;
+    document.getElementById('tou-grid').innerHTML = `
+      <div class="tou-card">
+        <div class="lbl">Peak (3pm–9pm weekdays)</div>
+        <div class="val peak-color">${tb.peak.toFixed(1)} kWh</div>
+        <div class="sub">${touTotal > 0 ? ((tb.peak / touTotal) * 100).toFixed(0) : 0}% of grid usage</div>
+      </div>
+      <div class="tou-card">
+        <div class="lbl">Shoulder (daytime)</div>
+        <div class="val shoulder-color">${tb.shoulder.toFixed(1)} kWh</div>
+        <div class="sub">${touTotal > 0 ? ((tb.shoulder / touTotal) * 100).toFixed(0) : 0}% of grid usage</div>
+      </div>
+      <div class="tou-card">
+        <div class="lbl">Off-peak (9pm–7am)</div>
+        <div class="val offpeak-color">${tb.offpeak.toFixed(1)} kWh</div>
+        <div class="sub">${touTotal > 0 ? ((tb.offpeak / touTotal) * 100).toFixed(0) : 0}% of grid usage</div>
+      </div>
+    `;
+
+    // Comparison table
+    let rank = 0;
+    const rows = d.retailers.map(r => {
+      if (r.type !== 'info') rank++;
+      const rankBadge = r.type === 'info' ? '' : `<span class="rank-badge rank-${rank}">${rank}</span>`;
+      const typePill = r.type === 'tou'  ? `<span class="pill pill-tou">TOU</span>` :
+                       r.type === 'info' ? `<span class="pill pill-variable">Variable</span>` :
+                                           `<span class="pill pill-flat">Flat</span>`;
+
+      let rateDetail = '';
+      if (r.type === 'tou' && r.tou && r.tou.windows) {
+        // Live plan: arbitrary window count/labels from the retailer's own published rates.
+        rateDetail = `<div class="plan-sub">${r.tou.windows.map(w => `${w.label} ${(w.rateAud*100).toFixed(1)}¢`).join(' / ')}</div>`;
+      } else if (r.type === 'tou' && r.tou) {
+        rateDetail = `<div class="plan-sub">Peak ${(r.tou.peakAud*100).toFixed(1)}¢ / Shoulder ${(r.tou.shoulderAud*100).toFixed(1)}¢ / Off-peak ${(r.tou.offPeakAud*100).toFixed(1)}¢</div>`;
+      } else if (r.rateAud) {
+        rateDetail = `<div class="plan-sub">${(r.rateAud*100).toFixed(2)}¢/kWh · ${r.exportRateAud ? (r.exportRateAud*100).toFixed(1)+'¢ FiT' : 'no FiT'}</div>`;
+      }
+      if (r.type !== 'info' && r.supplyAud != null) {
+        rateDetail += `<div class="plan-sub">Supply ${(r.supplyAud*100).toFixed(1)}¢/day${r.type === 'tou' && r.exportRateAud ? ' · ' + (r.exportRateAud*100).toFixed(1) + '¢ FiT' : ''}</div>`;
+      }
+
+      if (r.type === 'info') {
+        return `
+          <tr class="info-row">
+            <td></td>
+            <td>
+              <div class="plan-name"><a href="${r.url}" target="_blank" rel="noopener" style="color:inherit">${r.name}</a></div>
+              <div class="plan-sub">${r.plan}</div>
+              <div class="plan-sub" style="color:var(--accent-grid);margin-top:0.2rem">${r.note || ''}</div>
+            </td>
+            <td>${typePill}</td>
+            <td colspan="6" style="color:var(--text-secondary);font-size:0.78rem">Cannot be modelled without live wholesale spot data</td>
+          </tr>`;
+      }
+
+      return `
+        <tr>
+          <td>${rankBadge}</td>
+          <td>
+            <div class="plan-name"><a href="${r.url}" target="_blank" rel="noopener" style="color:inherit">${r.name}</a></div>
+            <div class="plan-sub">${r.plan}</div>
+            ${rateDetail}
+          </td>
+          <td>${typePill}</td>
+          <td class="mono">${fmt(r.usageCost)}</td>
+          <td class="mono">${fmt(r.supplyCost)}</td>
+          <td class="mono">${r.exportCredit > 0 ? '-'+fmt(r.exportCredit) : '-'}</td>
+          <td class="mono"><strong>${fmt(r.totalCost)}</strong></td>
+          <td class="mono">${fmt(r.annualised)}</td>
+          <td>${fmtSaving(r.saving)}</td>
+        </tr>`;
+    });
+
+    document.getElementById('comp-tbody').innerHTML = rows.join('');
+
+    // Disclaimer
+    document.getElementById('disclaimer').textContent = m.disclaimer;
+  }
+
+  // Period buttons
+  document.querySelectorAll('.period-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _activeDays = parseInt(btn.dataset.days, 10);
+      loadComparison(_activeDays);
+    });
+  });
+
+  // Initial load
+  loadComparison(_activeDays);
+</script>
+</body>
+</html>

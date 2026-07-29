@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch - Drives</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <!-- Leaflet CSS injected lazily when first map opens -->
+  <style>
+
+    /* ─── Period filter ──────────────────────────────────────────────────── */
+    .period-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+      margin-bottom: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .period-btn {
+      padding: 0.32rem 0.8rem;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+      white-space: nowrap;
+    }
+    .period-btn:hover  { border-color: var(--accent-solar); color: var(--accent-solar); }
+    .period-btn.active {
+      background: rgba(245,166,35,0.13);
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    /* ─── Summary strip ──────────────────────────────────────────────────── */
+    .summary-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.625rem;
+      margin-bottom: 1.25rem;
+    }
+    .summary-tile {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 0.875rem 1rem;
+    }
+    .summary-tile-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-secondary);
+      margin-bottom: 0.3rem;
+    }
+    .summary-tile-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--text-value);
+      line-height: 1.1;
+    }
+    .summary-tile-unit {
+      font-size: 0.65rem;
+      color: var(--text-secondary);
+      margin-top: 0.2rem;
+    }
+
+    /* ─── Drive card ─────────────────────────────────────────────────────── */
+    .drive-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: 0.75rem;
+      overflow: hidden;
+      transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+    }
+    .drive-card:hover { transform: translateY(-1px); box-shadow: 0 4px 24px rgba(0,0,0,0.18); }
+    .drive-card.solar-full { border-color: rgba(74,222,128,0.22); }
+    .drive-card.solar-full:hover { border-color: rgba(74,222,128,0.48); }
+    .drive-card.solar-high { border-color: rgba(245,166,35,0.18); }
+    .drive-card.solar-high:hover { border-color: rgba(245,166,35,0.42); }
+    .drive-card.solar-low  { border-color: rgba(248,113,113,0.16); }
+    .drive-card.solar-low:hover  { border-color: rgba(248,113,113,0.38); }
+
+    .drive-card-glow { height: 2px; }
+    .solar-full .drive-card-glow { background: linear-gradient(90deg, var(--accent-charge), transparent 75%); }
+    .solar-high .drive-card-glow { background: linear-gradient(90deg, var(--accent-solar),  transparent 75%); }
+    .solar-low  .drive-card-glow { background: linear-gradient(90deg, var(--accent-import),  transparent 75%); }
+    .solar-none .drive-card-glow { background: transparent; }
+
+    .drive-card-body { padding: 1rem 1.25rem 1.1rem; }
+
+    /* ─── Card header ────────────────────────────────────────────────────── */
+    .drive-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.875rem;
+    }
+    .drive-date {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-secondary);
+      margin-bottom: 0.15rem;
+    }
+    .drive-timespan {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .drive-timespan-sep { opacity: 0.4; margin: 0 0.2em; }
+
+    .solar-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.3rem 0.7rem;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .badge-full { background:rgba(74,222,128,0.12);  border:1px solid rgba(74,222,128,0.35);  color:var(--accent-charge); }
+    .badge-high { background:rgba(245,166,35,0.12);  border:1px solid rgba(245,166,35,0.35);  color:var(--accent-solar); }
+    .badge-low  { background:rgba(248,113,113,0.10); border:1px solid rgba(248,113,113,0.3);  color:var(--accent-import); }
+    .badge-none { background:rgba(100,116,139,0.07); border:1px solid var(--border);           color:var(--text-secondary); }
+
+    /* ─── Route spine ────────────────────────────────────────────────────── */
+    .drive-route {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .route-spine {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
+      padding-top: 4px;
+    }
+    .route-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .route-dot-start { background: var(--accent-solar); }
+    .route-dot-end   { border: 2px solid var(--border); background: var(--bg-card); }
+    .route-line {
+      flex: 1;
+      width: 2px;
+      min-height: 18px;
+      margin: 4px 0;
+      background: linear-gradient(to bottom, var(--accent-solar) 0%, rgba(100,116,139,0.25) 100%);
+    }
+    .route-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 0.25rem;
+    }
+    .route-place {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.2;
+    }
+    .route-mid-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; padding: 0.1rem 0; }
+    .route-mid-pill {
+      font-size: 0.68rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-secondary);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.12rem 0.48rem;
+      white-space: nowrap;
+    }
+
+    /* ─── Metrics row ────────────────────────────────────────────────────── */
+    .drive-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      margin-bottom: 0.875rem;
+    }
+    .drive-metric { padding: 0.625rem 0.75rem; position: relative; }
+    .drive-metric + .drive-metric::before {
+      content: ''; position: absolute; left: 0; top: 20%; bottom: 20%;
+      width: 1px; background: var(--border);
+    }
+    .metric-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text-value);
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .metric-label {
+      font-size: 0.63rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-secondary);
+      margin-top: 0.18rem;
+    }
+    .metric-value.eff-good { color: var(--accent-charge); }
+    .metric-value.eff-high { color: var(--accent-import); }
+    .batt-drain { display: flex; align-items: center; gap: 0.28rem; }
+    .batt-arrow { font-size: 0.7rem; opacity: 0.4; }
+    .batt-end   { opacity: 0.6; }
+
+    /* ─── Energy bar ─────────────────────────────────────────────────────── */
+    .energy-bar-section {}
+    .energy-bar {
+      display: flex;
+      height: 6px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: rgba(100,116,139,0.12);
+      margin-bottom: 0.4rem;
+    }
+    .energy-bar-solar {
+      background: var(--accent-charge);
+      transition: width 400ms ease;
+    }
+    .energy-bar-solar.full-solar { border-radius: 4px; }
+    .energy-bar-solar:not(.full-solar) { border-radius: 4px 0 0 4px; }
+    .energy-bar-grid  {
+      background: var(--accent-import);
+      border-radius: 0 4px 4px 0;
+      transition: width 400ms ease;
+    }
+    .energy-bar-labels { display: flex; justify-content: space-between; align-items: center; }
+    .energy-label { font-size: 0.68rem; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .energy-label-solar   { color: var(--accent-charge); }
+    .energy-label-grid    { color: var(--accent-import); }
+    .energy-label-unknown { color: var(--text-secondary); }
+
+    /* ─── Map section ────────────────────────────────────────────────────── */
+    .map-toggle-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 0.625rem;
+    }
+    .map-toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 0.72rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: border-color 120ms ease, color 120ms ease;
+    }
+    .map-toggle-btn:hover { border-color: var(--accent-solar); color: var(--accent-solar); }
+    .map-toggle-btn.open  { border-color: var(--accent-solar); color: var(--accent-solar); }
+
+    .map-section {
+      display: none;
+      height: 220px;
+      border-top: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+    .map-section.visible { display: block; }
+    .map-section .leaflet-container { height: 100%; width: 100%; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .map-loading {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; color: var(--text-secondary);
+      background: var(--bg-card);
+    }
+
+    /* ─── Chrome ─────────────────────────────────────────────────────────── */
+    .drives-count { font-size:0.75rem; color:var(--text-secondary); margin-bottom:0.875rem; }
+    #load-more-btn {
+      display:none; width:100%; padding:0.9rem;
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:var(--radius-md); color:var(--text-secondary);
+      font-size:0.85rem; font-family:inherit; cursor:pointer; margin-top:0.25rem;
+      transition: border-color 150ms ease, color 150ms ease;
+    }
+    #load-more-btn:hover { border-color:var(--accent-solar); color:var(--text-primary); }
+    .drives-empty { text-align:center; padding:3rem 1rem; color:var(--text-secondary); }
+
+    /* ─── Responsive ─────────────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .summary-strip { grid-template-columns: repeat(2, 1fr); }
+      .summary-tile-value { font-size: 1.2rem; }
+      .drive-card-body { padding: 0.875rem 1rem 1rem; }
+      .route-place { font-size: 0.84rem; }
+      .metric-value { font-size: 0.95rem; }
+      .map-section { height: 180px; }
+    }
+    @media (max-width: 380px) {
+      .summary-strip { grid-template-columns: 1fr 1fr; }
+      .drive-metrics { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container">
+    <div class="topbar-brand">
+      <svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="border-radius:6px;flex-shrink:0;" data-ws-mark="full"></svg>
+      <span>Watt<span style="color:var(--accent-solar)">Snatch</span></span>
+    </div>
+    <button id="topbar-hamburger" class="topbar-hamburger" aria-label="Menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <rect y="3"  width="20" height="2" rx="1"/>
+        <rect y="9"  width="20" height="2" rx="1"/>
+        <rect y="15" width="20" height="2" rx="1"/>
+      </svg>
+    </button>
+    <nav class="topbar-nav">
+      <a href="/">Dashboard</a>
+      <a href="/data">Data</a>
+      <a href="/drives" class="active">Drives</a>
+      <a href="/bills">Bills</a>
+      <a href="/retailer">Retailers</a>
+      <a href="/logs">Logs</a>
+      <a href="/settings">Settings</a>
+    </nav>
+    <div class="topbar-right"></div>
+  </div>
+</header>
+
+<main class="page-content">
+  <div class="container">
+
+    <!-- Period filter -->
+    <div class="period-bar">
+      <button class="period-btn" data-period="week">Week</button>
+      <button class="period-btn" data-period="month">Month</button>
+      <button class="period-btn" data-period="quarter">Quarter</button>
+      <button class="period-btn" data-period="year">Year</button>
+      <button class="period-btn active" data-period="all">All time</button>
+    </div>
+
+    <!-- Summary tiles -->
+    <div class="summary-strip">
+      <div class="summary-tile">
+        <div class="summary-tile-label">Drives</div>
+        <div class="summary-tile-value" id="stat-drives">-</div>
+      </div>
+      <div class="summary-tile">
+        <div class="summary-tile-label">Distance</div>
+        <div class="summary-tile-value" id="stat-distance">-</div>
+        <div class="summary-tile-unit">kilometres</div>
+      </div>
+      <div class="summary-tile">
+        <div class="summary-tile-label">Solar Charged</div>
+        <div class="summary-tile-value" id="stat-solar-kwh">-</div>
+        <div class="summary-tile-unit">kWh from solar</div>
+      </div>
+      <div class="summary-tile">
+        <div class="summary-tile-label">Avg Efficiency</div>
+        <div class="summary-tile-value" id="stat-eff">-</div>
+        <div class="summary-tile-unit">Wh / km</div>
+      </div>
+    </div>
+
+    <div id="drives-count" class="drives-count"></div>
+    <div id="drives-list"><div class="drives-empty">Loading drives…</div></div>
+    <button id="load-more-btn">Load more</button>
+
+  </div>
+</main>
+
+<script src="/js/common.js?v=2"></script>
+<script>
+'use strict';
+
+let page = 1, total = 0, loading = false;
+let currentFrom = null, currentTo = null;
+const LIMIT = 20;
+
+// ── Period ranges ─────────────────────────────────────────────────────────────
+function getPeriodRange(period) {
+  const now = new Date();
+  switch (period) {
+    case 'week': {
+      // Monday 00:00:00 → Sunday 23:59:59 of current week
+      const mon = new Date(now); mon.setHours(0,0,0,0);
+      const day = mon.getDay(); // 0=Sun, 1=Mon…6=Sat
+      mon.setDate(mon.getDate() - (day === 0 ? 6 : day - 1));
+      const sun = new Date(mon); sun.setDate(sun.getDate() + 6); sun.setHours(23,59,59,999);
+      return { from: mon.getTime(), to: sun.getTime() };
+    }
+    case 'month': {
+      // 1st → last day of current calendar month
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      return { from: start.getTime(), to: end.getTime() };
+    }
+    case 'quarter': {
+      // Full calendar quarter
+      const q     = Math.floor(now.getMonth() / 3);
+      const start = new Date(now.getFullYear(), q * 3, 1);
+      const end   = new Date(now.getFullYear(), q * 3 + 3, 0, 23, 59, 59, 999);
+      return { from: start.getTime(), to: end.getTime() };
+    }
+    case 'year': {
+      return {
+        from: new Date(now.getFullYear(), 0, 1).getTime(),
+        to:   new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999).getTime(),
+      };
+    }
+    default: return { from: null, to: null };
+  }
+}
+
+// ── Formatters ────────────────────────────────────────────────────────────────
+function fmtDate(d) {
+  return new Date(d).toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
+}
+function fmtTime(d) {
+  return new Date(d).toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', hour12:true });
+}
+function fmtDur(min) {
+  if (!min) return '-';
+  return min < 60 ? min + ' min' : Math.floor(min/60) + 'h ' + (min%60 ? (min%60) + 'm' : '');
+}
+
+function solarTier(pct) {
+  if (pct == null) return 'none';
+  return pct >= 90 ? 'full' : pct >= 50 ? 'high' : 'low';
+}
+function badgeClass(tier) {
+  return { full:'badge-full', high:'badge-high', low:'badge-low', none:'badge-none' }[tier];
+}
+function solarLabel(pct) {
+  return pct == null ? 'No data' : '☀ ' + pct + '%';
+}
+function effClass(wh) {
+  return !wh ? '' : wh < 145 ? 'eff-good' : wh > 210 ? 'eff-high' : '';
+}
+function battDisplay(start, end) {
+  if (start == null && end == null) return '<span style="opacity:0.4">-</span>';
+  if (start == null) return `${end}%`;
+  return `<span class="batt-drain"><span>${start}%</span><span class="batt-arrow">▸</span><span class="batt-end">${end != null ? end+'%' : '-'}</span></span>`;
+}
+
+// ── Card HTML ─────────────────────────────────────────────────────────────────
+const MAP_ICON = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>`;
+
+function renderCard(d) {
+  const tier     = solarTier(d.solar_pct);
+  const same     = d.start_location === d.end_location;
+  const totalKwh = (d.kwh_solar || 0) + (d.kwh_grid || 0);
+  const hasAttr  = totalKwh > 0.05;
+  const solarW   = hasAttr ? Math.round((d.kwh_solar / totalKwh) * 100) : 0;
+  const gridW    = hasAttr ? 100 - solarW : 0;
+
+  const routeMid = `<div class="route-mid-row">
+    <span class="route-mid-pill">${d.distance_km != null ? d.distance_km.toFixed(1)+' km' : '-'}</span>
+    <span class="route-mid-pill">${fmtDur(d.duration_min)}</span>
+    ${d.outside_temp_c != null ? `<span class="route-mid-pill">${d.outside_temp_c}°C</span>` : ''}
+  </div>`;
+
+  const routeHTML = same
+    ? `<div class="route-info">
+         <div class="route-place">${d.start_location}</div>
+         ${routeMid}
+         <div class="route-place" style="opacity:0.45">return trip</div>
+       </div>`
+    : `<div class="route-info">
+         <div class="route-place">${d.start_location}</div>
+         ${routeMid}
+         <div class="route-place">${d.end_location}</div>
+       </div>`;
+
+  const energyBar = hasAttr
+    ? `<div class="energy-bar">
+         <div class="energy-bar-solar ${solarW===100?'full-solar':''}" style="width:${solarW}%"></div>
+         <div class="energy-bar-grid"  style="width:${gridW}%"></div>
+       </div>
+       <div class="energy-bar-labels">
+         <span class="energy-label energy-label-solar">${d.kwh_solar.toFixed(2)} kWh solar</span>
+         ${d.kwh_grid > 0.01 ? `<span class="energy-label energy-label-grid">${d.kwh_grid.toFixed(2)} kWh grid</span>` : ''}
+       </div>`
+    : `<div class="energy-bar"></div>
+       <div class="energy-bar-labels"><span class="energy-label energy-label-unknown">No charge attribution</span></div>`;
+
+  return `
+    <div class="drive-card solar-${tier}" data-drive-id="${d.id}">
+      <div class="drive-card-glow"></div>
+      <div class="drive-card-body">
+        <div class="drive-head">
+          <div>
+            <div class="drive-date">${fmtDate(d.start_date)}</div>
+            <div class="drive-timespan">${fmtTime(d.start_date)}<span class="drive-timespan-sep">–</span>${fmtTime(d.end_date)}</div>
+          </div>
+          <div class="solar-badge ${badgeClass(tier)}">${solarLabel(d.solar_pct)}</div>
+        </div>
+
+        <div class="drive-route">
+          <div class="route-spine">
+            <div class="route-dot route-dot-start"></div>
+            <div class="route-line"></div>
+            <div class="route-dot route-dot-end"></div>
+          </div>
+          ${routeHTML}
+        </div>
+
+        <div class="drive-metrics">
+          <div class="drive-metric">
+            <div class="metric-value">${d.est_kwh != null ? d.est_kwh.toFixed(1)+' kWh' : '-'}</div>
+            <div class="metric-label">Energy used</div>
+          </div>
+          <div class="drive-metric">
+            <div class="metric-value">${battDisplay(d.start_battery_pct, d.end_battery_pct)}</div>
+            <div class="metric-label">Battery</div>
+          </div>
+          <div class="drive-metric">
+            <div class="metric-value ${effClass(d.wh_per_km)}">${d.wh_per_km != null ? d.wh_per_km+' Wh/km' : '-'}</div>
+            <div class="metric-label">Efficiency</div>
+          </div>
+        </div>
+
+        ${energyBar}
+
+        <div class="map-toggle-row">
+          <button class="map-toggle-btn" data-id="${d.id}">${MAP_ICON} View route</button>
+        </div>
+      </div>
+      <div class="map-section" id="map-${d.id}">
+        <div class="map-loading">Loading route…</div>
+      </div>
+    </div>`;
+}
+
+// ── Leaflet lazy loader ───────────────────────────────────────────────────────
+let leafletReady = false;
+let leafletLoading = false;
+const leafletCallbacks = [];
+
+function loadLeaflet(cb) {
+  if (leafletReady) return cb();
+  leafletCallbacks.push(cb);
+  if (leafletLoading) return;
+  leafletLoading = true;
+
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(link);
+
+  const script = document.createElement('script');
+  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  script.onload = () => {
+    leafletReady = true;
+    leafletCallbacks.forEach(fn => fn());
+    leafletCallbacks.length = 0;
+  };
+  document.head.appendChild(script);
+}
+
+// Track open maps so we don't double-init
+const openMaps = new Set();
+
+function openMap(driveId) {
+  if (openMaps.has(driveId)) return;
+  openMaps.add(driveId);
+
+  const section = document.getElementById('map-' + driveId);
+  if (!section) return;
+  section.classList.add('visible');
+
+  loadLeaflet(async () => {
+    const res = await fetch('/api/drives/' + driveId + '/route').then(r => r.json());
+    const loading = section.querySelector('.map-loading');
+
+    if (!res.ok || !res.points || res.points.length < 2) {
+      if (loading) loading.textContent = 'No route data available';
+      return;
+    }
+
+    if (loading) loading.remove();
+
+    const mapEl = document.createElement('div');
+    mapEl.style.height = '100%';
+    mapEl.style.width  = '100%';
+    section.appendChild(mapEl);
+
+    const map = L.map(mapEl, { zoomControl: false, attributionControl: false });
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    const points = res.points;
+
+    // Route polyline
+    L.polyline(points, {
+      color: '#f5a623',
+      weight: 3,
+      opacity: 0.85,
+      smoothFactor: 1.5,
+    }).addTo(map);
+
+    // Start marker (green dot)
+    L.circleMarker(points[0], {
+      radius: 6, fillColor: '#4ade80', fillOpacity: 1,
+      color: '#fff', weight: 1.5,
+    }).addTo(map);
+
+    // End marker (white ring)
+    L.circleMarker(points[points.length - 1], {
+      radius: 6, fillColor: '#1e293b', fillOpacity: 1,
+      color: '#94a3b8', weight: 2,
+    }).addTo(map);
+
+    // Fit to route
+    map.fitBounds(L.latLngBounds(points), { padding: [16, 16] });
+
+    // Add compact attribution
+    L.control.attribution({ prefix: false, position: 'bottomright' })
+      .addAttribution('© <a href="https://carto.com/attributions">CARTO</a>')
+      .addTo(map);
+  });
+}
+
+// ── Event delegation for map toggle ──────────────────────────────────────────
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.map-toggle-btn');
+  if (!btn) return;
+  const id = parseInt(btn.dataset.id, 10);
+  const section = document.getElementById('map-' + id);
+  if (!section) return;
+
+  const isOpen = section.classList.contains('visible');
+  if (isOpen) {
+    section.classList.remove('visible');
+    btn.classList.remove('open');
+    btn.innerHTML = MAP_ICON + ' View route';
+  } else {
+    btn.classList.add('open');
+    btn.innerHTML = MAP_ICON + ' Hide route';
+    openMap(id);
+  }
+});
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    let url = '/api/drives/stats';
+    if (currentFrom) url += '?from=' + currentFrom + (currentTo ? '&to=' + currentTo : '');
+    const j = await fetch(url).then(r => r.json());
+    if (!j.ok) return;
+    document.getElementById('stat-drives').textContent    = (j.total_drives || 0).toLocaleString();
+    document.getElementById('stat-distance').textContent  = Math.round(j.total_distance_km || 0).toLocaleString();
+    document.getElementById('stat-solar-kwh').textContent = Math.round(j.total_solar_kwh  || 0).toLocaleString();
+    document.getElementById('stat-eff').textContent       = j.avg_wh_per_km ? Math.round(j.avg_wh_per_km) : '-';
+  } catch (_) {}
+}
+
+// ── Drives list ───────────────────────────────────────────────────────────────
+async function loadDrives(p, append) {
+  if (loading) return;
+  loading = true;
+  if (!append) document.getElementById('drives-list').innerHTML = '<div class="drives-empty">Loading drives…</div>';
+
+  try {
+    let url = '/api/drives?page=' + p + '&limit=' + LIMIT;
+    if (currentFrom) url += '&from=' + currentFrom;
+    if (currentTo)   url += '&to='   + currentTo;
+
+    const j = await fetch(url).then(r => r.json());
+    if (!j.ok) {
+      document.getElementById('drives-list').innerHTML = '<div class="drives-empty">TeslaMate connection unavailable</div>';
+      return;
+    }
+    total = j.total;
+    document.getElementById('drives-count').textContent = total.toLocaleString() + ' drives - most recent first';
+
+    if (!j.drives.length && !append) {
+      document.getElementById('drives-list').innerHTML = '<div class="drives-empty">No drives in this period</div>';
+      return;
+    }
+
+    const html = j.drives.map(renderCard).join('');
+    if (append) {
+      document.getElementById('drives-list').insertAdjacentHTML('beforeend', html);
+    } else {
+      document.getElementById('drives-list').innerHTML = html;
+    }
+
+    const loaded = (p - 1) * LIMIT + j.drives.length;
+    const btn = document.getElementById('load-more-btn');
+    if (loaded < total) {
+      btn.style.display = 'block';
+      btn.textContent = 'Load more (' + (total - loaded).toLocaleString() + ' remaining)';
+    } else {
+      btn.style.display = 'none';
+    }
+  } catch (err) {
+    document.getElementById('drives-list').innerHTML = '<div class="drives-empty">Error: ' + err.message + '</div>';
+  } finally {
+    loading = false;
+  }
+}
+
+// ── Period buttons ────────────────────────────────────────────────────────────
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    const { from, to } = getPeriodRange(btn.dataset.period);
+    currentFrom = from;
+    currentTo   = to;
+    page = 1;
+    openMaps.clear();
+
+    loadStats();
+    loadDrives(1, false);
+  });
+});
+
+document.getElementById('load-more-btn').addEventListener('click', () => {
+  page++;
+  loadDrives(page, true);
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadStats();
+loadDrives(1, false);
+</script>
+</body>
+</html>

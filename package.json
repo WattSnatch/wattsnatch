@@ -1,0 +1,32 @@
+{
+  "name": "wattsnatch",
+  "version": "1.18.0",
+  "description": "Solar EV charging controller for Enphase + Tesla",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
+    "reset-password": "node scripts/reset-password.js",
+    "test": "node --test",
+    "update": "bash scripts/update.sh"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.0",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.10.0",
+    "express": "^4.19.2",
+    "express-session": "^1.19.0",
+    "helmet": "^8.3.0",
+    "keytar": "^7.9.0",
+    "melcloud-api": "^1.1.2",
+    "modbus-serial": "^8.0.25",
+    "mqtt": "^5.15.1",
+    "pg": "^8.21.0",
+    "suncalc": "^1.9.0",
+    "tsdav": "^2.2.2",
+    "zeromq": "^6.5.0"
+  }
+}

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch - Event Logs</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container">
+    <div class="topbar-brand">
+      <svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="border-radius:6px;flex-shrink:0;" data-ws-mark="full"></svg>
+      <span>Watt<span style="color:var(--accent-solar)">Snatch</span></span>
+    </div>
+    <button id="topbar-hamburger" class="topbar-hamburger" aria-label="Menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <rect y="3"  width="20" height="2" rx="1"/>
+        <rect y="9"  width="20" height="2" rx="1"/>
+        <rect y="15" width="20" height="2" rx="1"/>
+      </svg>
+    </button>
+    <nav class="topbar-nav">
+      <a href="/">Dashboard</a>
+      <a href="/data">Data</a>
+      <a href="/drives">Drives</a>
+      <a href="/bills">Bills</a>
+      <a href="/retailer">Retailers</a>
+      <a href="/logs" class="active">Logs</a>
+      <a href="/settings">Settings</a>
+    </nav>
+    <div class="topbar-right"></div>
+  </div>
+</header>
+
+<main class="page-content">
+  <div class="container">
+    <div class="page-title">Event Log</div>
+
+    <!-- Tesla Fleet API cost card -->
+    <div id="api-cost-card" class="card mb-2" style="display:none">
+      <div class="card-header">
+        <div class="card-label">Tesla Fleet API Usage</div>
+        <span id="api-cost-month" style="font-size:0.82rem;color:var(--text-secondary)"></span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:1rem;margin-bottom:1rem" id="api-cost-breakdown"></div>
+      <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:180px">
+          <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.3rem">
+            <span style="color:var(--text-secondary)">Monthly spend</span>
+            <span><strong id="api-cost-total">-</strong> <span style="color:var(--text-secondary)">of $16.00 free</span></span>
+          </div>
+          <div style="height:6px;background:var(--bg-base);border-radius:3px;overflow:hidden">
+            <div id="api-cost-bar" style="height:100%;border-radius:3px;transition:width 0.4s;background:var(--accent-solar);width:0%"></div>
+          </div>
+          <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem">
+            Projected: <strong id="api-cost-projected">-</strong> for the month
+          </div>
+        </div>
+        <div id="api-cost-status" style="font-size:0.82rem;font-weight:600;padding:0.3rem 0.75rem;border-radius:var(--radius-md)"></div>
+      </div>
+      <p style="font-size:0.75rem;color:var(--text-secondary);margin:0.75rem 0 0">
+        Streaming signals (ZMQ) are not tracked here - typically &lt;$0.10/month. Data costs reflect REST fallback polls only.
+      </p>
+    </div>
+
+    <div class="card">
+      <!-- Filter bar -->
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:1.25rem">
+        <div style="display:flex;gap:0.375rem;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px;flex-shrink:1;min-width:0">
+          <button class="btn btn-primary btn-sm" data-filter="all" style="flex-shrink:0">All</button>
+          <button class="btn btn-secondary btn-sm" data-filter="state_change" style="flex-shrink:0">State Changes</button>
+          <button class="btn btn-secondary btn-sm" data-filter="command" style="flex-shrink:0">Commands</button>
+          <button class="btn btn-secondary btn-sm" data-filter="api_error" style="flex-shrink:0">API Errors</button>
+          <button class="btn btn-secondary btn-sm" data-filter="token" style="flex-shrink:0">Token</button>
+          <button class="btn btn-secondary btn-sm" data-filter="info" style="flex-shrink:0">Info</button>
+        </div>
+        <button id="clear-logs-btn" class="btn btn-ghost btn-sm" style="flex-shrink:0">Clear</button>
+      </div>
+
+      <!-- Log entries -->
+      <div id="log-container">
+        <div style="padding:2rem;text-align:center;color:var(--text-secondary)">Loading…</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script src="/js/common.js"></script>
+<script src="/js/logs.js"></script>
+</body>
+</html>

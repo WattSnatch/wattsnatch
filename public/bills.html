@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch - Bills</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <style>
+    .bills-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.25rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .bills-table-wrap {
+      overflow-x: auto;
+    }
+    .bills-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .bills-table th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      color: var(--text-secondary);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .bills-table td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .bills-table tr:last-child td {
+      border-bottom: none;
+    }
+    .bills-table tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+    .num {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+    }
+    .text-green  { color: #4ade80; }
+    .text-red    { color: #fc814a; opacity: 0.75; }
+    .text-muted  { color: var(--text-secondary); }
+    .del-btn {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 0.25rem 0.4rem;
+      border-radius: var(--radius-sm);
+      font-size: 1rem;
+      line-height: 1;
+      transition: color 0.1s;
+    }
+    .del-btn:hover { color: #fc814a; }
+
+    /* ─── Upload zone ─── */
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      margin-bottom: 1.25rem;
+      position: relative;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--accent-solar);
+      background: rgba(245,166,35,0.04);
+    }
+    .upload-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .upload-zone-icon { color: var(--text-secondary); margin-bottom: 0.5rem; }
+    .upload-zone-text { font-size: 0.85rem; color: var(--text-secondary); }
+    .upload-zone-text strong { color: var(--text-primary); }
+    .upload-zone-sub { font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.25rem; }
+    .upload-zone.processing {
+      border-color: var(--accent-solar);
+      background: rgba(245,166,35,0.06);
+      cursor: default;
+    }
+    .upload-zone.processing input { pointer-events: none; }
+    #upload-status {
+      font-size: 0.82rem;
+      margin-bottom: 0.75rem;
+      padding: 0.5rem 0.875rem;
+      border-radius: var(--radius-md);
+      display: none;
+    }
+    #upload-status.ok    { background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.25); }
+    #upload-status.error { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.25); }
+    #upload-status.info  { background: rgba(245,166,35,0.08); color: var(--accent-solar); border: 1px solid rgba(245,166,35,0.2); }
+
+    .no-bills-row td {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-secondary);
+    }
+    .gemini-banner {
+      background: rgba(245,166,35,0.08);
+      border: 1px solid rgba(245,166,35,0.3);
+      border-radius: var(--radius-lg);
+      padding: 1rem 1.25rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .gemini-banner strong { color: var(--text-primary); }
+
+    /* ─── Bill vs WattSnatch accuracy panel ─── */
+    .accuracy-row td {
+      padding: 0 0.75rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .accuracy-row:hover td { background: none; }
+    .accuracy-panel {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem 1.75rem;
+    }
+    .accuracy-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+    .accuracy-title {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+    .coverage-chip {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.3rem 0.75rem;
+      border-radius: 999px;
+    }
+    .coverage-chip.full    { background: rgba(74,222,128,0.12);  color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
+    .coverage-chip.partial { background: rgba(245,166,35,0.1);   color: var(--accent-solar); border: 1px solid rgba(245,166,35,0.3); }
+    .accuracy-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.75rem 1.5rem;
+    }
+    .accuracy-metric-label {
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.9rem;
+    }
+    .accuracy-pct {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .accuracy-pct.good { color: #4ade80; }
+    .accuracy-pct.ok   { color: var(--accent-solar); }
+    .accuracy-pct.low  { color: #fc814a; }
+    .accuracy-bar-row {
+      display: grid;
+      grid-template-columns: 5.6rem 1fr auto;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 0.6rem;
+    }
+    .accuracy-bar-row:last-child { margin-bottom: 0; }
+    .accuracy-bar-who {
+      font-size: 0.68rem;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    .accuracy-bar-track {
+      height: 9px;
+      border-radius: 4.5px;
+      background: rgba(255,255,255,0.05);
+      overflow: hidden;
+    }
+    .accuracy-bar-fill {
+      height: 100%;
+      border-radius: 4.5px;
+      transition: width 0.4s ease;
+    }
+    .accuracy-bar-fill.bill { background: rgba(245,166,35,0.75); }
+    .accuracy-bar-fill.ws   { background: rgba(74,222,128,0.8); }
+    .accuracy-bar-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 600;
+      white-space: nowrap;
+      min-width: 4.6rem;
+      text-align: right;
+    }
+    .accuracy-note {
+      font-size: 0.75rem;
+      line-height: 1.6;
+      color: var(--text-tertiary);
+      margin-top: 1.4rem;
+      padding-top: 1.1rem;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container">
+    <div class="topbar-brand">
+      <svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="border-radius:6px;flex-shrink:0;" data-ws-mark="full"></svg>
+      <span>Watt<span style="color:var(--accent-solar)">Snatch</span></span>
+    </div>
+    <button id="topbar-hamburger" class="topbar-hamburger" aria-label="Menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <rect y="3"  width="20" height="2" rx="1"/>
+        <rect y="9"  width="20" height="2" rx="1"/>
+        <rect y="15" width="20" height="2" rx="1"/>
+      </svg>
+    </button>
+    <nav class="topbar-nav">
+      <a href="/">Dashboard</a>
+      <a href="/data">Data</a>
+      <a href="/drives">Drives</a>
+      <a href="/bills" class="active">Bills</a>
+      <a href="/retailer">Retailers</a>
+      <a href="/logs">Logs</a>
+      <a href="/settings">Settings</a>
+    </nav>
+    <div class="topbar-right"></div>
+  </div>
+</header>
+
+<main class="page-content">
+  <div class="container">
+
+    <div id="gemini-banner" class="gemini-banner hidden">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-solar)" stroke-width="2" flex-shrink="0" style="flex-shrink:0">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span>Add your <strong>Gemini API key</strong> in <a href="/settings" style="color:var(--accent-solar)">Settings</a> to enable bill analysis, or forward bills to the address shown under Settings &rarr; Bill Analysis.</span>
+    </div>
+
+    <!-- Upload zone -->
+    <div class="upload-zone" id="upload-zone">
+      <input type="file" id="bill-file-input" accept=".pdf,application/pdf" aria-label="Upload bill PDF">
+      <div class="upload-zone-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <div class="upload-zone-text"><strong>Drop a bill PDF here</strong> or click to browse</div>
+      <div class="upload-zone-sub">Gemini will extract the billing period, kWh, rates and totals automatically</div>
+    </div>
+    <div id="upload-status"></div>
+
+    <div class="card">
+      <div class="bills-header">
+        <div class="card-label">Electricity Bills</div>
+        <button id="poll-btn" class="btn btn-secondary btn-sm" onclick="pollNow()">Check email for new bills</button>
+      </div>
+
+      <div id="poll-status" style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;display:none"></div>
+
+      <div class="bills-table-wrap">
+        <table class="bills-table">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>Retailer</th>
+              <th>Total kWh</th>
+              <th>Amount paid</th>
+              <th>Solar export</th>
+              <th style="color:#4ade80">WattSnatch savings</th>
+              <th style="color:#fc814a;opacity:0.75">Without WattSnatch</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="bills-tbody">
+            <tr class="no-bills-row"><td colspan="8">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script src="/js/common.js"></script>
+<script src="/js/bills.js"></script>
+</body>
+</html>

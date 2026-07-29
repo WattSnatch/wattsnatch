@@ -1,0 +1,1757 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch - Data</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <style>
+    /* ─── Top Hero Card (Score + Savings) ─── */
+    .top-hero-card {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 2rem;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding: 1.75rem 2rem;
+      background: linear-gradient(135deg, rgba(245,166,35,0.06), rgba(74,222,128,0.02));
+      border: 1px solid rgba(245,166,35,0.18);
+      border-radius: var(--radius-lg);
+    }
+
+    /* Left: score ring */
+    .energy-score-ring {
+      position: relative;
+      width: 160px;
+      height: 160px;
+      flex-shrink: 0;
+    }
+    .energy-score-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .energy-score-circle-bg {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 12;
+    }
+    .energy-score-circle-fill {
+      fill: none;
+      stroke: url(#scoreGradient);
+      stroke-width: 12;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .energy-score-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .energy-score-value {
+      font-size: 2.8rem;
+      font-weight: 700;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--accent-solar), var(--accent-charge));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .energy-score-label {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      margin-top: 0.1rem;
+    }
+    .energy-score-sublabel {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-top: 0.75rem;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    /* Right: financial summary */
+    .savings-hero {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .savings-hero-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      position: relative;
+    }
+    .savings-hero-title {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-secondary);
+    }
+    .savings-period-toggles {
+      display: flex;
+      gap: 0.3rem;
+    }
+    .savings-period-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      padding: 0.2rem 0.55rem;
+      font-size: 0.65rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .savings-period-btn:hover  { border-color: var(--accent-solar); color: var(--accent-solar); }
+    .savings-period-btn.active { background: rgba(245,166,35,0.15); border-color: var(--accent-solar); color: var(--accent-solar); }
+
+    .savings-period-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.4rem;
+      position: absolute;
+      top: 0;
+      right: 0;
+    }
+    .savings-period-grid {
+      display: grid;
+      grid-template-columns: repeat(5, auto);
+      gap: 0.3rem;
+      justify-content: end;
+    }
+    .savings-period-grid .savings-period-btn {
+      width: 100%;
+    }
+    .savings-period-grid .savings-period-btn[data-period^="last_"] {
+      color: var(--text-secondary);
+      opacity: 0.85;
+    }
+    .savings-daterange {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .savings-daterange input[type="date"] {
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      padding: 0.18rem 0.4rem;
+      font-size: 0.65rem;
+      font-family: inherit;
+      color-scheme: dark;
+    }
+    .savings-daterange-sep {
+      font-size: 0.65rem;
+      color: var(--text-secondary);
+    }
+    .savings-daterange-apply {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      padding: 0.2rem 0.55rem;
+      font-size: 0.65rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .savings-daterange-apply:hover { border-color: var(--accent-solar); color: var(--accent-solar); }
+
+    .savings-total-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .savings-total-saved {
+      display: flex;
+      flex-direction: column;
+    }
+    .savings-total-label {
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      margin-bottom: 0.2rem;
+    }
+    .savings-total-value {
+      font-size: 3rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: #4ade80;
+      line-height: 1;
+    }
+    .savings-total-spent {
+      display: flex;
+      flex-direction: column;
+      padding-bottom: 0.35rem;
+    }
+    .savings-total-spent-label {
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      margin-bottom: 0.2rem;
+    }
+    .savings-total-spent-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent-import);
+      line-height: 1;
+    }
+
+    .savings-breakdown {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+    }
+    .savings-breakdown-item {
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 0.6rem 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .sbd-label {
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+    .sbd-value {
+      font-size: 1.1rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: #4ade80;
+    }
+    .sbd-spent {
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent-import);
+      min-height: 1em;
+    }
+
+    @media (max-width: 900px) {
+      /* Grid tracks default to min-width:auto, so they won't shrink below
+         the min-content of the (nowrap, horizontally-scrollable) period
+         button strip inside - without this the whole card, and the page,
+         gets forced wider than the viewport instead of letting the strip
+         scroll internally. */
+      .top-hero-card, .savings-hero { min-width: 0; }
+      .top-hero-card {
+        grid-template-columns: 1fr;
+        padding: 1.25rem;
+        gap: 1.25rem;
+      }
+      .energy-score-ring { width: 120px; height: 120px; margin: 0 auto; }
+      .savings-total-value { font-size: 2.2rem; }
+      .savings-period-toggles {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 0.25rem;
+        -webkit-overflow-scrolling: touch;
+      }
+      .savings-period-btn { flex-shrink: 0; }
+      .savings-period-panel { position: static; align-items: stretch; width: 100%; }
+      /* justify-content:end (desktop grid alignment) would otherwise leave
+         this scrolled to the right on load, hiding the active "Today"
+         button behind the Last-X buttons. */
+      .savings-period-grid {
+        display: flex;
+        justify-content: flex-start;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 0.25rem;
+        -webkit-overflow-scrolling: touch;
+      }
+      .savings-period-grid .savings-period-btn { width: auto; }
+      .savings-daterange {
+        flex-shrink: 0;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+    @media (max-width: 600px) {
+      .savings-breakdown { grid-template-columns: repeat(2, 1fr); }
+      .savings-total-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+        align-items: start;
+      }
+      .savings-total-value { font-size: 1.8rem; }
+      .savings-total-spent-value { font-size: 1.1rem; }
+    }
+
+    /* Keep energy-score-container alias for any legacy refs */
+    .energy-score-container { display: none; }
+
+    /* ─── Hero Stat Grid ─── */
+    .km-origins-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg, 12px);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .km-origins-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .km-origins-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-secondary);
+    }
+    .km-origins-since {
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      opacity: 0.65;
+    }
+    .km-origins-panels {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+    }
+    .km-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding: 0 1rem;
+    }
+    .km-panel:first-child { padding-left: 0; }
+    .km-panel:last-child  { padding-right: 0; }
+    .km-panel-divider {
+      width: 1px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .km-panel-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+    .km-panel-value-row {
+      display: flex;
+      align-items: baseline;
+      gap: 0.3rem;
+    }
+    .km-panel-value {
+      font-size: 2.6rem;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1;
+    }
+    .km-panel-unit {
+      font-size: 1.1rem;
+      font-weight: 600;
+      opacity: 0.7;
+      padding-bottom: 0.15rem;
+    }
+    .km-panel-solar .km-panel-value,
+    .km-panel-solar .km-panel-unit { color: var(--accent-solar, #f5a623); }
+    .km-panel-grid .km-panel-value,
+    .km-panel-grid .km-panel-unit  { color: var(--accent-import, #fc814a); }
+    .km-panel-public .km-panel-value,
+    .km-panel-public .km-panel-unit { color: #a78bfa; }
+    .km-panel-detail {
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+    }
+
+    .hero-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .hero-stat {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .hero-stat-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+    }
+
+    .hero-stat-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1;
+    }
+
+    .hero-stat-sub {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 0.25rem;
+    }
+
+    /* ─── Bill Estimate Card ─── */
+    .bill-estimate-card {
+      background: linear-gradient(135deg, rgba(245,166,35,0.08), rgba(245,166,35,0.02));
+      border: 1px solid rgba(245,166,35,0.2);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .bill-estimate-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .bill-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .bill-item-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+
+    .bill-item-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1;
+    }
+
+    .bill-item-value.estimate {
+      color: var(--accent-solar);
+      font-size: 1.75rem;
+    }
+
+    .bill-estimate-divider {
+      height: 1px;
+      background: rgba(245,166,35,0.15);
+      margin: 1rem 0;
+    }
+
+    .bill-estimate-total {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .bill-estimate-total-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+
+    .bill-estimate-total-value {
+      font-size: 2rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent-solar);
+    }
+
+    /* ─── Combined Daily Chart ─── */
+    .daily-chart-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .daily-chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .daily-chart-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+    }
+
+    .chart-toggle-buttons {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .chart-toggle-btn {
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      padding: 0.4rem 0.8rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .chart-toggle-btn:hover {
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    .chart-toggle-btn.active {
+      background: rgba(245,166,35,0.15);
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    .daily-chart-area {
+      height: 220px;
+      position: relative;
+      margin-bottom: 1rem;
+    }
+
+    .daily-chart-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: stretch;
+      gap: 1px;
+      height: 100%;
+      cursor: pointer;
+      position: relative;
+      transition: opacity 0.15s;
+    }
+
+    .daily-chart-col:hover {
+      opacity: 0.8;
+    }
+
+    .daily-chart-bar {
+      width: 100%;
+      border-radius: 2px 2px 0 0;
+      min-height: 0;
+      transition: opacity 0.1s;
+    }
+
+    .daily-chart-bar.solar { background: var(--accent-solar); }
+    .daily-chart-bar.house { background: #63b3ed; }
+    .daily-chart-bar.ev { background: var(--accent-charge); }
+    .daily-chart-bar.hw { background: #fb923c; }
+    .daily-chart-bar.ac { background: #38bdf8; }
+
+    .daily-chart-labels {
+      display: flex;
+      gap: 2px;
+      font-size: 0.55rem;
+      color: var(--text-secondary);
+      text-align: center;
+    }
+
+    .daily-chart-label {
+      flex: 1;
+    }
+
+    .daily-chart-tooltip {
+      position: absolute;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 0.5rem 0.75rem;
+      font-size: 0.7rem;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 10;
+      bottom: 165px;
+      left: 50%;
+      transform: translateX(-50%);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      display: none;
+    }
+
+    .daily-chart-col:hover .daily-chart-tooltip {
+      display: block;
+    }
+
+    .daily-chart-legend {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+
+    /* ─── Solar Breakdown Card ─── */
+    .solar-breakdown-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .solar-breakdown-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-secondary);
+      margin-bottom: 1.25rem;
+    }
+    .breakdown-summary {
+      display: flex;
+      gap: 2rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .breakdown-summary-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .breakdown-summary-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .breakdown-summary-value.solar { color: var(--accent-solar); }
+    .breakdown-summary-value.grid  { color: #63b3ed; }
+    .breakdown-summary-label {
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .breakdown-total-bar {
+      display: flex;
+      height: 10px;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-bottom: 1.75rem;
+      background: var(--surface-2);
+    }
+    .breakdown-total-bar .seg-solar { background: var(--accent-solar); }
+    .breakdown-total-bar .seg-grid  { background: #63b3ed; }
+    .breakdown-devices { display: flex; flex-direction: column; gap: 0.85rem; }
+    .breakdown-device-row { display: flex; flex-direction: column; gap: 0.3rem; }
+    .breakdown-device-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+    }
+    .breakdown-device-name { font-weight: 600; color: var(--text-primary); }
+    .breakdown-device-stats { color: var(--text-secondary); }
+    .breakdown-device-bar {
+      display: flex;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: var(--surface-2);
+    }
+
+    /* ─── Month Comparison ─── */
+    .month-comparison {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+    }
+
+    .month-nav-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      padding: 0.4rem 0.8rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.15s;
+    }
+
+    .month-nav-btn:hover {
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    .month-nav-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .month-nav-label {
+      font-weight: 700;
+      font-size: 0.95rem;
+      min-width: 160px;
+      text-align: center;
+      color: var(--text-primary);
+    }
+
+    .month-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+    }
+
+    .month-stat-row {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .month-stat-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+
+    .month-stat-value {
+      font-size: 1.4rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1;
+    }
+
+    .month-stat-sparkline {
+      width: 100%;
+      height: 20px;
+      margin-top: 0.25rem;
+    }
+
+    /* ─── Calendar Heatmap ─── */
+    .calendar-heatmap-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .calendar-heatmap-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+
+    .calendar-heatmap-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+    }
+
+    .calendar-heatmap-toggles {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .calendar-toggle-btn {
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      padding: 0.35rem 0.7rem;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .calendar-toggle-btn:hover {
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    .calendar-toggle-btn.active {
+      background: rgba(245,166,35,0.15);
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    .calendar-heatmap {
+      height: 280px;
+      position: relative;
+    }
+
+    .calendar-heatmap-week {
+      display: flex;
+      gap: 3px;
+    }
+
+    .calendar-heatmap-cell {
+      flex: 1;
+      aspect-ratio: 1;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      cursor: help;
+      transition: all 0.15s;
+      position: relative;
+    }
+
+    .calendar-heatmap-cell:hover {
+      border-color: var(--accent-solar);
+      box-shadow: 0 0 8px rgba(245,166,35,0.3);
+    }
+
+    .calendar-heatmap-tooltip {
+      position: absolute;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 0.5rem 0.75rem;
+      font-size: 0.7rem;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 10;
+      bottom: 130%;
+      left: 50%;
+      transform: translateX(-50%);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      display: none;
+    }
+
+    .calendar-heatmap-cell:hover .calendar-heatmap-tooltip {
+      display: block;
+    }
+
+    /* ─── Period Summary Grids ─── */
+    .period-section { margin-bottom: 2rem; }
+    .period-section-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-secondary);
+      margin-bottom: 0.75rem;
+    }
+    .period-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.75rem;
+    }
+    .period-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .period-card.master {
+      background: rgba(245,166,35,0.04);
+      border-color: rgba(245,166,35,0.2);
+    }
+    .period-card-label {
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+    }
+    .period-card-total {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+    .period-split-bar {
+      height: 4px;
+      border-radius: 3px;
+      background: var(--border);
+      overflow: hidden;
+      display: flex;
+      margin: 0.15rem 0;
+    }
+    .period-split-solar { height: 100%; background: var(--accent-solar); border-radius: 3px 0 0 3px; }
+    .period-split-grid  { height: 100%; background: #63b3ed; border-radius: 0 3px 3px 0; }
+    .period-detail-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.65rem;
+    }
+    .period-solar-label { color: var(--accent-solar); font-weight: 600; }
+    .period-grid-label  { color: #63b3ed; font-weight: 600; }
+    .period-footer-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 0.1rem;
+      font-size: 0.65rem;
+    }
+    .period-self-pct {
+      background: rgba(74,222,128,0.12);
+      color: #4ade80;
+      border-radius: 4px;
+      padding: 0.1rem 0.3rem;
+      font-weight: 700;
+      font-size: 0.62rem;
+    }
+    .period-savings {
+      color: var(--accent-solar);
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+    }
+    .period-fuel-compare {
+      margin-top: 0.4rem;
+      padding-top: 0.4rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      cursor: help;
+    }
+    .period-fuel-row { display: flex; justify-content: space-between; align-items: center; }
+    .period-fuel-label { font-size: 0.6rem; color: var(--text-secondary); font-weight: 500; }
+    .period-fuel-saving { font-family: 'JetBrains Mono', monospace; font-size: 0.67rem; font-weight: 700; color: #4ade80; }
+
+    @media (max-width: 1100px) { .period-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 700px)  { .period-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    /* ─── Additional Sections ─── */
+    .section-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .section-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 1200px) {
+      .km-origins-panels { flex-direction: column; gap: 1rem; }
+      .km-panel-divider { width: 100%; height: 1px; }
+      .km-panel { padding: 0; }
+      .km-panel-value { font-size: 2rem; }
+      .hero-stats { grid-template-columns: repeat(2, 1fr); }
+      .month-stats-grid { grid-template-columns: repeat(3, 1fr); }
+      .bill-estimate-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 768px) {
+      /* 2 columns on mobile - 1 column wastes too much vertical space */
+      .hero-stats { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+      .hero-stat { padding: 0.875rem; }
+      .hero-stat-value { font-size: 1.4rem; }
+      .month-stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .bill-estimate-grid { grid-template-columns: 1fr; }
+      /* Do NOT reset ring size here - 900px already set it to 120px */
+    }
+
+    @media (max-width: 600px) {
+      .month-stats-grid { grid-template-columns: 1fr; }
+      .chart-toggle-buttons { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+      .chart-toggle-btn { flex-shrink: 0; }
+      .daily-chart-header { flex-direction: column; align-items: flex-start; }
+      .period-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 0.5rem; }
+      .period-card { padding: 0.75rem; }
+      .period-card-total { font-size: 1.1rem; }
+    }
+
+    @media (max-width: 400px) {
+      .hero-stats { grid-template-columns: 1fr; }
+      .period-grid { grid-template-columns: 1fr !important; }
+      .top-hero-card { padding: 1rem 0.875rem; }
+      .hero-stat { padding: 0.75rem; }
+      .hero-stat-label {
+        font-size: 0.6rem;
+        /* Long labels like "TOTAL HOUSE LOAD POWERED BY SUNSHINE"
+           - drop the all-caps transform on tiny screens so they wrap better */
+        text-transform: none;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .hero-stat-value { font-size: 1.25rem; }
+      .savings-total-value { font-size: 1.5rem; }
+      .savings-total-spent-value { font-size: 1rem; }
+      .period-card-total { font-size: 1rem; }
+      .daily-chart-card { padding: 1rem; }
+      .calendar-heatmap-card { padding: 1rem; }
+      .calendar-heatmap-header { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+    }
+
+    /* ─── Table styles for existing sections ─── */
+    .table-wrap {
+      overflow-x: auto;
+      margin: 0 -1.5rem -1.5rem;
+      border-top: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    table thead {
+      background: var(--bg-base);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+
+    table th {
+      text-align: left;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-secondary);
+      font-weight: 600;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    table td {
+      padding: 0.75rem 1.5rem;
+      border-bottom: 1px solid rgba(45, 53, 72, 0.5);
+      color: var(--text-primary);
+    }
+
+    table tbody tr:hover {
+      background: var(--bg-card-hover);
+    }
+
+    /* ─── Pagination ─── */
+    .pagination {
+      display: flex;
+      gap: 0.25rem;
+      justify-content: center;
+      padding: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .page-btn {
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      padding: 0.4rem 0.6rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .page-btn:hover:not(:disabled) {
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    .page-btn.active {
+      background: rgba(245,166,35,0.15);
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    .page-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    /* ─── Daily Energy Shape (TOU) ─── */
+    .tou-period-toggle {
+      display: flex;
+      gap: 0.4rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .tou-period-btn {
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm, 6px);
+      color: var(--text-secondary);
+      padding: 0.3rem 0.75rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .tou-period-btn:hover {
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    .tou-period-btn.active {
+      background: rgba(245,166,35,0.15);
+      border-color: var(--accent-solar);
+      color: var(--accent-solar);
+    }
+
+    .tou-chart-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    }
+
+    .tou-chart-wrap {
+      position: relative;
+    }
+
+    .tou-y-axis {
+      display: none; /* Ripl draws its own y-axis now */
+    }
+
+    .tou-chart {
+      height: 180px;
+      position: relative;
+    }
+
+    .tou-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      position: relative;
+    }
+
+    .tou-bar-wrap {
+      width: 100%;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 0;
+      flex: 1;
+    }
+
+    .tou-bar {
+      width: 100%;
+      transition: opacity 0.15s;
+    }
+
+    .tou-bar:first-child {
+      border-radius: 3px 3px 0 0;
+    }
+
+    .tou-hour-label {
+      font-size: 0.55rem;
+      color: var(--text-secondary);
+      margin-top: 3px;
+      height: 0.7rem;
+      line-height: 0.7rem;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .tou-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .tou-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .tou-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container">
+    <div class="topbar-brand">
+      <svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="border-radius:6px;flex-shrink:0;" data-ws-mark="full"></svg>
+      <span>Watt<span style="color:var(--accent-solar)">Snatch</span></span>
+    </div>
+    <button id="topbar-hamburger" class="topbar-hamburger" aria-label="Menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <rect y="3"  width="20" height="2" rx="1"/>
+        <rect y="9"  width="20" height="2" rx="1"/>
+        <rect y="15" width="20" height="2" rx="1"/>
+      </svg>
+    </button>
+    <nav class="topbar-nav">
+      <a href="/">Dashboard</a>
+      <a href="/data" class="active">Data</a>
+      <a href="/drives">Drives</a>
+      <a href="/bills">Bills</a>
+      <a href="/retailer">Retailers</a>
+      <a href="/logs">Logs</a>
+      <a href="/settings">Settings</a>
+    </nav>
+    <div class="topbar-right"></div>
+  </div>
+</header>
+
+<main class="page-content">
+  <div class="container">
+
+    <!-- Top Hero Card: Energy Score + Savings Summary -->
+    <div class="top-hero-card">
+
+      <!-- Left: Score Ring -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:0.5rem">
+        <div class="energy-score-ring">
+          <svg class="energy-score-svg" viewBox="0 0 200 200">
+            <defs>
+              <linearGradient id="scoreGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:var(--accent-solar);stop-opacity:1" />
+                <stop offset="100%" style="stop-color:var(--accent-charge);stop-opacity:1" />
+              </linearGradient>
+            </defs>
+            <!-- Arc circles rotated -90deg so the arc starts at 12 o'clock -->
+            <g transform="rotate(-90, 100, 100)">
+              <circle cx="100" cy="100" r="80" class="energy-score-circle-bg" />
+              <circle cx="100" cy="100" r="80" class="energy-score-circle-fill" id="scoreRingCircle"
+                      style="stroke-dasharray: 502.65; stroke-dashoffset: 0;" />
+            </g>
+            <!-- Text has NO rotation. x=100 = horizontal centre. y=118 places the standard
+                 font baseline so the visual cap-height of the number sits at the circle centre. -->
+            <text x="100" y="118"
+                  text-anchor="middle"
+                  font-size="52"
+                  font-weight="700"
+                  fill="var(--accent-solar)"><tspan id="energy-score-value">-</tspan><tspan font-size="26" font-weight="600" fill="var(--text-secondary)">%</tspan></text>
+          </svg>
+        </div>
+        <div class="energy-score-sublabel" id="energy-score-sublabel">running on<br>sunshine ☀️</div>
+      </div>
+
+      <!-- Right: Savings Summary -->
+      <div class="savings-hero">
+        <div class="savings-hero-header">
+          <div class="savings-hero-title">Solar Savings <span class="spinner" id="savings-loading-spinner" style="display:none;vertical-align:middle;margin-left:0.5rem"></span></div>
+          <div class="savings-period-panel">
+            <div class="savings-period-grid">
+              <button class="savings-period-btn active" data-period="today">Today</button>
+              <button class="savings-period-btn" data-period="week">Week</button>
+              <button class="savings-period-btn" data-period="month">Month</button>
+              <button class="savings-period-btn" data-period="quarter">Quarter</button>
+              <button class="savings-period-btn" data-period="year">Year</button>
+              <span></span>
+              <button class="savings-period-btn" data-period="last_week">Last Week</button>
+              <button class="savings-period-btn" data-period="last_month">Last Month</button>
+              <button class="savings-period-btn" data-period="last_quarter">Last Quarter</button>
+              <button class="savings-period-btn" data-period="last_year">Last Year</button>
+            </div>
+            <div class="savings-daterange">
+              <input type="date" id="sh-date-from" aria-label="From date">
+              <span class="savings-daterange-sep">to</span>
+              <input type="date" id="sh-date-to" aria-label="To date">
+              <button class="savings-daterange-apply" id="sh-date-apply" type="button">Apply</button>
+            </div>
+          </div>
+        </div>
+        <div class="savings-total-row">
+          <div class="savings-total-saved">
+            <div class="savings-total-label">Total Saved</div>
+            <div class="savings-total-value" id="sh-total-saved">-</div>
+          </div>
+          <div class="savings-total-spent">
+            <div class="savings-total-spent-label">Grid Usage</div>
+            <div class="savings-total-spent-value" id="sh-total-spent">-</div>
+          </div>
+          <div class="savings-total-spent">
+            <div class="savings-total-spent-label">Supply Charge</div>
+            <div class="savings-total-spent-value" id="sh-supply-charge">-</div>
+          </div>
+          <div class="savings-total-spent">
+            <div class="savings-total-spent-label">= Total Spent</div>
+            <div class="savings-total-spent-value" id="sh-total-all-spent" style="color:var(--accent-import);font-size:1.75rem">-</div>
+          </div>
+        </div>
+        <div class="savings-breakdown">
+          <div class="savings-breakdown-item">
+            <div class="sbd-label">🚗 EV Charging</div>
+            <div class="sbd-value" id="sh-ev-saved">-</div>
+            <div class="sbd-spent" id="sh-ev-spent"></div>
+          </div>
+          <div class="savings-breakdown-item">
+            <div class="sbd-label">💧 Hot Water</div>
+            <div class="sbd-value" id="sh-hw-saved">-</div>
+            <div class="sbd-spent" id="sh-hw-spent"></div>
+          </div>
+          <div class="savings-breakdown-item">
+            <div class="sbd-label">🏠 House Solar</div>
+            <div class="sbd-value" id="sh-house-saved">-</div>
+            <div class="sbd-spent" id="sh-house-spent"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- kWh Stat Cards (period-aware) -->
+    <!-- km Origins: Sunshine / Grid / Public -->
+    <div class="km-origins-card">
+      <div class="km-origins-header">
+        <span class="km-origins-title">KILOMETRES DRIVEN BY SOURCE</span>
+        <span class="km-origins-since">Tracking since 20 May 2026</span>
+      </div>
+      <div class="km-origins-panels">
+
+        <div class="km-panel km-panel-solar">
+          <div class="km-panel-label">☀ Driven on Sunshine</div>
+          <div class="km-panel-value-row">
+            <span class="km-panel-value" id="solar-km-value">-</span>
+            <span class="km-panel-unit">km</span>
+          </div>
+          <div class="km-panel-detail"><span id="solar-km-kwh">-</span> kWh · <span id="solar-km-eff">-</span> km/kWh</div>
+        </div>
+
+        <div class="km-panel-divider"></div>
+
+        <div class="km-panel km-panel-grid">
+          <div class="km-panel-label">⚡ Driven on Grid</div>
+          <div class="km-panel-value-row">
+            <span class="km-panel-value" id="grid-km-value">-</span>
+            <span class="km-panel-unit">km</span>
+          </div>
+          <div class="km-panel-detail"><span id="grid-km-kwh">-</span> kWh home grid</div>
+        </div>
+
+        <div class="km-panel-divider"></div>
+
+        <div class="km-panel km-panel-public">
+          <div class="km-panel-label">🔌 Public Chargers</div>
+          <div class="km-panel-value-row">
+            <span class="km-panel-value" id="public-km-value">-</span>
+            <span class="km-panel-unit">km</span>
+          </div>
+          <div class="km-panel-detail"><span id="public-km-kwh">-</span> kWh away from home</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="hero-stat-label" id="hero-solar-label">Solar</div>
+        <div class="hero-stat-value" style="color: var(--accent-solar);" id="hero-solar">- kWh</div>
+        <div class="hero-stat-sub" id="hero-solar-sub"></div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-label" id="hero-house-label">House Load</div>
+        <div class="hero-stat-value" style="color: #63b3ed;" id="hero-house">- kWh</div>
+        <div class="hero-stat-sub" id="hero-house-sub"></div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-label" id="hero-ev-label">EV Charged</div>
+        <div class="hero-stat-value" style="color: var(--accent-charge);" id="hero-ev">-%</div>
+        <div class="hero-stat-sub" id="hero-ev-sub"></div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-label" id="hero-hw-label">Hot Water</div>
+        <div class="hero-stat-value" style="color: #fb923c;" id="hero-hw">-%</div>
+        <div class="hero-stat-sub" id="hero-hw-sub"></div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-label" id="hero-import-label">Grid Imported</div>
+        <div class="hero-stat-value" style="color: var(--accent-import);" id="hero-import">- kWh</div>
+        <div class="hero-stat-sub" id="hero-import-sub"></div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-label" id="hero-self-pct-label">Self-Sufficiency</div>
+        <div class="hero-stat-value" style="color: var(--accent-import);" id="hero-self-pct">-%</div>
+        <div class="hero-stat-sub" id="hero-self-pct-sub"></div>
+      </div>
+    </div>
+
+    <!-- Combined Savings -->
+    <div class="period-section">
+      <div class="period-section-label">Combined Savings</div>
+      <div class="period-grid" id="master-period-grid"><!-- filled by JS --></div>
+    </div>
+
+    <!-- Car Charging -->
+    <div class="period-section">
+      <div class="period-section-label">Car Charging</div>
+      <div class="period-grid" id="ev-period-grid"><!-- filled by JS --></div>
+    </div>
+
+    <!-- Hot Water -->
+    <div class="period-section">
+      <div class="period-section-label" style="display:flex;align-items:center;justify-content:space-between">
+        Hot Water (Eddi)
+        <button id="eddi-backfill-btn" style="font-size:0.7rem;padding:0.2rem 0.6rem;background:none;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-secondary);cursor:pointer" title="Fetch grid boost history from myenergi API">Sync grid boosts</button>
+      </div>
+      <div class="period-grid" id="hw-period-grid"><!-- filled by JS --></div>
+    </div>
+
+    <!-- House Load -->
+    <div class="period-section">
+      <div class="period-section-label">House Load</div>
+      <div class="period-grid" id="house-period-grid"><!-- filled by JS --></div>
+    </div>
+
+    <!-- Bill Estimate Card -->
+    <div class="bill-estimate-card">
+      <div class="section-title" style="margin-bottom: 1rem;">Current Billing Period</div>
+      <div class="bill-estimate-grid">
+        <div class="bill-item">
+          <div class="bill-item-label">Grid Usage</div>
+          <div class="bill-item-value" id="bill-usage">- kWh</div>
+        </div>
+        <div class="bill-item">
+          <div class="bill-item-label">Feed-in Credit</div>
+          <div class="bill-item-value" style="color: var(--accent-charge);" id="bill-credit">-</div>
+        </div>
+        <div class="bill-item">
+          <div class="bill-item-label">Supply Charges</div>
+          <div class="bill-item-value" id="bill-supply">-</div>
+        </div>
+      </div>
+      <div class="bill-estimate-divider"></div>
+      <div class="bill-estimate-total">
+        <div class="bill-estimate-total-label">Estimated Bill</div>
+        <div class="bill-estimate-total-value" id="bill-estimate">-</div>
+      </div>
+    </div>
+
+    <!-- Combined Daily Chart with Toggles -->
+    <div class="daily-chart-card">
+      <div class="daily-chart-header">
+        <div class="daily-chart-title">Daily Energy Flow</div>
+        <div class="chart-toggle-buttons" id="chart-toggles">
+          <button class="chart-toggle-btn active" data-series="house">House</button>
+          <button class="chart-toggle-btn active" data-series="ev">EV</button>
+          <button class="chart-toggle-btn active" data-series="hw">Hot Water</button>
+          <button class="chart-toggle-btn active" data-series="ac">AC</button>
+        </div>
+      </div>
+      <div class="daily-chart-area" id="daily-chart-area"></div>
+      <div class="daily-chart-legend">
+        <div class="legend-item"><span class="legend-dot" style="background: #63b3ed;"></span>House</div>
+        <div class="legend-item"><span class="legend-dot" style="background: var(--accent-charge);"></span>EV</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #fb923c;"></span>Hot Water</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #38bdf8;"></span>AC</div>
+      </div>
+    </div>
+
+    <!-- Solar vs Grid Breakdown -->
+    <div class="solar-breakdown-card" id="solar-breakdown-card" style="display:none">
+      <div class="solar-breakdown-title">Solar vs Grid Breakdown</div>
+      <div id="solar-breakdown-body"></div>
+    </div>
+
+    <!-- Month Comparison with Sparklines -->
+    <div class="month-comparison">
+      <button class="month-nav-btn" id="prev-month">← Previous</button>
+      <div class="month-nav-label" id="month-label">-</div>
+      <button class="month-nav-btn" id="next-month">Next →</button>
+    </div>
+
+    <!-- Calendar Heatmap -->
+    <div class="calendar-heatmap-card">
+      <div class="calendar-heatmap-header">
+        <div class="calendar-heatmap-title">Daily Performance Heatmap</div>
+        <div class="calendar-heatmap-toggles" id="heatmap-toggles">
+          <button class="calendar-toggle-btn active" data-type="solar">Solar</button>
+          <button class="calendar-toggle-btn" data-type="house">House</button>
+          <button class="calendar-toggle-btn" data-type="ev">EV</button>
+          <button class="calendar-toggle-btn" data-type="hw">Hot Water</button>
+          <button class="calendar-toggle-btn" data-type="ac">AC</button>
+        </div>
+      </div>
+      <div class="calendar-heatmap" id="calendar-heatmap">
+        <!-- Filled by JS -->
+      </div>
+    </div>
+
+    <!-- Hourly Profile: Time-of-Generation & Time-of-Use -->
+    <div class="section-card" id="hourly-profile-card">
+      <div class="section-header" style="margin-bottom:0.75rem">
+        <div class="section-title">Daily Energy Shape</div>
+        <div class="tou-period-toggle" id="tou-period-toggle">
+          <button class="tou-period-btn" data-days="7">7D</button>
+          <button class="tou-period-btn active" data-days="30">30D</button>
+          <button class="tou-period-btn" data-days="90">90D</button>
+        </div>
+      </div>
+      <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 1.25rem">Average power at each hour of day across the selected period.</p>
+
+      <!-- Generation chart -->
+      <div class="tou-chart-label">Solar Generation</div>
+      <div class="tou-chart-wrap">
+        <div class="tou-y-axis" id="tou-gen-yaxis"></div>
+        <div class="tou-chart" id="tou-gen-chart"></div>
+      </div>
+
+      <!-- Consumption chart -->
+      <div class="tou-chart-label" style="margin-top:1.5rem">Energy Use</div>
+      <div class="tou-chart-wrap">
+        <div class="tou-y-axis" id="tou-use-yaxis"></div>
+        <div class="tou-chart" id="tou-use-chart"></div>
+      </div>
+
+      <!-- Legend -->
+      <div class="tou-legend" id="tou-legend">
+        <span class="tou-legend-item"><span class="tou-swatch" style="background:var(--accent-solar)"></span>Solar</span>
+        <span class="tou-legend-item"><span class="tou-swatch" style="background:#63b3ed"></span>House</span>
+        <span class="tou-legend-item"><span class="tou-swatch" style="background:var(--accent-charge)"></span>EV</span>
+        <span class="tou-legend-item"><span class="tou-swatch" style="background:#fb923c"></span>Hot Water</span>
+      </div>
+    </div>
+
+    <!-- Time-of-Day Pattern: day-of-week x hour-of-day heatmap -->
+    <div class="section-card" id="riplheatmap-card">
+      <div class="section-header" style="margin-bottom:0.75rem;flex-wrap:wrap;gap:0.5rem">
+        <div class="section-title">Time-of-Day Pattern</div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <div class="calendar-heatmap-toggles" id="riplheatmap-metric-toggle">
+            <button class="calendar-toggle-btn active" data-metric="solar_excess">Solar Excess</button>
+            <button class="calendar-toggle-btn" data-metric="ev">EV Charging</button>
+          </div>
+          <div class="tou-period-toggle" id="riplheatmap-period-toggle">
+            <button class="tou-period-btn" data-days="7">7D</button>
+            <button class="tou-period-btn active" data-days="30">30D</button>
+            <button class="tou-period-btn" data-days="90">90D</button>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 1rem">
+        Average power by day of week and hour of day - which windows actually capture solar excess
+        or draw EV charging, rather than just the hour-of-day shape above.
+      </p>
+      <div id="riplheatmap-chart" style="width:100%;height:340px"></div>
+    </div>
+
+    <!-- Solar Forecast Widget (Phase 4) -->
+    <div class="section-card" id="solcast-widget" style="display: none;">
+      <div class="section-header">
+        <div class="section-title">Solar Forecast - Next 24 Hours</div>
+      </div>
+      <div style="height: 80px; display: flex; align-items: flex-end; gap: 2px; margin-bottom: 1rem;" id="solcast-chart">
+        <!-- Filled by JS -->
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div>
+          <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Today Remaining</div>
+          <div style="font-size: 1.5rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;" id="solcast-today-remaining">- kWh</div>
+        </div>
+        <div>
+          <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Tomorrow Total</div>
+          <div style="font-size: 1.5rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;" id="solcast-tomorrow-total">- kWh</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upcoming Trips Card (Phase 3) -->
+    <div class="section-card" id="upcoming-trips" style="display: none;">
+      <div class="section-header">
+        <div class="section-title">Upcoming Trips</div>
+      </div>
+      <div id="trips-content">
+        <!-- Filled by JS -->
+      </div>
+    </div>
+
+    <!-- Financial Summary (Phase 6) -->
+    <div class="section-card" id="financial-summary" style="display: none;">
+      <div class="section-header">
+        <div class="section-title">Financial Summary</div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+        <div>
+          <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Total Earned (Feed-in)</div>
+          <div style="font-size: 1.35rem; font-weight: 700; color: var(--accent-charge);" id="financial-total-export">-</div>
+        </div>
+        <div>
+          <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Solar Avoided Cost</div>
+          <div style="font-size: 1.35rem; font-weight: 700; color: var(--accent-solar);" id="financial-total-solar-avoided">-</div>
+        </div>
+        <div>
+          <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Total Net Benefit</div>
+          <div style="font-size: 1.35rem; font-weight: 700; color: var(--accent-charge);" id="financial-total-net-benefit">-</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Savings vs Spend - month on month trend -->
+    <div class="section-card" id="monthly-trend-card" style="display: none;">
+      <div class="section-header">
+        <div class="section-title">Savings vs Spend - Month on Month</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; font-size: 0.7rem; color: var(--text-secondary);">
+        <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:0.65rem;height:0.65rem;border-radius:2px;background:#4ade80;display:inline-block;"></span>Saved</span>
+        <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:0.65rem;height:0.65rem;border-radius:2px;background:var(--accent-import);display:inline-block;"></span>Spent</span>
+      </div>
+      <div style="height: 220px; position: relative;" id="monthly-trend-chart">
+        <!-- Filled by JS -->
+      </div>
+    </div>
+
+    <!-- Solar Provenance Stat (Phase 2) -->
+    <div class="section-card" id="solar-provenance" style="display: none;">
+      <div class="section-header">
+        <div class="section-title">Solar Provenance</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <div>
+          <div style="font-size: 0.85rem; color: var(--text-primary); line-height: 1.5;" id="provenance-text"></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div>
+            <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Lifetime Solar kWh</div>
+            <div style="font-size: 1.35rem; font-weight: 700;" id="provenance-kwh">- kWh</div>
+          </div>
+          <div>
+            <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Lifetime Savings</div>
+            <div style="font-size: 1.35rem; font-weight: 700; color: var(--accent-charge);" id="provenance-savings">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Diversion Log (Phase 5) -->
+    <div class="section-card" id="diversion-log">
+      <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
+        <div class="section-title">Diversion Log - Last 24 Hours</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Reason</th>
+              <th>State</th>
+              <th>Solar</th>
+              <th>To Car</th>
+              <th>To Hot Water</th>
+              <th>Trip&lt;18h</th>
+            </tr>
+          </thead>
+          <tbody id="diversion-log-tbody">
+            <tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-secondary)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Charge Sessions Table -->
+    <div class="section-card" id="sessions-card">
+      <div class="section-header">
+        <div class="section-title">Charge Sessions</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Started</th>
+              <th>Duration</th>
+              <th>Solar kWh</th>
+              <th>Battery</th>
+              <th>Avg Amps</th>
+              <th>Est. Saved</th>
+            </tr>
+          </thead>
+          <tbody id="sessions-tbody">
+            <tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-secondary)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="pagination" class="pagination"></div>
+    </div>
+
+  </div>
+</main>
+
+<script src="/js/common.js"></script>
+<script src="/vendor/ripl/ripl.bundle.js"></script>
+<script src="/js/history-v2.js"></script>
+</body>
+</html>

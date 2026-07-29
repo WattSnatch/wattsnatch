@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch - Sign in</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-base);
+      margin: 0;
+      padding: 1rem;
+      box-sizing: border-box;
+    }
+
+    .login-box {
+      width: 100%;
+      max-width: 360px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg, 12px);
+      padding: 2rem 2rem 1.75rem;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+    }
+
+    .login-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .login-logo svg {
+      flex-shrink: 0;
+    }
+
+    .login-logo-text {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+    }
+
+    .login-logo-sub {
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      margin-top: 0.1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.4rem;
+    }
+
+    .login-input {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-card-hover);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md, 8px);
+      color: var(--text-primary);
+      font-size: 1rem;
+      padding: 0.65rem 0.85rem;
+      margin-bottom: 1.25rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .login-input:focus {
+      border-color: var(--accent-solar);
+    }
+
+    .login-btn {
+      width: 100%;
+      padding: 0.7rem 1rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      background: var(--accent-solar);
+      color: #000;
+      border: none;
+      border-radius: var(--radius-md, 8px);
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .login-btn:hover { opacity: 0.88; }
+    .login-btn:active { opacity: 0.75; }
+
+    .login-error {
+      display: none;
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.35);
+      color: #f87171;
+      border-radius: var(--radius-md, 8px);
+      padding: 0.6rem 0.85rem;
+      font-size: 0.85rem;
+      margin-bottom: 1.1rem;
+    }
+
+    .login-error.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <div class="login-logo">
+      <svg width="42" height="42" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="border-radius:9px;flex-shrink:0" data-ws-mark="full"></svg>
+      <div>
+        <div class="login-logo-text">Watt<span style="color:var(--accent-solar)">Snatch</span></div>
+        <div class="login-logo-sub">Home Energy Dashboard</div>
+      </div>
+    </div>
+
+    <div id="login-error" class="login-error">
+      Incorrect password. Please try again.
+    </div>
+
+    <form method="POST" action="/login" id="login-form">
+      <label for="password">Password</label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        class="login-input"
+        placeholder="Enter your password"
+        autocomplete="current-password"
+        required
+        autofocus
+      >
+      <button type="submit" class="login-btn">Sign in</button>
+    </form>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    // Show error message based on ?error= in URL
+    const params = new URLSearchParams(location.search);
+    const errorType = params.get('error');
+    if (errorType === 'locked') {
+      const mins = parseInt(params.get('mins'), 10) || 1;
+      const errEl = document.getElementById('login-error');
+      errEl.textContent = `Too many failed attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`;
+      errEl.classList.add('visible');
+      document.getElementById('password').disabled = true;
+      document.querySelector('.login-btn').disabled = true;
+    } else if (errorType === '1') {
+      document.getElementById('login-error').classList.add('visible');
+    }
+
+    // Pass ?next through the form action so the server can redirect after login
+    const next = new URLSearchParams(location.search).get('next');
+    if (next) {
+      const form = document.getElementById('login-form');
+      form.action = '/login?next=' + encodeURIComponent(next);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,1682 @@
+/*
+ * Copyright (c) 2026 James Shafton
+ * Licensed under the PolyForm Noncommercial License 1.0.0
+ * See LICENSE file in the project root, or
+ * https://polyformproject.org/licenses/noncommercial/1.0.0
+ */
+
+/* ─── Top row: flow diagram + EV card ─── */
+.top-row {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 0.5rem;
+  align-items: stretch;
+  margin-bottom: 0.5rem;
+}
+
+/* ─── Energy Flow Section ─── */
+.flow-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  isolation: isolate; /* creates stacking context so SVG z-index:0 stays behind content z-index:1 */
+}
+
+/* SVG overlay - JS draws bezier curves over the whole section */
+.flow-curves-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 0;
+}
+/* Ensure flow content sits above the SVG */
+.flow-section > *:not(.flow-curves-svg) { position: relative; z-index: 1; }
+
+.flow-diagram {
+  display: grid;
+  grid-template-columns: 1fr 100px 1fr 100px 1fr;
+  align-items: start;
+  gap: 0.25rem 0;
+  min-height: 130px;
+}
+
+.flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.flow-node-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.flow-node-icon.solar {
+  background: rgba(245, 166, 35, 0.12);
+  border: 2px solid rgba(245, 166, 35, 0.3);
+  color: var(--accent-solar);
+}
+
+.flow-node-icon.home {
+  background: rgba(148, 163, 184, 0.1);
+  border: 2px solid rgba(148, 163, 184, 0.2);
+  color: var(--accent-idle);
+}
+
+.flow-node-icon.grid {
+  background: rgba(96, 165, 250, 0.1);
+  border: 2px solid rgba(96, 165, 250, 0.2);
+  color: var(--accent-export);
+}
+
+.flow-node-icon.grid.importing {
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.25);
+  color: var(--accent-import);
+}
+
+.flow-node-icon.ev {
+  background: rgba(74, 222, 128, 0.1);
+  border: 2px solid rgba(74, 222, 128, 0.2);
+  color: var(--accent-charge);
+}
+
+.flow-node-icon.ev.active {
+  animation: ev-glow 2s ease-in-out infinite;
+}
+
+@keyframes ev-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.2); }
+  50% { box-shadow: 0 0 12px 4px rgba(74, 222, 128, 0.15); }
+}
+
+.flow-node-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.flow-node-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-value);
+}
+
+.flow-node-today {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  opacity: 0.85;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* ─── Flow pipes / animated dots ─── */
+.flow-pipe {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  margin-top: 6px; /* (icon 64px - pipe 52px) / 2 - centres pipe on icon */
+  overflow: hidden;
+}
+
+.flow-pipe-line {
+  position: absolute;
+  height: 2px;
+  width: 100%;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+}
+
+.flow-pipe.active .flow-pipe-line {
+  background: linear-gradient(90deg, transparent, currentColor 50%, transparent);
+  opacity: 0.5;
+}
+
+.flow-pipe.solar-home { color: var(--accent-solar); }
+.flow-pipe.home-grid  { color: var(--accent-export); }
+.flow-pipe.home-grid.importing { color: var(--accent-import); }
+
+/* ─── Vertical pipe (Home → EV) ─── */
+.flow-pipe-v {
+  position: relative;
+  width: 2px;
+  height: 56px;
+  overflow: hidden;
+}
+
+.flow-pipe-v-line {
+  position: absolute;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(180deg, transparent, var(--border), transparent);
+}
+
+.flow-pipe-v.active .flow-pipe-v-line {
+  background: linear-gradient(180deg, transparent, currentColor 50%, transparent);
+  opacity: 0.5;
+}
+
+.flow-pipe-v.home-ev { color: var(--accent-charge); }
+
+/* Pipes pivot from the BOTTOM (node side) so the pipe base stays on the node.
+   With 3 bottom nodes (EV · HW · AC) all pipes lean inward toward Home:
+   - EV  (far left)    → top leans RIGHT  → positive rotation
+   - HW  (centre-left) → top leans RIGHT  → small positive rotation
+   - AC  (far right)   → top leans LEFT   → negative rotation */
+.flow-pipe-v.pipe-home-ev {
+  transform-origin: bottom center;
+  transform: rotate(20deg);
+  overflow: visible;
+}
+.flow-pipe-v.pipe-home-hw {
+  transform-origin: bottom center;
+  transform: rotate(10deg);
+  overflow: visible;
+}
+.flow-pipe-v.pipe-home-ac {
+  transform-origin: bottom center;
+  transform: rotate(-20deg);
+  overflow: visible;
+}
+
+/* ─── Bottom branch layout ─── */
+.flow-bottom {
+  display: flex;
+  justify-content: space-evenly;
+  gap: 0;
+  margin-top: 1.5rem; /* mobile */
+}
+@media (min-width: 600px) {
+  .flow-bottom { margin-top: 3rem; }
+}
+@media (min-width: 960px) {
+  .flow-bottom { margin-top: 4rem; }
+}
+.flow-branch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+  max-width: 110px;
+}
+
+/* ─── Hot water node ─── */
+.flow-node-icon.hw {
+  background: rgba(251, 146, 60, 0.12);
+  border: 2px solid rgba(251, 146, 60, 0.3);
+  color: #fb923c;
+}
+.flow-node-icon.hw.active {
+  animation: hw-glow 2s ease-in-out infinite;
+}
+@keyframes hw-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251,146,60,0.2); }
+  50%       { box-shadow: 0 0 12px 4px rgba(251,146,60,0.15); }
+}
+.flow-pipe-v.home-hw { color: #fb923c; }
+
+/* ─── AC node ─── */
+.flow-node-icon.ac {
+  background: rgba(156, 163, 175, 0.12);
+  border: 2px solid rgba(156, 163, 175, 0.3);
+  color: #9ca3af;
+}
+.flow-node-icon.ac.active {
+  animation: ac-glow 2s ease-in-out infinite;
+}
+.flow-node-icon.ac.cooling {
+  animation: ac-cool-glow 2s ease-in-out infinite;
+  color: #3b82f6;
+}
+.flow-node-icon.ac.heating {
+  animation: ac-heat-glow 2s ease-in-out infinite;
+  color: #f97316;
+}
+@keyframes ac-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(156,163,175,0.2); }
+  50%       { box-shadow: 0 0 12px 4px rgba(156,163,175,0.15); }
+}
+@keyframes ac-cool-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.2); }
+  50%       { box-shadow: 0 0 12px 4px rgba(59,130,246,0.15); }
+}
+@keyframes ac-heat-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(249,115,22,0.2); }
+  50%       { box-shadow: 0 0 12px 4px rgba(249,115,22,0.15); }
+}
+.flow-pipe-v.home-ac { color: #9ca3af; }
+.flow-pipe-v.home-ac.cooling { color: #3b82f6; }
+.flow-pipe-v.home-ac.heating { color: #f97316; }
+
+.flow-dot-v {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  left: -2px;
+}
+
+.flow-pipe-v.active .flow-dot-v {
+  animation: flow-ttb 1.8s ease-in-out infinite;
+}
+
+.flow-pipe-v.active .flow-dot-v:nth-child(2) { animation-delay: 0s; }
+.flow-pipe-v.active .flow-dot-v:nth-child(3) { animation-delay: 0.9s; }
+
+@keyframes flow-ttb {
+  0%   { top: -8px; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: calc(100% + 8px); opacity: 0; }
+}
+
+.flow-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+}
+
+.flow-pipe.active .flow-dot { animation: flow-ltr 1.8s ease-in-out infinite; }
+.flow-pipe.active .flow-dot:nth-child(2) { animation-delay: 0.6s; }
+.flow-pipe.active .flow-dot:nth-child(3) { animation-delay: 1.2s; }
+.flow-pipe.reverse .flow-dot { animation: flow-rtl 1.8s ease-in-out infinite; }
+.flow-pipe.reverse .flow-dot:nth-child(2) { animation-delay: 0.6s; }
+.flow-pipe.reverse .flow-dot:nth-child(3) { animation-delay: 1.2s; }
+
+@keyframes flow-ltr {
+  0% { left: -10px; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { left: calc(100% + 10px); opacity: 0; }
+}
+
+@keyframes flow-rtl {
+  0% { right: -10px; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { right: calc(100% + 10px); opacity: 0; }
+}
+
+/* ─── Status strip ─── */
+.status-strip {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius-md);
+  background: rgba(148, 163, 184, 0.06);
+  border: 1px solid var(--border);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: center;
+  transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+.status-strip.charging {
+  background: rgba(74, 222, 128, 0.08);
+  border-color: rgba(74, 222, 128, 0.25);
+  color: var(--accent-charge);
+}
+
+.status-strip.warning {
+  background: rgba(245, 166, 35, 0.08);
+  border-color: rgba(245, 166, 35, 0.2);
+  color: var(--accent-solar);
+}
+
+.status-strip.idle {
+  background: rgba(148, 163, 184, 0.06);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.status-strip.override {
+  background: rgba(96, 165, 250, 0.08);
+  border-color: rgba(96, 165, 250, 0.25);
+  color: var(--accent-export);
+}
+
+/* Phase 5 - trip-awareness context line inside the status strip */
+.status-strip-trip {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+.status-strip-trip.priority {
+  color: var(--accent-solar);
+}
+
+/* Phase 5 - "View diversion log" link beneath the status strip */
+.diversion-log-link {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  text-align: center;
+  width: 100%;
+  opacity: 0.8;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+.diversion-log-link:hover {
+  opacity: 1;
+  color: var(--accent-solar);
+  text-decoration: underline;
+}
+
+/* ─── EV Status Card ─── */
+.ev-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.ev-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.ev-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text-value);
+}
+
+.ev-state-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.1rem;
+}
+
+.ev-battery-section {
+  margin-bottom: 0.75rem;
+}
+
+.ev-battery-pct {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-value);
+  line-height: 1;
+  margin-bottom: 0.4rem;
+}
+
+.ev-battery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.ev-stats-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin-top: auto;
+}
+
+.ev-stat {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+}
+
+.ev-stat-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.ev-stat-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-value);
+}
+
+/* ─── Charge limit slider ─── */
+.charge-limit-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.charge-limit-slider-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.charge-limit-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+  cursor: pointer;
+}
+
+.charge-limit-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-solar);
+  cursor: pointer;
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 0 0 1px rgba(245, 166, 35, 0.4);
+  transition: box-shadow 0.15s ease;
+}
+
+.charge-limit-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.2);
+}
+
+.charge-limit-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-solar);
+  cursor: pointer;
+  border: 2px solid var(--bg-card);
+}
+
+.charge-limit-slider-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-solar);
+  white-space: nowrap;
+  min-width: 2.8rem;
+  text-align: right;
+}
+
+.charge-limit-status {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: color 0.3s ease;
+}
+
+.charge-limit-status.ok { color: var(--accent-charge); }
+.charge-limit-status.err { color: var(--accent-import); }
+
+/* ─── Metric cards row ─── */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.625rem 0.875rem;
+}
+
+.metric-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.metric-label .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.metric-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.45rem;
+  font-weight: 600;
+  color: var(--text-value);
+  line-height: 1;
+}
+
+.metric-sub {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-top: 0.2rem;
+}
+
+/* ─── Bottom stats bar ─── */
+.bottom-stats {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.5rem;
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+}
+
+.bottom-stat-group {
+  flex: 1;
+}
+
+.bottom-group-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.bottom-stat-items {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+.bottom-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.bottom-stat-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.bottom-stat-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-value);
+  line-height: 1.1;
+}
+
+.bottom-divider {
+  width: 1px;
+  background: var(--border);
+  margin: 0 1.5rem;
+  align-self: stretch;
+}
+
+/* ─── HOLDING countdown display ─── */
+.holding-banner {
+  background: rgba(245, 166, 35, 0.08);
+  border: 1px solid rgba(245, 166, 35, 0.25);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin-top: 0.75rem;
+}
+
+.holding-text { flex: 1; }
+
+.holding-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-solar);
+}
+
+.holding-desc {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-top: 0.1rem;
+}
+
+/* ─── State banners ─── */
+.waiting-banner,
+.stopped-banner,
+.override-banner,
+.control-off-banner {
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.875rem;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.waiting-banner {
+  background: rgba(99, 179, 237, 0.1);
+  border: 1px solid rgba(99, 179, 237, 0.3);
+  color: #63b3ed;
+}
+
+.stopped-banner {
+  background: rgba(252, 129, 74, 0.1);
+  border: 1px solid rgba(252, 129, 74, 0.3);
+  color: #fc814a;
+}
+
+.override-banner {
+  background: rgba(72, 199, 142, 0.1);
+  border: 1px solid rgba(72, 199, 142, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+.override-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #48c78e;
+}
+.override-desc {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-top: 0.1rem;
+}
+
+.control-off-banner {
+  background: rgba(160, 160, 160, 0.1);
+  border: 1px solid rgba(160, 160, 160, 0.25);
+  color: var(--text-secondary);
+}
+
+.scheduled-banner {
+  background: rgba(124, 108, 235, 0.1);
+  border: 1px solid rgba(124, 108, 235, 0.3);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.875rem;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.scheduled-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #9f8fff;
+}
+.scheduled-desc {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-top: 0.1rem;
+}
+
+.tou-peak-banner {
+  background: rgba(252, 129, 74, 0.08);
+  border: 1px solid rgba(252, 129, 74, 0.25);
+  border-radius: var(--radius-md);
+  padding: 0.45rem 0.875rem;
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #fc814a;
+}
+
+/* ─── Charging Control toggle row ─── */
+.control-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.875rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.control-toggle-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: block;
+}
+
+.control-toggle-desc {
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  margin-top: 0.1rem;
+  display: block;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: 22px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  left: 3px; top: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--accent-solar); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+/* ─── STOP / AUTO / CHARGE NOW button row ─── */
+.ev-actions-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.ev-action-btn {
+  padding: 0.45rem 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  text-align: center;
+}
+.ev-action-btn:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+  color: var(--text-primary);
+}
+.ev-action-btn.ev-action-btn-active {
+  background: var(--accent-solar);
+  border-color: var(--accent-solar);
+  color: #000;
+}
+#btn-stop.ev-action-btn-active {
+  background: #fc814a;
+  border-color: #fc814a;
+  color: #fff;
+}
+#btn-charge-now.ev-action-btn-active {
+  background: #48c78e;
+  border-color: #48c78e;
+  color: #fff;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 960px) {
+  .top-row {
+    grid-template-columns: 1fr;
+  }
+  .bottom-stat-items {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .metrics-row {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.35rem;
+  }
+  .metric-card {
+    padding: 0.5rem 0.625rem;
+  }
+  .metric-value {
+    font-size: 1.1rem;
+  }
+  .metric-value-sm {
+    font-size: 0.9rem;
+  }
+
+  .bottom-stats {
+    flex-direction: column;
+    padding: 0.75rem 1rem;
+  }
+  .bottom-divider {
+    width: 100%;
+    height: 1px;
+    margin: 0.75rem 0;
+  }
+  .bottom-stat-items {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+  .bottom-stat-value {
+    font-size: 1rem;
+  }
+
+  .flow-section {
+    padding: 0.625rem 0.75rem;
+  }
+  .flow-diagram {
+    grid-template-columns: 1fr 70px 1fr 70px 1fr;
+    min-height: unset;
+  }
+  .flow-node-icon {
+    width: 46px;
+    height: 46px;
+  }
+  .flow-node-icon img {
+    width: 28px !important;
+    height: 28px !important;
+  }
+  .flow-node-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+  .flow-node-value {
+    font-size: 0.75rem;
+  }
+  .flow-node-label {
+    font-size: 0.62rem;
+  }
+  .flow-branch {
+    gap: 0.4rem;
+    max-width: 90px;
+  }
+
+  .ev-card {
+    padding: 0.75rem 0.875rem;
+  }
+  .ev-battery-pct {
+    font-size: 1.6rem;
+  }
+  .ev-name {
+    font-size: 0.95rem;
+  }
+}
+
+@media (max-width: 480px) {
+  /* ── Flow diagram ── */
+  .flow-diagram {
+    grid-template-columns: 1fr 54px 1fr 54px 1fr;
+  }
+  .flow-node-icon {
+    width: 42px;
+    height: 42px;
+  }
+  .flow-node-icon img {
+    width: 26px !important;
+    height: 28px !important;
+  }
+  .flow-node-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+  .flow-node-value {
+    font-size: 0.72rem;
+  }
+  .flow-node-today {
+    font-size: 0.55rem;
+  }
+
+  /* Flow node labels */
+  .flow-node-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.03em;
+  }
+
+  /* ── Bottom branches ── */
+  .flow-bottom {
+    gap: 0;
+  }
+  .flow-branch {
+    max-width: 80px;
+  }
+  .flow-pipe-v {
+    height: 44px;
+  }
+  .flow-branch {
+    gap: 0.4rem;
+  }
+
+  /* ── Metrics row - keep 3 columns; collapsing to 1 wastes vertical space ── */
+  .metrics-row {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.3rem;
+  }
+  .metric-card {
+    padding: 0.4rem 0.5rem;
+  }
+  .metric-value {
+    font-size: 1rem;
+  }
+  .metric-value-sm {
+    font-size: 0.82rem;
+  }
+  .metric-label {
+    font-size: 0.58rem;
+  }
+  .metric-sub {
+    font-size: 0.6rem;
+  }
+
+  /* ── Bottom stats bar ── */
+  .bottom-stats {
+    padding: 0.75rem;
+  }
+  .bottom-stat-items {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+  }
+  .bottom-stat-value {
+    font-size: 0.9rem;
+  }
+  .bottom-stat-label {
+    font-size: 0.58rem;
+  }
+  .bottom-group-label {
+    font-size: 0.58rem;
+    margin-bottom: 0.5rem;
+  }
+
+  /* ── EV card ── */
+  .ev-card {
+    padding: 0.75rem;
+  }
+  .ev-battery-pct {
+    font-size: 1.5rem;
+  }
+  .ev-name {
+    font-size: 0.95rem;
+  }
+  .ev-stats-row {
+    gap: 0.3rem;
+  }
+  .ev-stats-row .ev-stat-value {
+    font-size: 0.82rem;
+  }
+  .ev-stat {
+    padding: 0.4rem 0.5rem;
+  }
+  .ev-actions-row {
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+  }
+  .ev-action-btn {
+    font-size: 0.64rem;
+    padding: 0.45rem 0;
+  }
+
+  /* ── Trip badges - allow wrapping, keep readable ── */
+  .trip-energy-row {
+    gap: 0.25rem;
+  }
+  .trip-energy-badge {
+    font-size: 0.7rem;
+    padding: 0.12rem 0.4rem;
+  }
+  .trip-grid-charge-btn {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.6rem;
+  }
+
+  /* ── Status strip ── */
+  .status-strip {
+    font-size: 0.78rem;
+    padding: 0.4rem 0.625rem;
+  }
+
+  /* ── Cards - reduce padding ── */
+  .forecast-card,
+  .trips-card,
+  .panel-health-card {
+    padding: 0.75rem;
+  }
+  .ai-insights-body {
+    font-size: 0.82rem;
+  }
+
+  /* ── Eddi card ── */
+  .eddi-card {
+    padding: 0.625rem 0.75rem;
+  }
+  .eddi-action-btn {
+    font-size: 0.6rem;
+    padding: 0.35rem 0.1rem;
+  }
+}
+
+/* ── Tightest phones (iPhone SE, 375px) ─────────────────────────────── */
+@media (max-width: 390px) {
+  .flow-diagram {
+    grid-template-columns: 1fr 50px 1fr 50px 1fr;
+    gap: 0.15rem 0;
+  }
+  .flow-node-icon {
+    width: 42px;
+    height: 42px;
+  }
+  .flow-node-icon img {
+    width: 26px !important;
+    height: 26px !important;
+  }
+  .flow-node-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+  .flow-node-value {
+    font-size: 0.65rem;
+  }
+  .flow-bottom {
+    gap: 0.3rem;
+  }
+  .flow-pipe-v {
+    height: 38px;
+  }
+  .metrics-row {
+    gap: 0.2rem;
+  }
+  .metric-card {
+    padding: 0.35rem 0.4rem;
+  }
+  .metric-value {
+    font-size: 0.95rem;
+  }
+  .ev-action-btn {
+    font-size: 0.6rem;
+    padding: 0.4rem 0;
+  }
+  .bottom-stat-value {
+    font-size: 0.82rem;
+  }
+}
+
+/* ─── Eddi (Hot Water) Control Card ─── */
+.eddi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1rem;
+  margin-bottom: 0.5rem;
+  box-shadow: var(--shadow-card);
+}
+
+.eddi-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.eddi-card-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-value);
+}
+
+.eddi-card-status {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.15rem;
+}
+
+.eddi-card-status.diverting  { color: var(--accent-solar); }
+.eddi-card-status.boosting   { color: #fb923c; }
+.eddi-card-status.stopped    { color: var(--accent-import); }
+
+.eddi-temps {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  color: #fb923c;
+  text-align: right;
+  line-height: 1.5;
+}
+
+.eddi-actions-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.eddi-action-btn {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.25rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.eddi-action-btn:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+  color: var(--text-primary);
+}
+
+.eddi-action-btn.active {
+  background: #fb923c;
+  border-color: #fb923c;
+  color: #fff;
+}
+
+#eddi-btn-solar.active {
+  background: var(--accent-solar);
+  border-color: var(--accent-solar);
+  color: #000;
+}
+
+#eddi-btn-off.active {
+  background: var(--accent-import);
+  border-color: var(--accent-import);
+  color: #fff;
+}
+
+.eddi-action-status {
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  min-height: 1em;
+}
+
+/* ─── TeslaMate insights ─── */
+.teslamate-insights {
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.teslamate-insights.hidden { display: none; }
+
+.tm-insight-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.tm-insight-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.tm-insight-value {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-value);
+  text-align: right;
+}
+
+/* ─── Solar Forecast Card ─── */
+.forecast-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow-card);
+}
+
+.battery-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow-card);
+}
+
+.battery-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.battery-card-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.battery-card-stats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.forecast-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.forecast-card-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.forecast-refresh-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition), background var(--transition);
+}
+
+.forecast-refresh-btn:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+
+.forecast-summary {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: var(--bg-base);
+  border-radius: var(--radius-md);
+}
+
+.forecast-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.forecast-summary-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.forecast-summary-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent-solar);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.forecast-summary-sub {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-top: -0.1rem;
+}
+
+.forecast-chart-container {
+  display: none;
+}
+
+.forecast-chart {
+  width: 100%;
+  height: 100%;
+  stroke: var(--text-secondary);
+  stroke-width: 1px;
+}
+
+.forecast-chart rect {
+  fill: rgba(245, 166, 35, 0.4);
+  stroke: var(--accent-solar);
+  stroke-width: 0.5px;
+}
+
+.forecast-accuracy-banner {
+  padding: 0.6rem 0.75rem;
+  background: rgba(245, 166, 35, 0.1);
+  border: 1px solid rgba(245, 166, 35, 0.3);
+  border-radius: var(--radius-md);
+  color: var(--accent-solar);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.forecast-accuracy-banner.hidden {
+  display: none;
+}
+
+/* Replay controls are now inline inside .flow-section - no modal CSS needed */
+
+.replay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.replay-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: background 0.2s;
+}
+
+.btn-close:hover {
+  background: var(--bg-secondary);
+}
+
+.replay-body {
+  padding: 1.25rem;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.replay-timeline {
+  margin: 1rem 0;
+}
+
+.replay-scrubber-track {
+  position: relative;
+  height: 24px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  user-select: none;
+}
+
+.replay-scrubber {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.replay-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0%;
+  background: var(--accent-solar);
+  opacity: 0.25;
+  border-radius: var(--radius-md);
+  pointer-events: none;
+}
+
+.replay-scrubber-thumb {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--accent-solar);
+  border-radius: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  left: 0;
+  transition: width 0.1s, height 0.1s;
+}
+
+.replay-scrubber-track.dragging {
+  cursor: grabbing;
+}
+
+.replay-scrubber-track.dragging .replay-scrubber-thumb {
+  width: 18px;
+  height: 18px;
+}
+
+.replay-controls {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+  align-items: center;
+}
+
+.btn-small {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+
+.btn-small:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-primary);
+}
+
+.btn-small:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+@media (max-width: 640px) {
+  .replay-modal-content {
+    max-width: calc(100% - 2rem);
+    max-height: calc(100vh - 2rem);
+  }
+
+  .replay-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .replay-body {
+    padding: 1rem;
+  }
+
+  .replay-controls {
+    flex-direction: column;
+  }
+
+  .replay-controls > button {
+    width: 100%;
+  }
+
+  #replay-status {
+    margin-left: 0;
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* ─── Mobile optimisations ─── */
+
+/* Forecast summary: scroll horizontally when there are 8+ days */
+@media (max-width: 900px) {
+  .forecast-summary {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 1rem;
+  }
+  .forecast-summary::-webkit-scrollbar { display: none; }
+  .forecast-summary-item { flex-shrink: 0; min-width: 80px; }
+}
+
+/* ── AI Briefing (inline inside forecast card) ────────────────────────── */
+.forecast-ai-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+  opacity: 0.5;
+}
+
+.forecast-ai-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.forecast-ai-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.ai-insights-timestamp {
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  opacity: 0.65;
+}
+
+.ai-insights-refresh-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition), background var(--transition);
+}
+.ai-insights-refresh-btn:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+.ai-insights-refresh-btn:disabled { opacity: 0.35; cursor: default; }
+
+.ai-insights-body {
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+.ai-insights-body p { margin: 0 0 0.55rem; }
+.ai-insights-body p:last-child { margin-bottom: 0; }
+
+.ai-insights-loading {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 0.8rem;
+}
+.ai-insights-error { color: var(--accent-import); font-size: 0.8rem; }
+
+/* ────────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  /* Eddi control card: compact */
+  .eddi-card { padding: 0.75rem; }
+  .eddi-actions-row { gap: 0.25rem; }
+  .eddi-action-btn {
+    font-size: 0.62rem;
+    padding: 0.4rem 0.15rem;
+  }
+
+  /* Flow node today totals: smaller */
+  .flow-node-today { font-size: 0.58rem; }
+
+  /* Forecast strip: tighter text */
+  .forecast-summary-label { font-size: 0.6rem; }
+  .forecast-summary-value { font-size: 1rem; }
+
+  /* Trips card: smaller */
+  .trips-card { padding: 0.75rem; }
+  .trip-name { font-size: 0.82rem; }
+}
+
+@media (max-width: 480px) {
+  /* Bottom stats: tighter values and labels */
+  .bottom-stat-value { font-size: 0.95rem; }
+  .bottom-stat-label { font-size: 0.58rem; }
+  .bottom-group-label { margin-bottom: 0.5rem; }
+
+  /* EV card: tighter */
+  .ev-card { padding: 0.75rem; }
+  .ev-battery-pct { font-size: 1.5rem; }
+
+  /* Flow node: smaller icon and value */
+  .flow-node-value { font-size: 0.75rem; }
+  .flow-node-label { font-size: 0.6rem; }
+  .flow-node-today { font-size: 0.56rem; }
+
+  /* Metrics row: tighter */
+  .metric-card { padding: 0.5rem 0.625rem; }
+}

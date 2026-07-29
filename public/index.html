@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch - Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body>
+
+<!-- Top Bar -->
+<header class="topbar">
+  <div class="container">
+    <div class="topbar-brand">
+      <svg width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="border-radius:6px;flex-shrink:0;" data-ws-mark="full"></svg>
+      <span>Watt<span style="color:var(--accent-solar)">Snatch</span></span>
+    </div>
+    <button id="topbar-hamburger" class="topbar-hamburger" aria-label="Menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <rect y="3"  width="20" height="2" rx="1"/>
+        <rect y="9"  width="20" height="2" rx="1"/>
+        <rect y="15" width="20" height="2" rx="1"/>
+      </svg>
+    </button>
+    <nav class="topbar-nav">
+      <a href="/" class="active">Dashboard</a>
+      <a href="/data">Data</a>
+      <a href="/drives">Drives</a>
+      <a href="/bills">Bills</a>
+      <a href="/retailer">Retailers</a>
+      <a href="/logs">Logs</a>
+      <a href="/settings">Settings</a>
+    </nav>
+    <div class="topbar-right">
+      <span id="home-badge" class="pill pill-idle">
+        <span class="status-dot status-dot-grey"></span>-
+      </span>
+      <span id="gateway-pill" class="pill pill-idle">
+        <span class="status-dot status-dot-grey"></span>Gateway: -
+      </span>
+      <span id="tesla-pill" class="pill pill-idle">
+        <span class="status-dot status-dot-grey"></span>Tesla: -
+      </span>
+      <span id="updated-ago" class="text-secondary text-sm">-</span>
+      <a href="/logout" id="logout-link" style="display:none;font-size:0.78rem;color:var(--text-secondary);text-decoration:none;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-md);transition:color 0.15s" title="Sign out">Sign out</a>
+    </div>
+  </div>
+</header>
+
+<main class="page-content">
+  <div class="container">
+
+    <!-- Top row: Flow diagram + EV card side by side -->
+    <div class="top-row">
+
+      <!-- Energy Flow -->
+      <div class="flow-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.625rem;gap:0.5rem">
+          <h2 style="font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-secondary)">Energy Flow</h2>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <button id="btn-replay-today" class="btn-small btn-secondary" style="display:none" onclick="openReplayModal()" title="Play animated replay of today's energy flow">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              Replay
+            </button>
+            <span id="controller-badge"><span class="badge badge-state-idle">IDLE</span></span>
+          </div>
+        </div>
+
+        <div class="flow-diagram">
+          <div class="flow-node">
+            <div class="flow-node-icon solar">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <!-- Bold filled sun: solid disc + 8 pill-shaped rays -->
+                <circle cx="12" cy="12" r="4.6"/>
+                <rect x="11" y="1.75" width="2" height="3.75" rx="1"/>
+                <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(45 12 12)"/>
+                <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(90 12 12)"/>
+                <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(135 12 12)"/>
+                <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(180 12 12)"/>
+                <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(225 12 12)"/>
+                <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(270 12 12)"/>
+                <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(315 12 12)"/>
+              </svg>
+            </div>
+            <span class="flow-node-label">Solar</span>
+            <span class="flow-node-value" id="solar-node-val">- W</span>
+            <span class="flow-node-today" id="solar-node-today">-</span>
+          </div>
+          <div class="flow-pipe pipe-solar-home solar-home">
+            <div class="flow-pipe-line"></div>
+            <div class="flow-dot"></div><div class="flow-dot"></div><div class="flow-dot"></div>
+          </div>
+          <div class="flow-node">
+            <div class="flow-node-icon home">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </div>
+            <span class="flow-node-label">Home</span>
+            <span class="flow-node-value" id="home-node-val">- W</span>
+            <span class="flow-node-today" id="home-node-today">-</span>
+          </div>
+          <div class="flow-pipe pipe-home-grid home-grid" style="flex-direction:column;gap:4px">
+            <div style="width:100%;position:relative;height:28px;display:flex;align-items:center">
+              <div class="flow-pipe-line"></div>
+              <div class="flow-dot"></div><div class="flow-dot"></div><div class="flow-dot"></div>
+            </div>
+          </div>
+          <div class="flow-node" style="flex-direction:column;gap:0.75rem">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:0.3rem">
+              <div class="flow-node-icon grid" id="grid-node">
+                <!-- Generic default; swapped for the configured retailer's favicon by
+                     dashboard.js's applyGridRetailerIcon() if Settings -> Region has one set. -->
+                <svg id="grid-node-default-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>
+                  <path d="M18 8v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>
+                </svg>
+              </div>
+              <span class="flow-node-label">Grid</span>
+              <span class="flow-node-value" id="grid-node-val">- W</span>
+              <span class="flow-node-today" id="grid-node-today">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SVG overlay - JS draws bezier curves from Home to each appliance -->
+        <svg id="flow-curves-svg" class="flow-curves-svg" aria-hidden="true"></svg>
+
+        <!-- Bottom branches: icons only, no pipe divs - curves drawn in SVG -->
+        <div class="flow-bottom">
+          <!-- EV branch -->
+          <div class="flow-branch" id="branch-ev">
+            <div class="flow-node">
+              <div class="flow-node-icon ev" id="ev-node">
+                <img src="https://www.google.com/s2/favicons?domain=tesla.com&sz=64" alt="Tesla" style="width:36px;height:36px;object-fit:contain"/>
+              </div>
+              <span class="flow-node-label" id="ev-flow-label">EV</span>
+              <span class="flow-node-value" id="ev-node-val">- W</span>
+              <span class="flow-node-today" id="ev-node-today">-</span>
+            </div>
+          </div>
+          <!-- Hot Water branch -->
+          <div class="flow-branch" id="branch-hw">
+            <div class="flow-node">
+              <div class="flow-node-icon hw" id="hw-node">
+                <!-- bold water droplet icon, orange currentColor -->
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 3C12 3 5 11.5 5 15.5a7 7 0 0014 0C19 11.5 12 3 12 3z"/>
+                </svg>
+              </div>
+              <span class="flow-node-label">Hot Water</span>
+              <span class="flow-node-value" id="hw-node-val">- W</span>
+              <span class="flow-node-today" id="hw-node-today">-</span>
+            </div>
+          </div>
+          <!-- AC branch -->
+          <div class="flow-branch" id="branch-ac">
+            <div class="flow-node">
+              <div class="flow-node-icon ac" id="ac-node">
+                <!-- snowflake / AC icon -->
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <!-- 6 main arms at 60° intervals -->
+                  <line x1="12" y1="2"    x2="12" y2="22"/>
+                  <line x1="2"  y1="12"   x2="22" y2="12"/>
+                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                  <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"/>
+                  <!-- V-branches near the tip of each arm -->
+                  <polyline points="9.5,5.5 12,3 14.5,5.5"/>
+                  <polyline points="9.5,18.5 12,21 14.5,18.5"/>
+                  <polyline points="5.5,9.5 3,12 5.5,14.5"/>
+                  <polyline points="18.5,9.5 21,12 18.5,14.5"/>
+                </svg>
+              </div>
+              <span class="flow-node-label">AC</span>
+              <span class="flow-node-value" id="ac-node-val">- W</span>
+              <span class="flow-node-today" id="ac-node-today">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Status strip -->
+        <div id="status-strip" class="status-strip">-</div>
+        <a href="/data#diversion-log" class="diversion-log-link">View diversion log →</a>
+
+        <!-- Replay controls - inline, shown only during replay -->
+        <div id="replay-modal" style="display:none;margin-top:0.75rem;border-top:1px solid var(--border);padding-top:0.75rem">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+            <span style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-secondary)">Replay - Today</span>
+            <button class="btn-close" onclick="closeReplayModal()" aria-label="Close" style="font-size:1.1rem;width:24px;height:24px">×</button>
+          </div>
+          <div class="replay-scrubber-track">
+            <div id="replay-progress-fill" class="replay-progress-fill"></div>
+            <div id="replay-scrubber" class="replay-scrubber">
+              <div class="replay-scrubber-thumb"></div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-secondary);margin-top:0.25rem;margin-bottom:0.6rem">
+            <span>Sunrise</span>
+            <span id="replay-time" style="font-weight:600;color:var(--text-primary)">-</span>
+            <span>Sunset</span>
+          </div>
+          <div style="display:flex;gap:0.5rem">
+            <button id="replay-play-btn" class="btn btn-primary btn-sm" onclick="startReplayAnimation()" style="display:flex;align-items:center;gap:0.35rem;padding:0.35rem 0.75rem;font-size:0.8rem">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>Play
+            </button>
+            <button id="replay-pause-btn" class="btn btn-secondary btn-sm" onclick="pauseReplayAnimation()" disabled style="display:flex;align-items:center;gap:0.35rem;padding:0.35rem 0.75rem;font-size:0.8rem">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>Pause
+            </button>
+            <button id="replay-stop-btn" class="btn btn-secondary btn-sm" onclick="stopReplayAnimation()" style="display:flex;align-items:center;gap:0.35rem;padding:0.35rem 0.75rem;font-size:0.8rem">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>Reset
+            </button>
+            <span id="replay-status" style="margin-left:auto;font-size:0.78rem;color:var(--text-secondary);align-self:center"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- EV status card -->
+      <div class="ev-card">
+        <div class="ev-card-header">
+          <div>
+            <div class="ev-name" id="ev-name">-</div>
+            <div class="ev-state-label text-secondary" id="charging-state">-</div>
+          </div>
+          <div id="ev-charge-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent-charge)" stroke-width="1.5">
+              <rect x="1" y="6" width="22" height="13" rx="2"/><path d="M5 6V4"/><path d="M19 6V4"/>
+              <line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="ev-battery-section">
+          <div class="ev-battery-pct" id="battery-pct">-%</div>
+          <div class="ev-battery-row">
+            <span>0%</span>
+            <span id="charge-limit-label" class="text-solar">- limit</span>
+            <span>100%</span>
+          </div>
+          <div class="battery-bar-wrap">
+            <div class="battery-bar-fill" id="battery-bar" style="width:0%"></div>
+            <div class="battery-bar-limit" id="battery-limit" style="left:80%"></div>
+          </div>
+          <div class="charge-limit-slider-row">
+            <span class="charge-limit-slider-label">Limit</span>
+            <input type="range" id="charge-limit-slider" class="charge-limit-slider" min="50" max="100" step="1" value="80">
+            <span id="charge-limit-slider-val" class="charge-limit-slider-val">80%</span>
+            <span id="charge-limit-status" class="charge-limit-status"></span>
+          </div>
+        </div>
+
+        <div class="ev-stats-row">
+          <div class="ev-stat">
+            <div class="ev-stat-label">Charge Rate</div>
+            <div class="ev-stat-value" id="ev-amps">- A</div>
+          </div>
+          <div class="ev-stat">
+            <div class="ev-stat-label">Power</div>
+            <div class="ev-stat-value" id="ev-watts">- W</div>
+          </div>
+        </div>
+
+        <!-- TeslaMate insights -->
+        <div id="teslamate-insights" class="teslamate-insights hidden">
+          <div class="tm-insight-row" id="tm-efficiency-row" style="display:none">
+            <span class="tm-insight-label">Real-world efficiency</span>
+            <span class="tm-insight-value" id="tm-efficiency">-</span>
+          </div>
+          <div class="tm-insight-row" id="tm-health-row" style="display:none">
+            <span class="tm-insight-label">Battery health</span>
+            <span class="tm-insight-value" id="tm-health">-</span>
+          </div>
+          <div class="tm-insight-row" id="tm-arrival-row" style="display:none">
+            <span class="tm-insight-label">Typical arrival SoC</span>
+            <span class="tm-insight-value" id="tm-arrival">-</span>
+          </div>
+        </div>
+
+        <!-- State banners -->
+        <div id="holding-banner" class="holding-banner hidden">
+          <div class="holding-text">
+            <div class="holding-title">Holding…</div>
+            <div class="holding-desc">Solar dropped - waiting before stopping</div>
+          </div>
+          <div class="countdown-ring">
+            <svg><circle class="track" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="0"/><circle class="progress" id="hold-ring" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="0"/></svg>
+            <div class="label" id="hold-timer">-</div>
+          </div>
+        </div>
+
+        <div id="waiting-banner" class="waiting-banner hidden">
+          <div class="waiting-text">Waiting for solar - grid charging blocked</div>
+        </div>
+
+        <div id="override-banner" class="override-banner hidden">
+          <div class="override-text">
+            <div class="override-title">Charging now</div>
+            <div class="override-desc">Charging at maximum amps regardless of solar</div>
+          </div>
+        </div>
+
+        <div id="stopped-banner" class="stopped-banner hidden">
+          <div class="stopped-text">Charging stopped - press Auto to resume solar control</div>
+        </div>
+
+        <div id="away-banner" class="away-banner hidden">
+          <div class="away-text">Car away from home - solar control suspended</div>
+        </div>
+
+        <div id="control-off-banner" class="control-off-banner hidden">
+          <div class="control-off-text">Charging control disabled - car manages itself</div>
+        </div>
+
+        <div id="scheduled-banner" class="scheduled-banner hidden">
+          <div class="scheduled-text">
+            <div class="scheduled-title">Scheduled charging</div>
+            <div class="scheduled-desc">Charging at maximum amps - scheduled window active</div>
+          </div>
+        </div>
+
+        <div id="departure-banner" class="departure-banner hidden">
+          <div class="departure-banner-text">
+            <div class="departure-banner-title">Departure charging</div>
+            <div class="departure-banner-desc" id="departure-banner-desc">Charging to meet departure target</div>
+          </div>
+        </div>
+
+        <div id="tou-peak-banner" class="tou-peak-banner hidden">
+          <div class="tou-peak-text">Peak tariff period - grid charging blocked, solar only</div>
+        </div>
+
+        <!-- Charging Control toggle -->
+        <div class="control-toggle-row">
+          <div class="control-toggle-label">
+            <span class="control-toggle-title">Charging Control</span>
+            <span class="control-toggle-desc" id="control-toggle-desc">Solar tracking active</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="control-toggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- STOP / AUTO / CHARGE NOW actions -->
+        <div class="ev-actions-row">
+          <button class="ev-action-btn" id="btn-stop">Stop</button>
+          <button class="ev-action-btn ev-action-btn-active" id="btn-auto">Auto</button>
+          <button class="ev-action-btn" id="btn-charge-now">Charge Now</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Weather & Grid Intelligence strip -->
+    <div id="weather-strip" class="weather-strip" style="display:none">
+      <div class="weather-current">
+        <span id="weather-emoji" class="weather-emoji">🌡️</span>
+        <span id="weather-temp" class="weather-temp">-°</span>
+        <span id="weather-label" class="weather-label">-</span>
+        <span id="weather-humidity" class="weather-detail">-% humidity</span>
+        <span id="weather-wind"     class="weather-detail">- km/h wind</span>
+      </div>
+      <div class="weather-forecast" id="weather-forecast-days"></div>
+      <div class="grid-intensity-badge" id="grid-intensity-badge" title="QLD1 grid carbon intensity">
+        <span id="grid-intensity-icon" class="grid-intensity-icon">⚡</span>
+        <span id="grid-intensity-val"  class="grid-intensity-val">-</span>
+        <span id="grid-intensity-lbl"  class="grid-intensity-lbl">gCO₂/kWh</span>
+        <span id="grid-renewable-pct"  class="grid-renewable-pct">-% renewable</span>
+      </div>
+    </div>
+
+    <!-- Solar Forecast + AI Briefing card -->
+    <div id="forecast-card" class="forecast-card">
+      <div class="forecast-card-header">
+        <span class="forecast-card-title">SOLAR FORECAST</span>
+        <button id="forecast-refresh-btn" class="forecast-refresh-btn" title="Refresh forecast">&#8635;</button>
+      </div>
+      <div class="forecast-summary" id="forecast-daily-summary"></div>
+      <div id="forecast-chart-container" class="forecast-chart-container">
+        <svg id="forecast-chart" class="forecast-chart" viewBox="0 0 1440 200" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div id="forecast-accuracy-banner" class="forecast-accuracy-banner hidden"></div>
+
+      <!-- AI briefing inline -->
+      <div class="forecast-ai-divider"></div>
+      <div class="forecast-ai-header">
+        <span class="forecast-ai-title">AI ENERGY BRIEFING</span>
+        <span id="ai-insights-timestamp" class="ai-insights-timestamp"></span>
+        <button id="ai-insights-refresh-btn" class="ai-insights-refresh-btn" title="Refresh briefing">&#8635;</button>
+      </div>
+      <div id="ai-insights-body" class="ai-insights-body">
+        <span class="ai-insights-loading">Loading briefing…</span>
+      </div>
+    </div>
+
+    <!-- Upcoming Trips card (hidden when no trips) -->
+    <div id="trips-card" class="trips-card" style="display:none">
+      <div class="trips-card-header">
+        <span class="trips-card-title">UPCOMING TRIPS</span>
+        <button id="trips-refresh-btn" class="trips-refresh-btn" title="Refresh calendar">&#8635;</button>
+      </div>
+      <div id="trips-list" class="trips-list"></div>
+    </div>
+
+    <!-- Eddi (Hot Water) Control Card -->
+    <div id="eddi-card" class="eddi-card" style="display:none">
+      <div class="eddi-card-header">
+        <div>
+          <div class="eddi-card-title">Hot Water</div>
+          <div class="eddi-card-status" id="eddi-status">-</div>
+        </div>
+        <div class="eddi-temps" id="eddi-temps"></div>
+      </div>
+
+      <div class="eddi-actions-row">
+        <button class="eddi-action-btn" id="eddi-btn-solar" title="Return to solar divert mode">☀ Solar</button>
+        <button class="eddi-action-btn" id="eddi-btn-boost-30" title="Boost hot water for 30 minutes">Boost 30m</button>
+        <button class="eddi-action-btn" id="eddi-btn-boost-60" title="Boost hot water for 60 minutes">Boost 60m</button>
+        <button class="eddi-action-btn" id="eddi-btn-stop-boost" title="Stop active boost">Stop Boost</button>
+        <button class="eddi-action-btn" id="eddi-btn-off" title="Turn Eddi off completely">Off</button>
+      </div>
+      <div id="eddi-action-status" class="eddi-action-status"></div>
+    </div>
+
+    <!-- EV Departure Scheduler card -->
+    <div id="departure-card" class="departure-card">
+      <div class="departure-card-header">
+        <span class="departure-card-title">DEPARTURE SCHEDULER</span>
+        <button id="departure-clear-btn" class="departure-clear-btn hidden" title="Cancel departure">✕ Cancel</button>
+      </div>
+
+      <!-- Active departure state -->
+      <div id="departure-active" class="departure-active hidden">
+        <div class="departure-active-row">
+          <div class="departure-active-col">
+            <div class="departure-active-label">Departure</div>
+            <div class="departure-active-value" id="dep-time-display">-</div>
+          </div>
+          <div class="departure-active-col">
+            <div class="departure-active-label">Target</div>
+            <div class="departure-active-value" id="dep-soc-display">-%</div>
+          </div>
+          <div class="departure-active-col">
+            <div class="departure-active-label">Time remaining</div>
+            <div class="departure-active-value" id="dep-hours-display">-h</div>
+          </div>
+        </div>
+        <div id="dep-status-text" class="departure-status-text"></div>
+      </div>
+
+      <!-- Set departure form (shown when no active departure) -->
+      <div id="departure-form" class="departure-form">
+        <div class="departure-form-row">
+          <div class="departure-form-group">
+            <label class="departure-form-label" for="dep-time-input">Departure time</label>
+            <input type="datetime-local" id="dep-time-input" class="departure-input">
+          </div>
+          <div class="departure-form-group">
+            <label class="departure-form-label" for="dep-soc-input">Target SOC %</label>
+            <div class="departure-soc-row">
+              <input type="range" id="dep-soc-slider" min="20" max="100" step="5" value="80" class="departure-slider">
+              <span id="dep-soc-value" class="departure-soc-value">80%</span>
+            </div>
+          </div>
+        </div>
+        <div class="departure-form-row">
+          <div class="departure-form-group" style="flex:1">
+            <label class="departure-form-label" for="dep-notes-input">Notes (optional)</label>
+            <input type="text" id="dep-notes-input" class="departure-input" placeholder="e.g. Drive to Gold Coast">
+          </div>
+          <button id="departure-set-btn" class="departure-set-btn">Schedule</button>
+        </div>
+        <div id="departure-form-note" class="departure-form-note"></div>
+      </div>
+    </div>
+
+    <!-- Home Battery card - hidden entirely when battery_brand is 'none' (default) -->
+    <div id="battery-card" class="battery-card" style="display:none">
+      <div class="battery-card-header">
+        <span class="battery-card-title">HOME BATTERY</span>
+        <span id="battery-card-brand" class="text-secondary text-xs"></span>
+      </div>
+      <div class="battery-card-body">
+        <div class="ev-battery-pct" id="battery-card-soc">-%</div>
+        <div class="battery-bar-wrap">
+          <div class="battery-bar-fill" id="battery-card-bar" style="width:0%"></div>
+        </div>
+        <div class="battery-card-stats">
+          <span id="battery-card-power">-</span>
+          <span id="battery-card-priority" class="text-secondary text-xs"></span>
+        </div>
+        <div id="battery-card-error" class="text-xs" style="color:#fc814a;display:none"></div>
+      </div>
+    </div>
+
+    <!-- Panel Health card -->
+    <div id="panel-health-card" class="panel-health-card" style="display:none">
+      <div class="panel-health-header">
+        <span class="panel-health-title">PANEL HEALTH</span>
+        <span id="panel-health-status-text" class="panel-health-status-text"></span>
+      </div>
+      <div id="panel-health-grid" class="panel-health-grid"></div>
+      <div id="panel-health-footer" class="panel-health-footer text-secondary text-sm"></div>
+    </div>
+
+    <!-- Metrics row: Solar / Home / Grid -->
+    <div class="metrics-row">
+      <div class="metric-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-solar)"></span>Solar</div>
+        <div class="metric-value text-solar num-transition" id="solar-watts">-</div>
+        <div class="metric-sub">Generation</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-idle)"></span>Home</div>
+        <div class="metric-value num-transition" id="home-watts">-</div>
+        <div class="metric-sub">Consumption</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label"><span class="dot" style="background:var(--accent-export)"></span>Grid</div>
+        <div class="grid-io-row">
+          <span class="grid-io-label">↑ Export</span>
+          <span class="metric-value-sm num-transition text-export" id="grid-export-watts">-</span>
+        </div>
+        <div class="grid-io-row">
+          <span class="grid-io-label">↓ Import</span>
+          <span class="metric-value-sm num-transition text-import" id="grid-import-watts">-</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom stats bar: full width, big readable text -->
+    <div class="bottom-stats">
+      <div class="bottom-stat-group">
+        <div class="bottom-group-label">Controller</div>
+        <div class="bottom-stat-items">
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Available Excess</div>
+            <div class="bottom-stat-value num-transition" id="excess-watts">- W</div>
+          </div>
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Smoothed Excess</div>
+            <div class="bottom-stat-value num-transition" id="smoothed-watts">- W</div>
+          </div>
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Target Amps</div>
+            <div class="bottom-stat-value num-transition" id="target-amps">- A</div>
+          </div>
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Next Poll</div>
+            <div class="bottom-stat-value" id="poll-countdown">-</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottom-divider"></div>
+      <div class="bottom-stat-group">
+        <div class="bottom-group-label">Today</div>
+        <div class="bottom-stat-items">
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Charged</div>
+            <div class="bottom-stat-value" id="today-kwh">- kWh</div>
+          </div>
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Sessions</div>
+            <div class="bottom-stat-value" id="today-sessions">-</div>
+          </div>
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Duration</div>
+            <div class="bottom-stat-value" id="today-duration">-</div>
+          </div>
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Est. Saved</div>
+            <div class="bottom-stat-value" id="today-savings">$-</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottom-divider"></div>
+      <div class="bottom-stat-group" id="provenance-group" style="display:none">
+        <div class="bottom-group-label">Lifetime</div>
+        <div class="bottom-stat-items">
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Solar Charged</div>
+            <div class="bottom-stat-value text-solar" id="lifetime-solar-kwh">- kWh</div>
+          </div>
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Solar Fraction</div>
+            <div class="bottom-stat-value text-solar" id="lifetime-solar-pct">-%</div>
+          </div>
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Est. Saved</div>
+            <div class="bottom-stat-value text-solar" id="lifetime-savings">$-</div>
+          </div>
+          <div class="bottom-stat">
+            <div class="bottom-stat-label">Since</div>
+            <div class="bottom-stat-value" id="lifetime-since">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- Panel trend modal -->
+<div id="panel-modal" class="trip-modal-overlay" style="display:none" role="dialog" aria-modal="true">
+  <div class="trip-modal">
+    <div class="trip-modal-header">
+      <span id="panel-modal-title" class="trip-modal-title"></span>
+      <button id="panel-modal-close" class="trip-modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div id="panel-modal-body" class="trip-modal-body"></div>
+  </div>
+</div>
+
+<!-- Trip detail modal -->
+<div id="trip-modal" class="trip-modal-overlay" style="display:none" role="dialog" aria-modal="true">
+  <div class="trip-modal">
+    <div class="trip-modal-header">
+      <span id="trip-modal-title" class="trip-modal-title"></span>
+      <button id="trip-modal-close" class="trip-modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div id="trip-modal-body" class="trip-modal-body"></div>
+  </div>
+</div>
+
+<style>
+/* ─── Upcoming Trips card ─── */
+.trips-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow-card);
+}
+.trips-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+.trips-card-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+.trips-refresh-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition), background var(--transition);
+}
+.trips-refresh-btn:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+
+.trips-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.trip-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-base);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition);
+  border: 1px solid transparent;
+}
+.trip-item:hover { background: var(--bg-card-hover); border-color: var(--border); }
+
+.trip-icon { flex-shrink: 0; font-size: 1rem; line-height: 1.5; margin-top: 0.1rem; }
+.trip-icon.ok       { color: var(--accent-charge); }
+.trip-icon.solar    { color: var(--accent-solar); }
+.trip-icon.warning  { color: #f59e0b; }
+
+.trip-info { flex: 1; min-width: 0; }
+.trip-when {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.trip-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trip-detail {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-top: 0.1rem;
+}
+.trip-detail.warning { color: #f59e0b; }
+
+.trip-grid-charge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(251,146,60,0.12);
+  border: 1px solid rgba(251,146,60,0.4);
+  border-radius: 999px;
+  color: #fb923c;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+.trip-grid-charge-btn:hover { background: rgba(251,146,60,0.22); border-color: rgba(251,146,60,0.7); }
+.trip-grid-charge-btn:disabled { opacity: 0.4; cursor: default; }
+
+.trip-energy-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+.trip-energy-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  opacity: 0.9;
+}
+.trip-energy-badge.kwh  { color: #a78bfa; }
+.trip-energy-badge.pct  { color: var(--accent-solar); }
+.trip-energy-badge.dist { color: var(--text-secondary); font-weight: 500; border-color: var(--border); }
+
+/* ─── Trip modal ─── */
+.trip-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.trip-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.trip-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.trip-modal-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.trip-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.4rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+.trip-modal-close:hover { color: var(--text-primary); }
+.trip-modal-body { padding: 1.25rem; }
+
+.trip-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+.trip-breakdown-row:last-child { border-bottom: none; }
+.trip-breakdown-label { color: var(--text-secondary); }
+.trip-breakdown-val   { font-weight: 600; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+.trip-breakdown-total {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.6rem 0 0;
+  margin-top: 0.4rem;
+  border-top: 2px solid var(--border);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.trip-alert-banner {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(245,158,11,0.1);
+  border: 1px solid rgba(245,158,11,0.3);
+  border-radius: var(--radius-md);
+  color: #f59e0b;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* ─── Panel Health card ─── */
+.panel-health-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow-card);
+}
+.panel-health-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+.panel-health-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+.panel-health-status-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.panel-health-status-text.ok    { color: var(--accent-charge); }
+.panel-health-status-text.warn  { color: #f59e0b; }
+.panel-health-status-text.error { color: var(--accent-import); }
+.panel-health-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+.panel-tile {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity var(--transition), transform var(--transition);
+  border: 1px solid transparent;
+  user-select: none;
+}
+.panel-tile:hover { opacity: 0.85; transform: scale(1.06); }
+.panel-tile-green { background: rgba(74, 222, 128, 0.15); border-color: rgba(74, 222, 128, 0.3); }
+.panel-tile-amber { background: rgba(245,158,11,0.18);    border-color: rgba(245,158,11,0.35); }
+.panel-tile-red   { background: rgba(248,113,113,0.18);   border-color: rgba(248,113,113,0.35); }
+.panel-tile-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+.panel-tile-watts {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.panel-tile-green .panel-tile-watts { color: var(--accent-charge); }
+.panel-tile-amber .panel-tile-watts { color: #f59e0b; }
+.panel-tile-red   .panel-tile-watts { color: var(--accent-import); }
+.panel-health-footer {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
+
+/* ─── Panel trend modal body ─── */
+.panel-trend-legend {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.78rem;
+}
+.panel-trend-dot {
+  width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle;
+}
+.panel-trend-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+.panel-trend-date {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  width: 72px;
+  flex-shrink: 0;
+}
+.panel-trend-bar-wrap {
+  flex: 1;
+  background: var(--bg-base);
+  border-radius: 3px;
+  height: 14px;
+  overflow: hidden;
+}
+.panel-trend-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.panel-trend-bar-fill.green { background: var(--accent-charge); }
+.panel-trend-bar-fill.amber { background: #f59e0b; }
+.panel-trend-bar-fill.red   { background: var(--accent-import); }
+.panel-trend-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  width: 44px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.panel-trend-no-data {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+.panel-info-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.panel-info-row:last-child { border-bottom: none; }
+.panel-info-label { color: var(--text-secondary); }
+.panel-info-val   { font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+
+/* ─── Weather & Grid strip ─── */
+.weather-strip {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.65rem 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+.weather-current {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.weather-emoji   { font-size: 1.4rem; line-height: 1; }
+.weather-temp    { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 700; }
+.weather-label   { color: var(--text-primary); font-weight: 600; }
+.weather-detail  { color: var(--text-secondary); }
+
+.weather-forecast {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1;
+  overflow-x: auto;
+}
+.weather-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 44px;
+  padding: 0.3rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2, rgba(255,255,255,0.04));
+  font-size: 0.7rem;
+}
+.weather-day-name  { color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.weather-day-emoji { font-size: 1.1rem; }
+.weather-day-temps { color: var(--text-secondary); white-space: nowrap; }
+.weather-day-today { background: rgba(253,196,0,0.08); border: 1px solid rgba(253,196,0,0.25); }
+.weather-day-today .weather-day-name { color: var(--accent-solar); }
+
+.grid-intensity-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2, rgba(255,255,255,0.04));
+  flex-shrink: 0;
+  font-size: 0.78rem;
+}
+.grid-intensity-icon { font-size: 0.95rem; }
+.grid-intensity-val  { font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+.grid-intensity-lbl  { color: var(--text-secondary); }
+.grid-renewable-pct  { color: var(--accent-solar); font-weight: 600; }
+
+/* colour by intensity */
+.grid-intensity-badge.clean   { border-color: rgba(74,222,128,0.4); }
+.grid-intensity-badge.moderate{ border-color: rgba(253,196,0,0.4);  }
+.grid-intensity-badge.dirty   { border-color: rgba(249,115,22,0.4); }
+
+/* ─── Departure Scheduler card ─── */
+.departure-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow-card);
+}
+.departure-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+.departure-card-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+.departure-clear-btn {
+  background: none;
+  border: 1px solid rgba(249,115,22,0.4);
+  color: #fb923c;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.departure-clear-btn:hover { background: rgba(249,115,22,0.1); }
+
+/* Active departure state */
+.departure-active {
+  background: rgba(253,196,0,0.06);
+  border: 1px solid rgba(253,196,0,0.25);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.departure-active-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.departure-active-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin-bottom: 0.2rem; }
+.departure-active-value { font-family: 'JetBrains Mono', monospace; font-size: 1rem; font-weight: 700; }
+.departure-status-text  { font-size: 0.8rem; color: var(--accent-solar); }
+
+/* Departure form */
+.departure-form-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+.departure-form-group { display: flex; flex-direction: column; gap: 0.3rem; }
+.departure-form-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+.departure-input {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 0.45rem 0.65rem;
+  font-size: 0.85rem;
+  min-width: 200px;
+  outline: none;
+}
+.departure-input:focus { border-color: var(--accent-solar); }
+.departure-soc-row { display: flex; align-items: center; gap: 0.5rem; }
+.departure-slider  { flex: 1; accent-color: var(--accent-solar); min-width: 120px; }
+.departure-soc-value { font-family: 'JetBrains Mono', monospace; font-weight: 700; min-width: 40px; text-align: right; }
+.departure-set-btn {
+  padding: 0.45rem 1.2rem;
+  background: var(--accent-solar);
+  color: #000;
+  font-weight: 700;
+  font-size: 0.85rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s;
+  align-self: flex-end;
+  white-space: nowrap;
+}
+.departure-set-btn:hover   { opacity: 0.85; }
+.departure-set-btn:disabled{ opacity: 0.4; cursor: default; }
+.departure-form-note { font-size: 0.75rem; color: var(--text-secondary); }
+.departure-form-note.error { color: var(--accent-grid, #f97316); }
+.departure-form-note.ok    { color: var(--accent-solar); }
+
+/* Departure banner in EV card */
+.departure-banner {
+  background: rgba(253,196,0,0.08);
+  border: 1px solid rgba(253,196,0,0.3);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.6rem;
+}
+.departure-banner-title { font-weight: 700; font-size: 0.88rem; color: var(--accent-solar); }
+.departure-banner-desc  { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.1rem; }
+</style>
+
+<script src="/js/common.js?v=2"></script>
+<script src="/js/dashboard.js?v=2"></script>
+<script src="/js/replay.js?v=2"></script>
+</body>
+</html>

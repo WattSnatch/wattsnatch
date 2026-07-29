@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <style>
+    html, body {
+      margin: 0; padding: 0;
+      background: transparent;
+      overflow: hidden;
+      height: 100%;
+    }
+    .embed-root {
+      padding: 0;
+      height: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+    }
+    .flow-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      padding: 0.875rem 1.1rem !important;
+      background: #1c2333 !important;
+      border: 1px solid rgba(255,255,255,0.07) !important;
+      border-radius: 16px !important;
+    }
+    /* Override responsive margin so bottom branches fit */
+    .flow-bottom { margin-top: 1.5rem !important; }
+    /* Slightly smaller icons */
+    .flow-node-icon { width: 52px !important; height: 52px !important; }
+    .flow-node-icon img { max-width: 40px !important; max-height: 40px !important; }
+    .flow-diagram { min-height: 110px !important; }
+    .flow-node-today {
+      display: block !important;
+      font-size: 0.7rem !important;
+      font-weight: 500 !important;
+      color: #64748b !important;
+      opacity: 1 !important;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+<div class="embed-root">
+  <div class="flow-section">
+    <div style="display:flex;align-items:center;margin-bottom:0.5rem">
+      <h2 style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:rgba(148,163,184,0.6);margin:0">Energy Flow</h2>
+    </div>
+
+    <div class="flow-diagram">
+      <div class="flow-node">
+        <div class="flow-node-icon solar">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="12" r="4.6"/>
+            <rect x="11" y="1.75" width="2" height="3.75" rx="1"/>
+            <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(45 12 12)"/>
+            <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(90 12 12)"/>
+            <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(135 12 12)"/>
+            <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(180 12 12)"/>
+            <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(225 12 12)"/>
+            <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(270 12 12)"/>
+            <rect x="11" y="1.75" width="2" height="3.75" rx="1" transform="rotate(315 12 12)"/>
+          </svg>
+        </div>
+        <span class="flow-node-label">Solar</span>
+        <span class="flow-node-value" id="solar-node-val">- W</span>
+        <span class="flow-node-today" id="solar-node-today">-</span>
+      </div>
+      <div class="flow-pipe pipe-solar-home solar-home">
+        <div class="flow-pipe-line"></div>
+        <div class="flow-dot"></div><div class="flow-dot"></div><div class="flow-dot"></div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-icon home">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+        </div>
+        <span class="flow-node-label">Home</span>
+        <span class="flow-node-value" id="home-node-val">- W</span>
+        <span class="flow-node-today" id="home-node-today">-</span>
+      </div>
+      <div class="flow-pipe pipe-home-grid home-grid" style="flex-direction:column;gap:4px">
+        <div style="width:100%;position:relative;height:28px;display:flex;align-items:center">
+          <div class="flow-pipe-line"></div>
+          <div class="flow-dot"></div><div class="flow-dot"></div><div class="flow-dot"></div>
+        </div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-icon grid" id="grid-node">
+          <!-- Generic default; swapped for the configured retailer's favicon by
+               applyGridRetailerIcon() below if Settings -> Region has one set. -->
+          <svg id="grid-node-default-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/>
+            <path d="M18 8v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>
+          </svg>
+        </div>
+        <span class="flow-node-label">Grid</span>
+        <span class="flow-node-value" id="grid-node-val">- W</span>
+        <span class="flow-node-today" id="grid-node-today">-</span>
+      </div>
+    </div>
+
+    <svg id="flow-curves-svg" class="flow-curves-svg" aria-hidden="true"></svg>
+
+    <div class="flow-bottom">
+      <div class="flow-branch" id="branch-ev">
+        <div class="flow-node">
+          <div class="flow-node-icon ev" id="ev-node">
+            <img src="https://www.google.com/s2/favicons?domain=tesla.com&sz=64" alt="Tesla" style="width:32px;height:32px;object-fit:contain"/>
+          </div>
+          <span class="flow-node-label" id="ev-flow-label">EV</span>
+          <span class="flow-node-value" id="ev-node-val">- W</span>
+          <span class="flow-node-today" id="ev-node-today">-</span>
+        </div>
+      </div>
+      <div class="flow-branch" id="branch-hw">
+        <div class="flow-node">
+          <div class="flow-node-icon hw" id="hw-node">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 3C12 3 5 11.5 5 15.5a7 7 0 0014 0C19 11.5 12 3 12 3z"/>
+            </svg>
+          </div>
+          <span class="flow-node-label">Hot Water</span>
+          <span class="flow-node-value" id="hw-node-val">- W</span>
+          <span class="flow-node-today" id="hw-node-today">-</span>
+        </div>
+      </div>
+      <div class="flow-branch" id="branch-ac">
+        <div class="flow-node">
+          <div class="flow-node-icon ac" id="ac-node">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="2"    x2="12" y2="22"/>
+              <line x1="2"  y1="12"   x2="22" y2="12"/>
+              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+              <line x1="19.07" y1="4.93" x2="4.93" y2="19.07"/>
+              <polyline points="9.5,5.5 12,3 14.5,5.5"/>
+              <polyline points="9.5,18.5 12,21 14.5,18.5"/>
+              <polyline points="5.5,9.5 3,12 5.5,14.5"/>
+              <polyline points="18.5,9.5 21,12 18.5,14.5"/>
+            </svg>
+          </div>
+          <span class="flow-node-label">AC</span>
+          <span class="flow-node-value" id="ac-node-val">- W</span>
+          <span class="flow-node-today" id="ac-node-today">-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const _key = new URLSearchParams(window.location.search).get('key') || '';
+
+function formatWatts(w) {
+  if (w === null || w === undefined || isNaN(w)) return '- W';
+  const abs = Math.abs(w);
+  if (abs >= 1000) return (w / 1000).toFixed(1) + ' kW';
+  return Math.round(w).toLocaleString() + ' W';
+}
+
+function fmtEnergy(kwh) {
+  if (!kwh || isNaN(kwh) || kwh < 0.005) return '0 Wh';
+  if (kwh < 1) return Math.round(kwh * 1000) + ' Wh';
+  return kwh.toFixed(1) + ' kWh';
+}
+
+function setNodeVal(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function updatePipe(selector, active, reverse) {
+  const el = document.querySelector(selector);
+  if (!el) return;
+  let cls = 'flow-pipe ' + selector.replace('.', '');
+  if (active) cls += ' active';
+  if (reverse) cls += ' reverse';
+  el.className = cls;
+}
+
+// Stores { active, mode } per curve key so drawFlowCurves can re-apply on resize
+let _flowCurveActive = {};
+
+// Default dot colours per key (solar/active state)
+const _DOT_COLORS = {
+  ev:  'rgba(74,222,128,0.9)',   // green  - solar charging
+  hw:  'rgba(251,146,60,0.9)',   // orange - solar diversion
+  ac:  'rgba(156,163,175,0.9)',  // grey   - AC
+};
+const _GRID_DOT_COLOR = 'rgba(248,113,113,0.9)'; // red - grid-powered
+
+function _dotColorFor(key, mode) {
+  if (mode === 'grid')    return _GRID_DOT_COLOR;
+  if (mode === 'cooling') return 'rgba(59,130,246,0.9)';
+  if (mode === 'heating') return 'rgba(249,115,22,0.9)';
+  return _DOT_COLORS[key] || 'rgba(148,163,184,0.9)';
+}
+
+function _strokeFor(key, active, mode) {
+  if (!active) return 'rgba(148,163,184,0.15)';
+  if (mode === 'grid')    return 'rgba(248,113,113,0.35)';
+  if (mode === 'cooling') return 'rgba(59,130,246,0.35)';
+  if (mode === 'heating') return 'rgba(249,115,22,0.35)';
+  return 'rgba(148,163,184,0.35)';
+}
+
+function setFlowCurveActive(key, active, mode) {
+  _flowCurveActive[key] = { active, mode };
+
+  const dotsEl = document.getElementById('fcd-' + key);
+  const pathEl = document.getElementById('fc-' + key);
+
+  if (dotsEl) {
+    dotsEl.setAttribute('visibility', active ? 'visible' : 'hidden');
+    if (active && mode) {
+      const col = _dotColorFor(key, mode);
+      dotsEl.querySelectorAll('circle').forEach(c => c.setAttribute('fill', col));
+    }
+  }
+  if (pathEl) {
+    pathEl.setAttribute('stroke', _strokeFor(key, active, mode));
+  }
+}
+
+function drawFlowCurves() {
+  const svg      = document.getElementById('flow-curves-svg');
+  const section  = document.querySelector('.flow-section');
+  const homeIcon = document.querySelector('.flow-node-icon.home');
+  if (!svg || !section || !homeIcon) return;
+
+  const sRect    = section.getBoundingClientRect();
+  const hRect    = homeIcon.getBoundingClientRect();
+  const homeNode = homeIcon.closest('.flow-node') || homeIcon;
+  const hy = homeNode.getBoundingClientRect().bottom - sRect.top;
+  const hx = hRect.left + hRect.width / 2 - sRect.left;
+
+  const branches = [
+    { id: 'branch-ev', key: 'ev', color: 'rgba(74,222,128,0.9)'  },
+    { id: 'branch-hw', key: 'hw', color: 'rgba(251,146,60,0.9)'  },
+    { id: 'branch-ac', key: 'ac', color: 'rgba(156,163,175,0.9)' },
+  ];
+
+  svg.innerHTML = '';
+
+  branches.forEach(b => {
+    const branchEl = document.getElementById(b.id);
+    if (!branchEl || branchEl.style.display === 'none') return;
+    const iconEl = branchEl.querySelector('.flow-node-icon');
+    if (!iconEl) return;
+
+    const iRect  = iconEl.getBoundingClientRect();
+    const bx     = iRect.left + iRect.width / 2 - sRect.left;
+    const by     = iRect.top - sRect.top;
+    const dy     = by - hy;
+    const d      = `M ${hx} ${hy} C ${hx} ${hy + dy * 0.35} ${bx} ${by - dy * 0.35} ${bx} ${by}`;
+    const pathId = 'fc-' + b.key;
+    const state  = _flowCurveActive[b.key] || { active: false, mode: null };
+    const active = state.active;
+    const mode   = state.mode;
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.id = pathId;
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', _strokeFor(b.key, active, mode));
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(path);
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.id = 'fcd-' + b.key;
+    g.setAttribute('visibility', active ? 'visible' : 'hidden');
+
+    const dotColor = active ? _dotColorFor(b.key, mode) : b.color;
+
+    for (let i = 0; i < 3; i++) {
+      const dot    = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('r', '3');
+      dot.setAttribute('fill', dotColor);
+
+      const motion = document.createElementNS('http://www.w3.org/2000/svg', 'animateMotion');
+      motion.setAttribute('dur', '1.8s');
+      motion.setAttribute('repeatCount', 'indefinite');
+      motion.setAttribute('begin', (i * 0.6) + 's');
+      const mpath  = document.createElementNS('http://www.w3.org/2000/svg', 'mpath');
+      mpath.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#' + pathId);
+      motion.appendChild(mpath);
+
+      const fade   = document.createElementNS('http://www.w3.org/2000/svg', 'animate');
+      fade.setAttribute('attributeName', 'opacity');
+      fade.setAttribute('dur', '1.8s');
+      fade.setAttribute('repeatCount', 'indefinite');
+      fade.setAttribute('begin', (i * 0.6) + 's');
+      fade.setAttribute('values', '0;1;1;0');
+      fade.setAttribute('keyTimes', '0;0.1;0.85;1');
+
+      dot.appendChild(motion);
+      dot.appendChild(fade);
+      g.appendChild(dot);
+    }
+
+    svg.appendChild(g);
+  });
+}
+
+// Swaps the Grid node's icon for the configured retailer's favicon (Settings ->
+// Region -> Grid icon). Only touches the DOM when the domain actually changes.
+// Falls back to a generic plug icon when unset.
+let _lastGridRetailerDomain;
+function applyGridRetailerIcon(domain) {
+  domain = domain || '';
+  if (domain === _lastGridRetailerDomain) return;
+  _lastGridRetailerDomain = domain;
+  const container = document.getElementById('grid-node');
+  if (!container) return;
+  container.innerHTML = domain
+    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:50%">`
+    : `<svg id="grid-node-default-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>`;
+}
+
+function updateFlowDiagram(d) {
+  applyGridRetailerIcon(d.gridRetailerDomain);
+  updatePipe('.pipe-solar-home', d.solar > 50, false);
+
+  const exporting = d.grid < -50, importing = d.grid > 50;
+  const pipeEl    = document.querySelector('.pipe-home-grid');
+  if (pipeEl) {
+    if (exporting)      pipeEl.className = 'flow-pipe pipe-home-grid home-grid active';
+    else if (importing) pipeEl.className = 'flow-pipe pipe-home-grid home-grid importing reverse active';
+    else                pipeEl.className = 'flow-pipe pipe-home-grid home-grid';
+  }
+
+  // EV: active when charging watts > 100 OR Tesla reports Charging state
+  // Grid-sourced when solar can't cover the EV load
+  const evActive = (d.evWatts || 0) > 100 || d.chargingState === 'Charging';
+  const evGridMode = evActive && (d.grid || 0) > 50 && (d.solar || 0) < (d.evWatts || 0);
+  setFlowCurveActive('ev', evActive, evGridMode ? 'grid' : null);
+  const evNode = document.getElementById('ev-node');
+  if (evNode) evNode.classList.toggle('active', d.chargingState === 'Charging');
+
+  // HW: active when Eddi is diverting solar OR boosting from grid
+  const hwDiverting = (d.eddiDivertW || 0) > 50;
+  const hwBoosting  = d.eddiStatus === 'Boosting';
+  const hwActive    = hwDiverting || hwBoosting;
+  setFlowCurveActive('hw', hwActive, hwBoosting ? 'grid' : null);
+  const hwNode = document.getElementById('hw-node');
+  if (hwNode) hwNode.classList.toggle('active', hwActive);
+
+  const acNode = document.getElementById('ac-node');
+  if (acNode) {
+    acNode.classList.remove('active', 'cooling', 'heating');
+    const acActive = (d.acRunningCount || 0) > 0;
+    let acMode = null;
+    if (acActive) {
+      if (d.acModes && d.acModes.includes('Cool'))      { acNode.classList.add('cooling'); acMode = 'cooling'; }
+      else if (d.acModes && d.acModes.includes('Heat')) { acNode.classList.add('heating'); acMode = 'heating'; }
+      else                                              { acNode.classList.add('active'); }
+    }
+    setFlowCurveActive('ac', acActive, acMode);
+  }
+
+  const evLabel = document.getElementById('ev-flow-label');
+  if (evLabel && d.vehicleModel) evLabel.textContent = d.vehicleModel;
+
+  const houseW = Math.max(0, (d.consumption || 0) - (d.evWatts || 0) - (d.eddiDivertW || 0) - (d.acLoadW || 0));
+  setNodeVal('solar-node-val', formatWatts(d.solar));
+  setNodeVal('home-node-val',  formatWatts(houseW));
+  setNodeVal('grid-node-val',  formatWatts(Math.abs(d.grid)));
+  setNodeVal('ev-node-val',    formatWatts(d.evWatts || 0));
+  setNodeVal('hw-node-val',    formatWatts(d.eddiDivertW || 0));
+  setNodeVal('ac-node-val',    (d.acLoadW || 0) > 0 ? '~' + formatWatts(d.acLoadW) : formatWatts(0));
+}
+
+function updateTodayTotals(t) {
+  setNodeVal('solar-node-today', fmtEnergy(t.solar) + ' today');
+  setNodeVal('home-node-today',  fmtEnergy(t.house) + ' today');
+  setNodeVal('ev-node-today',    fmtEnergy(t.ev)    + ' today');
+  setNodeVal('ac-node-today',    '-');
+  setNodeVal('grid-node-today',  '↑' + fmtEnergy(t.gridExport) + '  ↓' + fmtEnergy(t.gridImport));
+  const hwTotal = (t.hw || 0) + (t.hwBoost || 0);
+  const hwLabel = hwTotal > 0 && (t.hwBoost || 0) > 0
+    ? fmtEnergy(hwTotal) + ' today (' + fmtEnergy(t.hwBoost) + ' grid)'
+    : fmtEnergy(hwTotal) + ' today';
+  setNodeVal('hw-node-today', hwLabel);
+}
+
+function connectSSE() {
+  const es = new EventSource('/embed/events?key=' + encodeURIComponent(_key));
+  es.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.type === 'connected') return;
+      updateFlowDiagram(d);
+      if (d.todayKwh) updateTodayTotals(d.todayKwh);
+    } catch (_) {}
+  };
+  es.onerror = () => {
+    es.close();
+    setTimeout(connectSSE, 5000);
+  };
+}
+
+window.addEventListener('resize', drawFlowCurves);
+window.addEventListener('DOMContentLoaded', () => {
+  drawFlowCurves();
+  connectSSE();
+});
+</script>
+</body>
+</html>

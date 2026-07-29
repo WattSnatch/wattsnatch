@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 James Shafton
+  Licensed under the PolyForm Noncommercial License 1.0.0
+  See LICENSE file in the project root, or
+  https://polyformproject.org/licenses/noncommercial/1.0.0
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattSnatch - Setup</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/setup.css">
+</head>
+<body>
+
+<!-- Top progress bar -->
+<div class="setup-progress-bar">
+  <div class="setup-progress-fill" id="setup-progress-fill" style="width:0%"></div>
+</div>
+
+<div class="setup-wrap">
+
+  <!-- Brand -->
+  <div class="setup-brand">
+    <svg width="26" height="26" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="border-radius:6px;flex-shrink:0" data-ws-mark="full"></svg>
+    WattSnatch
+  </div>
+
+  <!-- Step indicators -->
+  <div class="step-indicators">
+    <div class="step-dot active" id="sdot-1"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-2"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-3"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-4"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-5"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-6"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-7"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-8"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-9"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-10"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-11"></div>
+    <div class="step-connector"></div>
+    <div class="step-dot" id="sdot-12"></div>
+  </div>
+
+  <!-- ─── Step 1: Welcome ─── -->
+  <div id="step-1" class="step-card step-panel">
+    <div class="step-header">
+      <div class="step-number">Step 1 of 12</div>
+      <div class="step-title">Welcome to WattSnatch</div>
+      <div class="step-desc">
+        This wizard will connect WattSnatch to your Enphase IQ Gateway and Tesla vehicle,
+        then install it as a background service so it runs automatically.
+        <br><br>
+        You'll need: your Enphase Enlighten login, your Tesla Fleet API credentials, and about 10 minutes.
+      </div>
+    </div>
+
+    <div class="checklist">
+      <div class="checklist-item done">
+        <div class="checklist-icon">✓</div>
+        <div>Node.js is running</div>
+      </div>
+      <div class="checklist-item">
+        <div class="checklist-icon">·</div>
+        <div>Enphase IQ Gateway on local network</div>
+      </div>
+      <div class="checklist-item">
+        <div class="checklist-icon">·</div>
+        <div>Tesla Fleet API developer account</div>
+      </div>
+      <div class="checklist-item">
+        <div class="checklist-icon">·</div>
+        <div>Tesla vehicle registered to your account</div>
+      </div>
+    </div>
+
+    <div class="alert alert-warn mb-2">
+      <strong>Security:</strong> Do not expose port 3001 to the internet. This app is for local network use only.
+    </div>
+
+    <div class="step-nav">
+      <div></div>
+      <button id="step1-start" class="btn btn-primary btn-lg">Get Started →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 2: Choose & configure your solar inverter ─── -->
+  <div id="step-2" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 2 of 12</div>
+      <div class="step-title">Connect your solar inverter</div>
+      <div class="step-desc">
+        WattSnatch needs live solar/consumption/grid readings from your inverter to control charging.
+        Choose your brand below.
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Inverter brand</label>
+      <div id="brand-picker" style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary brand-pill active" data-brand="enphase">Enphase</button>
+        <button type="button" class="btn btn-secondary brand-pill" data-brand="fronius">Fronius</button>
+        <button type="button" class="btn btn-secondary brand-pill" data-brand="solaredge">SolarEdge</button>
+        <button type="button" class="btn btn-secondary brand-pill" data-brand="span">SPAN Panel</button>
+        <button type="button" class="btn btn-secondary brand-pill" data-brand="mqtt">MQTT (other)</button>
+      </div>
+    </div>
+
+    <!-- Enphase fields -->
+    <div id="brand-fields-enphase">
+      <div class="form-group">
+        <label for="gateway-ip-input">Gateway IP or hostname</label>
+        <div class="input-row">
+          <div class="form-group" style="margin-bottom:0">
+            <input type="text" id="gateway-ip-input" placeholder="192.168.1.100 or envoy.local">
+          </div>
+          <button type="button" id="discover-btn" class="btn btn-secondary">Find automatically</button>
+        </div>
+        <span class="text-secondary text-xs mt-1">Most gateways are accessible at <code style="font-family:monospace;color:var(--accent-solar)">envoy.local</code></span>
+      </div>
+    </div>
+
+    <!-- Fronius fields -->
+    <div id="brand-fields-fronius" class="hidden">
+      <div class="form-group">
+        <label for="fronius-ip-input">Inverter IP or hostname</label>
+        <input type="text" id="fronius-ip-input" placeholder="192.168.1.101">
+        <span class="text-secondary text-xs mt-1">Local network only, no cloud account needed - check your inverter's own network settings screen for its IP</span>
+      </div>
+    </div>
+
+    <!-- SolarEdge fields -->
+    <div id="brand-fields-solaredge" class="hidden">
+      <div class="form-group">
+        <label for="solaredge-api-key-input">API Key</label>
+        <input type="text" id="solaredge-api-key-input" placeholder="Generated in the SolarEdge monitoring portal">
+        <span class="text-secondary text-xs mt-1">Monitoring portal → Admin → Site Access → API Access</span>
+      </div>
+      <div class="form-group">
+        <label for="solaredge-site-id-input">Site ID</label>
+        <input type="text" id="solaredge-site-id-input" placeholder="1234567">
+      </div>
+    </div>
+
+    <!-- SPAN Panel fields -->
+    <div id="brand-fields-span" class="hidden">
+      <p class="text-secondary text-xs" style="margin:0 0 0.75rem">
+        Unverified - built from SPAN's public API docs without access to real hardware. SPAN has no single dedicated "solar" reading; you'll need the circuit ID for whichever monitored circuit is your solar feed.
+      </p>
+      <div class="form-group">
+        <label for="span-host-input">Panel host or IP</label>
+        <input type="text" id="span-host-input" placeholder="192.168.1.120 or span.local">
+      </div>
+      <div class="form-group">
+        <label for="span-access-token-input">Access Token</label>
+        <input type="text" id="span-access-token-input" placeholder="Generated via SPAN's local pairing process">
+      </div>
+      <div class="form-group">
+        <label for="span-solar-circuit-input">Solar Circuit ID</label>
+        <input type="text" id="span-solar-circuit-input" placeholder="e.g. the circuit ID monitoring your solar feed">
+      </div>
+    </div>
+
+    <!-- MQTT fields -->
+    <div id="brand-fields-mqtt" class="hidden">
+      <p class="text-secondary text-xs" style="margin:0 0 0.75rem">
+        For any inverter WattSnatch doesn't natively support yet: publish your live solar and grid (or house-consumption)
+        power to an MQTT broker - e.g. from Home Assistant, solar-assistant, or an ESPHome device - and WattSnatch will drive
+        charging from it. Topics must publish a plain number in watts.
+      </p>
+      <div class="form-group">
+        <label for="mqtt-in-broker">Broker URL</label>
+        <input type="text" id="mqtt-in-broker" placeholder="mqtt://192.168.1.50:1883">
+        <span class="text-secondary text-xs mt-1">Often the same broker as your Home Assistant. Use <code style="font-family:monospace">mqtts://</code> for TLS.</span>
+      </div>
+      <div class="input-row">
+        <div class="form-group">
+          <label for="mqtt-in-username">Username <span class="text-secondary">(optional)</span></label>
+          <input type="text" id="mqtt-in-username" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="mqtt-in-password">Password <span class="text-secondary">(optional)</span></label>
+          <input type="password" id="mqtt-in-password" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="mqtt-in-topic-solar">Solar production topic</label>
+        <input type="text" id="mqtt-in-topic-solar" placeholder="home/solar/pv_power">
+      </div>
+      <div class="input-row">
+        <div class="form-group">
+          <label for="mqtt-in-second-type">Second signal</label>
+          <select id="mqtt-in-second-type">
+            <option value="grid">Grid (net import/export)</option>
+            <option value="consumption">House consumption</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="mqtt-in-topic-second">Second topic</label>
+          <input type="text" id="mqtt-in-topic-second" placeholder="home/solar/grid_power">
+        </div>
+      </div>
+      <div class="input-row">
+        <div class="form-group">
+          <label for="mqtt-in-grid-sign">Grid sign <span class="text-secondary">(if second = Grid)</span></label>
+          <select id="mqtt-in-grid-sign">
+            <option value="import_positive">Positive = importing</option>
+            <option value="export_positive">Positive = exporting (feed-in)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="mqtt-in-scale">Units</label>
+          <select id="mqtt-in-scale">
+            <option value="1">Watts (W)</option>
+            <option value="1000">Kilowatts (kW)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="mqtt-in-stale">Stale timeout (seconds)</label>
+        <input type="number" id="mqtt-in-stale" value="60" min="5">
+        <span class="text-secondary text-xs mt-1">If no fresh reading arrives within this window, WattSnatch treats the feed as down and stops charging - set it comfortably above your source's publish interval.</span>
+      </div>
+    </div>
+
+    <div id="step2-info" class="alert alert-success hidden mt-1"></div>
+    <div id="step2-error" class="alert alert-error hidden mt-1"></div>
+
+    <div style="margin-top:1rem">
+      <button type="button" id="test-gateway-btn" class="btn btn-secondary w-full">Test Connection</button>
+    </div>
+
+    <div id="gateway-result" class="result-box hidden mt-2">
+      <div class="result-row">
+        <span class="result-label">Serial</span>
+        <span class="result-value" id="gateway-serial">-</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Firmware</span>
+        <span class="result-value" id="gateway-firmware">-</span>
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn btn-ghost" onclick="goToStep(1)">← Back</button>
+      <button id="step2-next" class="btn btn-primary">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 3: Enphase token ─── -->
+  <div id="step-3" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 3 of 12</div>
+      <div class="step-title">Authenticate with Enphase</div>
+      <div class="step-desc">
+        Enter your Enphase Enlighten account credentials to generate a local gateway token.
+        Your password is used only once to obtain the token and is <strong>never stored</strong>.
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="enphase-email">Enlighten account email</label>
+      <input type="email" id="enphase-email" placeholder="you@example.com" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label for="enphase-password">Password (not stored)</label>
+      <input type="password" id="enphase-password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <div class="form-group">
+      <label for="enphase-serial">Gateway serial number</label>
+      <input type="text" id="enphase-serial" placeholder="122012345678">
+      <span class="text-secondary text-xs mt-1">Found on the sticker on your gateway, or in the Enlighten app</span>
+    </div>
+
+    <div id="step3-error" class="alert alert-error hidden mt-1"></div>
+    <div id="step3-info" class="alert alert-success hidden mt-1"></div>
+
+    <div id="token-result" class="result-box hidden mt-1">
+      <div class="result-row">
+        <span class="result-label">Token expires</span>
+        <span class="result-value" id="token-expiry">-</span>
+      </div>
+    </div>
+
+    <div style="margin-top:1rem">
+      <button type="button" id="gen-token-btn" class="btn btn-secondary w-full">Generate Token</button>
+    </div>
+
+    <div class="step-nav">
+      <button id="step3-back" class="btn btn-ghost">← Back</button>
+      <button id="step3-next" class="btn btn-primary">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 4: Vehicle connection method ─── -->
+  <div id="step-4" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 4 of 12</div>
+      <div class="step-title">How should WattSnatch talk to your car?</div>
+      <div class="step-desc">
+        Both options need a one-time Tesla developer app and a virtual key paired to your car - that part
+        is Tesla's own security requirement and is the same either way. What differs is whether WattSnatch
+        keeps talking to Tesla's cloud afterward.
+      </div>
+    </div>
+
+    <div id="vehicle-mode-picker" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem">
+      <button type="button" class="btn btn-secondary mode-pill active" data-mode="fleet" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
+        <strong>Fleet API + Fleet Telemetry</strong> <span class="text-secondary" style="font-weight:400">(recommended)</span>
+        <div class="text-secondary text-xs" style="margin-top:0.35rem;font-weight:400">
+          Live push updates from Tesla's cloud, works from anywhere your car has signal. Uses Tesla's free API tier and a one-time OAuth login.
+        </div>
+      </button>
+      <button type="button" class="btn btn-secondary mode-pill" data-mode="ble" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
+        <strong>Bluetooth LE</strong> <span class="text-secondary" style="font-weight:400">(fully cloud-free)</span>
+        <div class="text-secondary text-xs" style="margin-top:0.35rem;font-weight:400">
+          No Fleet Telemetry, no Fleet API calls, no Tesla OAuth login - everything happens over local Bluetooth.
+          Only works while the car is in range (a few metres, i.e. at home), and state updates are polled every
+          ~30s rather than pushed live. Requires building and running
+          <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener" onclick="event.stopPropagation()">TeslaBleHttpProxy</a> yourself.
+        </div>
+      </button>
+    </div>
+
+    <div id="step4-error" class="alert alert-error hidden mt-2"></div>
+
+    <div class="step-nav">
+      <button id="step4-back" class="btn btn-ghost">← Back</button>
+      <button id="step4-next" class="btn btn-primary">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 5: Tesla developer app ─── -->
+  <div id="step-5" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 5 of 12</div>
+      <div class="step-title">Tesla Developer App</div>
+      <div class="step-desc" id="step5-desc">
+        Enter your Tesla Fleet API application credentials. You need a registered developer application at
+        <a href="https://developer.tesla.com" target="_blank" rel="noopener">developer.tesla.com</a>.
+        The redirect URI must match exactly what you registered.
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="tesla-client-id">Client ID</label>
+      <input type="text" id="tesla-client-id" placeholder="abc123...">
+    </div>
+    <div class="form-group">
+      <label for="tesla-client-secret">Client Secret</label>
+      <input type="password" id="tesla-client-secret" placeholder="tsk_...">
+    </div>
+    <div class="form-group" id="tesla-redirect-uri-group">
+      <label for="tesla-redirect-uri">Redirect URI</label>
+      <input type="url" id="tesla-redirect-uri" placeholder="https://yourapp.example.com/auth/tesla/callback">
+      <span class="text-secondary text-xs mt-1">Must be HTTPS and match your Tesla app registration exactly</span>
+    </div>
+
+    <div id="step5-error" class="alert alert-error hidden mt-1"></div>
+
+    <div class="alert alert-info mt-2" id="step5-info-alert">
+      Clicking "Authorise with Tesla" will redirect you to Tesla's login page. You'll be sent back here automatically.
+    </div>
+
+    <div class="step-nav">
+      <button id="step5-back" class="btn btn-ghost">← Back</button>
+      <button id="tesla-auth-btn" class="btn btn-primary">Authorise with Tesla →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 6: Vehicle confirmed / VIN ─── -->
+  <div id="step-6" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 6 of 12</div>
+      <div class="step-title" id="step6-title">Vehicle Connected</div>
+      <div class="step-desc" id="step6-desc">
+        Tesla authentication was successful. Your vehicle has been detected.
+      </div>
+    </div>
+
+    <div id="vehicle-info" class="mt-2 mb-2">
+      <div class="alert alert-info">Checking vehicle…</div>
+    </div>
+
+    <div class="step-nav">
+      <button id="step6-back" class="btn btn-ghost">← Back</button>
+      <button id="step6-next" class="btn btn-primary">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 7: Public key ─── -->
+  <div id="step-7" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 7 of 12</div>
+      <div class="step-title">Register Public Key with Tesla</div>
+      <div class="step-desc">
+        Tesla requires you to host your app's public key at a specific URL so the car can verify that
+        commands genuinely come from your app - this is needed no matter which method you chose in step 4.
+        Copy the key below and host it at
+        <code style="font-family:monospace;color:var(--accent-solar);font-size:0.8rem">https://yourdomain.com/.well-known/appspecific/com.tesla.3p.public-key.pem</code>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:1rem;margin-bottom:0.25rem">
+      <label style="margin:0">Your public key</label>
+      <button type="button" id="copy-key-btn" class="btn btn-ghost btn-sm">Copy</button>
+    </div>
+    <div id="public-key-display" class="key-display">Loading…</div>
+
+    <div class="form-group mt-2">
+      <label for="key-url-input">Your app's base URL (to verify)</label>
+      <div class="input-row">
+        <div class="form-group" style="margin-bottom:0;flex:1">
+          <input type="url" id="key-url-input" placeholder="https://yourapp.example.com">
+        </div>
+        <button type="button" id="verify-key-btn" class="btn btn-secondary">Verify</button>
+      </div>
+    </div>
+
+    <div id="step7-error" class="alert alert-error hidden mt-1"></div>
+    <div id="step7-info" class="alert alert-success hidden mt-1"></div>
+
+    <div id="step7-partner-section" class="hidden" style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+      <div class="alert alert-warn mb-1">
+        <strong>One more one-time step:</strong> register this domain with Tesla so it accepts commands signed
+        with your key. Uses just your Client ID/Secret from step 5 - no OAuth login needed for this part.
+      </div>
+      <button type="button" id="register-partner-btn" class="btn btn-secondary">Register domain with Tesla</button>
+      <span id="partner-reg-status" style="margin-left:0.75rem;font-size:0.85rem"></span>
+    </div>
+
+    <div class="step-nav">
+      <button id="step7-back" class="btn btn-ghost">← Back</button>
+      <button id="step7-next" class="btn btn-primary">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 8: Virtual key pairing ─── -->
+  <div id="step-8" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 8 of 12</div>
+      <div class="step-title">Pair Virtual Key with Car</div>
+      <div class="step-desc">
+        Tesla requires a virtual key paired to your car before third-party apps can send commands (charging, wake, etc). This is a one-time step done from your iPhone.
+      </div>
+    </div>
+
+    <div class="checklist" style="margin-top:1rem">
+      <div class="checklist-item">
+        <div class="checklist-icon">1</div>
+        <div>On your iPhone, open Safari and go to <code style="font-family:monospace;color:var(--accent-solar);font-size:0.9rem;word-break:break-all">https://tesla.com/_ak/&lt;your-key-domain&gt;</code> - the domain where you hosted your public key in the earlier step (e.g. <code style="font-family:monospace;font-size:0.85rem">yourname.github.io</code>)</div>
+      </div>
+      <div class="checklist-item">
+        <div class="checklist-icon">2</div>
+        <div>The Tesla app will open - tap <strong>Add key</strong></div>
+      </div>
+      <div class="checklist-item">
+        <div class="checklist-icon">3</div>
+        <div>Tap your Tesla key card on the centre console reader to confirm</div>
+      </div>
+    </div>
+
+    <div class="alert alert-warn mt-2" style="margin-top:1rem">
+      You need to be inside or next to the car to complete this step.
+    </div>
+
+    <div class="step-nav">
+      <button id="step8-back" class="btn btn-ghost">← Back</button>
+      <button id="step8-next" class="btn btn-primary">I've paired the key →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 9: Bluetooth LE proxy (BLE mode only) ─── -->
+  <div id="step-9" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 9 of 12</div>
+      <div class="step-title">Bluetooth LE Proxy</div>
+      <div class="step-desc">
+        WattSnatch talks to your car over Bluetooth through Tesla's own open-source
+        <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener">TeslaBleHttpProxy</a>.
+        It doesn't have to run on this same machine - anywhere on your LAN within Bluetooth range of the car works,
+        as long as WattSnatch can reach its URL. It reuses the key you already generated in step 7 - no separate pairing needed.
+      </div>
+    </div>
+
+    <div class="alert alert-warn" style="margin-top:1rem">
+      <strong>Not practically usable on macOS.</strong> TeslaBleHttpProxy needs macOS's CoreBluetooth framework, which
+      refuses to run code that isn't signed with a paid Apple Developer ID certificate - it fails with a silent crash
+      (SIGABRT), not a permission prompt, and no amount of ad-hoc signing or Info.plist changes works around it.
+      <strong>Run it on Linux instead</strong> - a Raspberry Pi near the car works well - and point the URL below at
+      that machine's LAN address. WattSnatch itself can stay on macOS; only this one proxy needs to be elsewhere.
+    </div>
+
+    <div class="checklist" style="margin-top:1rem">
+      <div class="checklist-item">
+        <div class="checklist-icon">1</div>
+        <div>On the Linux machine that will run it: install Go from <a href="https://go.dev/dl" target="_blank" rel="noopener">go.dev/dl</a> (or <code style="font-family:monospace;font-size:0.85rem">apt install golang-go</code>) if you don't already have it</div>
+      </div>
+      <div class="checklist-item">
+        <div class="checklist-icon">2</div>
+        <div><code style="font-family:monospace;font-size:0.85rem">git clone https://github.com/wimaha/TeslaBleHttpProxy.git && cd TeslaBleHttpProxy && go build</code></div>
+      </div>
+      <div class="checklist-item">
+        <div class="checklist-icon">3</div>
+        <div>Copy the same <code style="font-family:monospace;font-size:0.85rem">keys/private.pem</code> WattSnatch generated onto that machine, and run the proxy pointing at it, on the port you enter below</div>
+      </div>
+    </div>
+
+    <div class="form-group mt-2">
+      <label for="ble-proxy-url-input">BLE Proxy URL</label>
+      <input type="url" id="ble-proxy-url-input" placeholder="e.g. http://192.168.1.50:8080 (or http://localhost:8080 if this machine is Linux)">
+    </div>
+
+    <div style="display:flex;align-items:center;gap:0.75rem">
+      <button type="button" id="step9-test-btn" class="btn btn-secondary btn-sm">Test Connection</button>
+      <span id="step9-test-result" style="font-size:0.85rem;color:var(--text-secondary)"></span>
+    </div>
+
+    <div id="step9-error" class="alert alert-error hidden mt-2"></div>
+
+    <div class="step-nav">
+      <button id="step9-back" class="btn btn-ghost">← Back</button>
+      <button id="step9-next" class="btn btn-primary">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 10: Charging preferences ─── -->
+  <div id="step-10" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 10 of 12</div>
+      <div class="step-title">Charging Preferences</div>
+
+      <div class="step-desc">
+        Set how WattSnatch should control your charger. Defaults are sensible for most setups.
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="form-group">
+        <label for="pref_min_charge_amps">Min Charge Amps</label>
+        <input type="number" id="pref_min_charge_amps" value="5" min="1" max="32">
+        <span class="text-secondary text-xs mt-1">Below this, charging stops</span>
+      </div>
+      <div class="form-group">
+        <label for="pref_max_charge_amps">Max Charge Amps</label>
+        <input type="number" id="pref_max_charge_amps" value="32" min="1" max="48">
+      </div>
+      <div class="form-group">
+        <label for="pref_hold_minutes">Hold Minutes</label>
+        <input type="number" id="pref_hold_minutes" value="3" min="1" max="30">
+        <span class="text-secondary text-xs mt-1">Wait before stopping charge</span>
+      </div>
+      <div class="form-group">
+        <label for="pref_smoothing_window">Smoothing Window</label>
+        <input type="number" id="pref_smoothing_window" value="3" min="1" max="10">
+        <span class="text-secondary text-xs mt-1">Readings to average</span>
+      </div>
+      <div class="form-group">
+        <label for="pref_polling_interval_seconds">Poll Interval (s)</label>
+        <input type="number" id="pref_polling_interval_seconds" value="15" min="5" max="120">
+      </div>
+      <div class="form-group">
+        <label for="pref_charger_voltage">Charger Voltage (V)</label>
+        <input type="number" id="pref_charger_voltage" value="240" min="110" max="260">
+      </div>
+      <div class="form-group">
+        <label for="pref_electricity_rate_aud">Rate (AUD/kWh)</label>
+        <input type="number" id="pref_electricity_rate_aud" value="0.30" min="0.01" max="2" step="0.01">
+        <span class="text-secondary text-xs mt-1">For savings estimate</span>
+      </div>
+    </div>
+
+    <div id="step10-error" class="alert alert-error hidden mt-1"></div>
+
+    <div class="step-nav">
+      <button id="step10-back" class="btn btn-ghost">← Back</button>
+      <button id="step10-next" class="btn btn-primary">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 11: Install service ─── -->
+  <div id="step-11" class="step-card step-panel hidden">
+    <div class="step-header">
+      <div class="step-number">Step 11 of 12</div>
+      <div class="step-title">Install Background Service</div>
+      <div class="step-desc" id="step11-desc">
+        Install WattSnatch as a macOS LaunchAgent so it starts automatically at login and runs continuously in the background.
+        This will also install the Tesla command proxy service.
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div style="margin-bottom:1rem">
+      <div class="service-status-item">
+        <span class="service-name">WattSnatch app</span>
+        <span id="service-app-status"><span class="pill pill-idle"><span class="status-dot status-dot-grey"></span>Unknown</span></span>
+      </div>
+      <div class="service-status-item" id="service-proxy-row">
+        <span class="service-name">Tesla proxy</span>
+        <span id="service-proxy-status"><span class="pill pill-idle"><span class="status-dot status-dot-grey"></span>Unknown</span></span>
+      </div>
+    </div>
+
+    <div id="step11-error" class="alert alert-error hidden mt-1"></div>
+    <div id="step11-info" class="alert alert-success hidden mt-1"></div>
+
+    <div style="display:flex;gap:0.5rem;margin-top:1rem">
+      <button type="button" id="install-service-btn" class="btn btn-primary" style="flex:1">Install Service</button>
+      <button type="button" id="check-status-btn" class="btn btn-secondary">Check Status</button>
+    </div>
+
+    <div class="step-nav">
+      <button id="step11-back" class="btn btn-ghost">← Back</button>
+      <button id="step11-next" class="btn btn-primary">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ─── Step 12: Complete ─── -->
+  <div id="step-12" class="step-card step-panel hidden">
+    <div class="setup-success">
+      <div class="setup-success-icon">✓</div>
+      <div class="step-header" style="margin-bottom:0.75rem">
+        <div class="step-number">Step 12 of 12</div>
+        <div class="step-title">Setup Complete!</div>
+        <div class="step-desc">
+          WattSnatch is configured and ready to go. It will automatically start charging your Tesla
+          whenever there is sufficient solar excess.
+        </div>
+      </div>
+
+      <div class="checklist" style="text-align:left;margin-top:1.25rem">
+        <div class="checklist-item done">
+          <div class="checklist-icon">✓</div>
+          <div>Enphase gateway connected</div>
+        </div>
+        <div class="checklist-item done">
+          <div class="checklist-icon">✓</div>
+          <div id="step12-vehicle-checklist-item">Tesla account authorised</div>
+        </div>
+        <div class="checklist-item done">
+          <div class="checklist-icon">✓</div>
+          <div>Charging preferences saved</div>
+        </div>
+        <div class="checklist-item done">
+          <div class="checklist-icon">✓</div>
+          <div>Background service installed</div>
+        </div>
+      </div>
+
+      <div id="step12-error" class="alert alert-error hidden mt-2"></div>
+    </div>
+
+    <div class="step-nav">
+      <button id="step12-back" class="btn btn-ghost">← Back</button>
+      <button id="complete-btn" class="btn btn-primary btn-lg">Go to Dashboard →</button>
+    </div>
+  </div>
+
+</div><!-- /setup-wrap -->
+
+<script src="/js/common.js"></script>
+<script src="/js/setup.js"></script>
+</body>
+</html>
