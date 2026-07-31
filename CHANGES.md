@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-07-31 - v1.22.1: Install guide accuracy fixes
+
+`INSTALL.md`'s "What you need before you start" section still only
+mentioned Enphase, and the setup wizard step table still described only
+4 inverter brands with a login step presented as if it applied to
+everyone:
+
+- Section 1 now lists all six supported solar meter options (Enphase,
+  Fronius, SolarEdge, SPAN Panel, Sungrow, MQTT input), notes which two
+  are unverified against real hardware, and makes the "same local
+  network" requirement conditional on the meter actually being a local
+  device rather than stating it as a universal rule.
+- The setup wizard step table (section 7) now lists all six brands and
+  makes clear that the Enlighten login step only appears for Enphase -
+  every other brand skips straight past it.
+- Fixed a broken internal link left over from the section 1 rewrite.
+
 ## 2026-07-31 - v1.22.0: Pre-flight check script
 
 Added `npm run preflight` - a new script that checks every failure mode

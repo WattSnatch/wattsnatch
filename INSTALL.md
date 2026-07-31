@@ -2,7 +2,7 @@
 
 This is a complete, from-scratch guide to running your own instance of WattSnatch. It's written for someone who has never seen the codebase before.
 
-WattSnatch is **one required core** (Enphase solar monitoring + Tesla charge control) plus a set of **optional integrations** (hot water, air-con, calendar-aware trip planning, bill parsing, notifications, Home Assistant, etc.). You can run just the core in about 30–45 minutes; each optional integration adds its own setup time on top. This guide covers all of it, clearly marked.
+WattSnatch is **one required core** (solar monitoring + Tesla charge control) plus a set of **optional integrations** (a home battery, hot water, air-con, calendar-aware trip planning, bill parsing, notifications, Home Assistant, etc.). You can run just the core in about 30–45 minutes; each optional integration adds its own setup time on top. This guide covers all of it, clearly marked.
 
 ---
 
@@ -31,13 +31,16 @@ WattSnatch is **one required core** (Enphase solar monitoring + Tesla charge con
 ## 1. What you need before you start
 
 **Hardware:**
-- An **Enphase IQ Gateway (Envoy)** on your local network, with an Enlighten account (email + password) that has access to it.
+- A solar inverter or meter WattSnatch can read from. Natively supported: **Enphase IQ Gateway** (the most battle-tested), **Fronius** (local Solar API, no cloud account), or **SolarEdge** (cloud monitoring API). Also supported but not yet verified against real hardware: **SPAN Panel** (US smart electrical panel) and **Sungrow** (SH-series hybrid inverter, local Modbus TCP). Don't have any of those? **MQTT** input lets you feed in readings from literally anything else you already have - Home Assistant, solar-assistant, an ESPHome device, whatever publishes solar/grid data. See [Run the setup wizard](#7-run-the-setup-wizard) below for the connection fields each brand needs, and the [website docs](https://wattsnatch.com/docs.html#int-enphase) for more detail on each.
 - A **Tesla vehicle**.
-- A machine to run the server that can stay on continuously - a Mac Mini, an old laptop, a NUC, a Raspberry Pi 4+, or a cheap always-on Linux box all work. It must be on the **same local network** as your Enphase gateway (the gateway is only reachable over LAN).
+- A machine to run the server that can stay on continuously - a Mac Mini, an old laptop, a NUC, a Raspberry Pi 4+, or a cheap always-on Linux box all work. If your solar meter is a local-network device (Enphase, Fronius, SPAN, or Sungrow), this machine must be on the **same local network** as it.
 
 **Accounts (all free):**
+- Whatever your chosen solar meter needs: an Enlighten account (email + password) for Enphase, an API key + site ID for SolarEdge, an access token for SPAN. Fronius, Sungrow, and MQTT input need no cloud account at all - just local network access.
 - A free [Tesla developer account](https://developer.tesla.com) (uses your normal Tesla login).
 - A place to publicly host one static text file - a free **GitHub Pages** site is the easiest option and is what this guide uses. (Tesla requires your app's public key to be reachable at a public HTTPS URL; it does not need to be the same machine running WattSnatch.)
+
+**Optional, if you want them** (see [Optional integrations](#11-optional-integrations) for setup details on each): a home battery (Sigenergy, Sungrow, or Tesla Powerwall) for the dashboard's animated battery visual, and air conditioning monitoring via MELCloud or MelView (Mitsubishi Electric's two separate platforms - MELCloud globally, MelView for Australia/NZ).
 
 **Time:** budget 30–45 minutes for the core install, longer if this is your first time using GitHub Pages or the Tesla developer portal.
 
@@ -206,8 +209,8 @@ Open **http://localhost:3001** in a browser on the same machine (or any device o
 | Step | What it does |
 |---|---|
 | 1 | Welcome / overview |
-| 2 | Choose your inverter brand - Enphase (gateway IP + serial, with "Find automatically" LAN discovery), Fronius, SolarEdge, or **MQTT (other)** to feed any inverter in over MQTT (see [MQTT solar input](#mqtt-solar-input-any-unsupported-inverter)). |
-| 3 | Enter your Enlighten account email + password once - this generates a local access token; **your password itself is never stored.** |
+| 2 | Choose your solar meter brand - **Enphase** (gateway IP, with "Find automatically" LAN discovery), **Fronius** or **SolarEdge**, **SPAN Panel** or **Sungrow** (both unverified against real hardware), or **MQTT (other)** to feed any inverter in over MQTT (see [MQTT solar input](#mqtt-solar-input-any-unsupported-inverter)). Each brand's connection fields appear here - only Enphase needs an Enlighten login (next step); every other brand skips straight to step 4. |
+| 3 | **Enphase only** - enter your Enlighten account email + password once, which generates a local access token; **your password itself is never stored.** Skipped entirely for every other brand. |
 | 4 | Choose **Fleet API + Fleet Telemetry** or **Bluetooth LE** - this sets how WattSnatch reads and controls your car for the rest of setup |
 | 5 | Paste your Tesla Client ID / Client Secret from the developer app you registered. **Fleet mode** also asks for a Redirect URI and clicking through completes Tesla's OAuth login in your browser; **Bluetooth LE mode** only needs the Client ID/Secret and never leaves this page |
 | 6 | **Fleet mode:** confirms the vehicle detected via your Tesla account (falling back to manual VIN entry if that fails). **Bluetooth LE mode:** enter your VIN directly - there's no token to auto-detect it with |
