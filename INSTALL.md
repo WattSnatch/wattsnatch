@@ -84,6 +84,12 @@ npm install
 
 `npm install` will take a minute or two - it's compiling `better-sqlite3` and `zeromq` for your machine.
 
+**Run the pre-flight check before going any further:**
+```bash
+npm run preflight
+```
+This checks everything that's actually caused a real install to fail before - Node version, native module compilation, port availability, filesystem permissions, keyring/credential storage, mDNS for gateway auto-discovery, and basic internet connectivity - and tells you exactly what to fix, all at once, before you're partway through the setup wizard. Exit code 0 means you're clear to proceed.
+
 ---
 
 ## Tesla vehicle connection: Fleet API vs. Bluetooth LE

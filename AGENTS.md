@@ -44,6 +44,18 @@ build tools for the platform first (macOS: `xcode-select --install`; Debian/Ubun
 `sudo apt install build-essential python3`; Windows: the "Desktop development with C++"
 workload), then re-run `npm install`.
 
+Then run the pre-flight check and confirm it exits 0 before proceeding - it checks Node version,
+native module compilation, port availability, filesystem permissions, keyring/credential storage,
+mDNS, and internet connectivity all at once, so any environment problem surfaces here with a clear
+fix rather than as a confusing failure partway through setup:
+
+```bash
+npm run preflight
+```
+
+If it exits non-zero, fix whatever it reports (it tells you exactly what) and run it again before
+continuing - don't proceed with a failing pre-flight check.
+
 ```bash
 node -e "console.log('install dir:', process.cwd())"
 npm start &

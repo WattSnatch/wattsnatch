@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-07-31 - v1.22.0: Pre-flight check script
+
+Added `npm run preflight` - a new script that checks every failure mode
+that's actually bitten a real install so far, all in one pass, before the
+setup wizard starts: Node version against `package.json`'s `engines`
+field, whether `better-sqlite3`/`zeromq`/`keytar` actually load (and
+whether that's a missing build toolchain or an ABI mismatch from a Node
+version change), a live functional check that the OS keychain/keyring is
+actually reachable (not just that the native module loaded), port
+availability, filesystem write access for the database and keys
+directories, mDNS/Avahi presence for Enphase gateway auto-discovery, and
+basic internet connectivity. Exits non-zero if anything needs attention,
+so it's scriptable - AGENTS.md now tells an agent to run this and confirm
+a clean exit before proceeding with setup, rather than discovering these
+one at a time mid-install with a different confusing error each time.
+
 ## 2026-07-31 - v1.21.1: Installation documentation and reliability fixes
 
 Prompted by a real installer's GitHub issue (Tesla developer app grant

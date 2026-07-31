@@ -1,6 +1,6 @@
 {
   "name": "wattsnatch",
-  "version": "1.21.1",
+  "version": "1.22.0",
   "description": "Solar EV charging controller for Enphase + Tesla",
   "license": "PolyForm-Noncommercial-1.0.0",
   "main": "src/server.js",
@@ -13,6 +13,7 @@
     "backup": "node scripts/backup.js",
     "restore": "node scripts/restore.js",
     "reset-password": "node scripts/reset-password.js",
+    "preflight": "node scripts/preflight.js",
     "test": "node --test",
     "update": "bash scripts/update.sh"
   },

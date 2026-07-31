@@ -38,6 +38,7 @@ Two dependencies (`better-sqlite3`, `zeromq`) compile native code during `npm in
 git clone https://github.com/WattSnatch/wattsnatch.git
 cd wattsnatch
 npm install
+npm run preflight   # checks Node version, build tools, ports, and more - fix anything it flags first
 npm start
 ```
 
