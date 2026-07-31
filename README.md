@@ -148,12 +148,14 @@ WattSnatch uses Tesla's official Fleet API, which requires a free developer regi
 3. Fill in the details:
    - **App name:** WattSnatch (or anything you like)
    - **Purpose:** Personal use / home automation
-4. Under **API and Scopes**, tick all of:
+   - **Website:** a domain you control, e.g. a free GitHub Pages URL - see [INSTALL.md](INSTALL.md#5-register-a-tesla-developer-app) for the full walkthrough including what this is for
+4. **Grant type:** enable both Authorization Code and Client Credentials (Machine-to-Machine) - WattSnatch needs both, not just one
+5. Under **API and Scopes**, tick all of:
    - Vehicle Information
    - Vehicle Location
    - Vehicle Commands
    - Vehicle Charging Management
-5. Save and note your **Client ID** and **Client Secret** - you'll enter these in the setup wizard
+6. Save and note your **Client ID** and **Client Secret** - you'll enter these in the setup wizard
 
 ---
 

@@ -150,18 +150,24 @@ The setup wizard (step 7) will generate an EC keypair and TLS certificate for th
 
 ## 5. Register a Tesla developer app
 
+Before you start, decide on the domain you'll use to host your public key in step 6 below (a free GitHub Pages URL like `YOUR_USERNAME.github.io/wattsnatch-key` works fine) - you'll need that same domain for this step too, not just step 6.
+
 1. Go to [developer.tesla.com](https://developer.tesla.com) and sign in with your normal Tesla account.
 2. Click **Create Application**.
 3. Fill in:
    - **App name:** anything (e.g. "WattSnatch")
    - **Purpose:** Personal use / home automation
-4. Under **API and Scopes**, enable:
+   - **Website:** the same domain you'll host your public key at (step 6) - e.g. `https://YOUR_USERNAME.github.io/wattsnatch-key`. This doesn't need to be a real business site; Tesla just needs a domain it can later verify your public key against.
+4. **Grant type:** enable **both** Authorization Code and Client Credentials (sometimes labelled Machine-to-Machine) on the same application - don't pick just one. WattSnatch needs both: Authorization Code is the actual login flow you'll complete in the setup wizard to authorize your specific vehicle, while Client Credentials is used once, automatically, for a one-time domain-registration call (`partner_accounts`) that happens later in the wizard - you won't need to configure that part separately, it just needs the grant type enabled here first.
+5. Under **API and Scopes**, enable:
    - Vehicle Information
    - Vehicle Location
    - Vehicle Commands
    - Vehicle Charging Management
-5. Set the **Redirect URI** - this must match what you'll enter in the setup wizard. If you're only running this locally, `http://localhost:3001/auth/callback` is fine. If you'll access it via a domain, use that domain instead.
-6. Save the app and note your **Client ID** and **Client Secret** somewhere safe - you'll paste these into the setup wizard in step 5 below. (If you're planning to use Bluetooth LE - see [below](#tesla-vehicle-connection-fleet-api-vs-bluetooth-le) - the Redirect URI doesn't matter since you'll never complete the OAuth login, but the developer app registration itself is still required.)
+6. Set the **Redirect URI** - this must match what you'll enter in the setup wizard. If you're only running this locally, `http://localhost:3001/auth/callback` is fine. If you'll access it via a domain, use that domain instead.
+7. Save the app and note your **Client ID** and **Client Secret** somewhere safe - you'll paste these into the setup wizard in step 5 below. (If you're planning to use Bluetooth LE - see [below](#tesla-vehicle-connection-fleet-api-vs-bluetooth-le) - the Redirect URI doesn't matter since you'll never complete the OAuth login, but the developer app registration itself is still required.)
+
+Tesla's own developer portal has changed its exact wording and layout more than once, so if a label here doesn't match exactly what you see, look for the closest equivalent - the underlying requirement (both grant types enabled, a domain Tesla can associate with your app) stays the same.
 
 ---
 
