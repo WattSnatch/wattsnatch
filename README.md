@@ -5,12 +5,14 @@
 Automatically divert excess solar power to your Tesla. When your Enphase solar system is generating more than your home needs, WattSnatch adjusts your Tesla's charge rate in real time so you're charging from the sun rather than the grid - and stops or reduces charging when solar drops.
 
 **What you need:**
-- An Enphase IQ Gateway (Envoy) on your local network (Fronius, SolarEdge, and SPAN Panel are also supported - or feed **any** inverter in over MQTT, see below)
+- An Enphase IQ Gateway (Envoy) on your local network (Fronius, SolarEdge, SPAN Panel, and Sungrow are also supported - or feed **any** inverter in over MQTT, see below)
 - A Tesla vehicle
 - A free Tesla Fleet API developer account
 - A Mac, Windows PC, or Linux machine to run the server (can be always-on, like a Mac mini)
 
 Works in Australia and the United States out of the box (Settings → Region drives currency/unit labels, one-click US utility rate templates, and NEM 3.0-style time-varying export credit for California) - and anywhere else with a supported inverter and Tesla coverage, minus the region-specific extras.
+
+Beyond the core solar-to-EV diversion, WattSnatch also has optional support for a home battery (Sigenergy, Sungrow, or Tesla Powerwall), air-conditioning monitoring (MELCloud or MelView), hot water diversion (myenergi Eddi), calendar-aware trip planning, electricity bill parsing, and Home Assistant integration - see [FEATURES.md](FEATURES.md) for the complete list, or [INSTALL.md](INSTALL.md#11-optional-integrations) for setup instructions on each.
 
 The setup wizard lets you choose how WattSnatch talks to your car: Tesla's cloud Fleet API/Telemetry (default), or fully cloud-free over Bluetooth LE (no Fleet Telemetry, no ongoing Fleet API calls, no Tesla OAuth token) once you're in range at home. Both still need the same one-time Tesla developer app and virtual key pairing - that part is Tesla's own security requirement either way. See [INSTALL.md](INSTALL.md#tesla-vehicle-connection-fleet-api-vs-bluetooth-le) for details.
 
@@ -26,7 +28,7 @@ WattSnatch is deliberately lightweight - measured on a real long-running install
 | RAM | 1 GB free | 2 GB+ free |
 | Disk | 2 GB free (app + dependencies ≈ 120 MB; the database grows to ~100 MB over months and auto-prunes old telemetry) | 5 GB free |
 | OS | macOS, Linux, or Windows with Node.js 18+ | macOS (gets one-click background-service install and Keychain credential storage) or Linux |
-| Network | Wired or Wi-Fi on the **same LAN as your solar gateway** - this is a hard requirement; a cloud VPS won't work | Always-on machine (Mac mini, Pi, home server) |
+| Network | Wired or Wi-Fi on the **same LAN as your solar meter**, if it's a local-network device (Enphase, Fronius, SPAN, Sungrow) - a cloud VPS won't reach those. SolarEdge (cloud API) and MQTT input have no LAN requirement. | Always-on machine (Mac mini, Pi, home server) |
 
 Two dependencies (`better-sqlite3`, `zeromq`) compile native code during `npm install`, so build tools must be present: Xcode Command Line Tools on macOS, `build-essential python3` on Debian/Ubuntu, or the "Desktop development with C++" workload on Windows.
 

@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-07-31 - v1.22.2: Full documentation audit for battery and inverter coverage
+
+Prompted by a direct question: has every doc actually been updated for
+everything that's shipped, not just the ones already touched recently?
+Cross-checked README.md, AGENTS.md, and the website's docs.html/index.html
+against the real feature set (`src/services/meters/`, `src/services/battery/`,
+`ac.js`) and found real gaps, not just wording:
+
+- `README.md` never mentioned Sungrow as a supported inverter, never
+  mentioned home battery support at all, and never linked to FEATURES.md -
+  someone reading only the README would have no idea batteries, air-con
+  monitoring, or four of the six solar meter brands exist. Also fixed a
+  stale line claiming the install machine must always be on the same LAN
+  as the solar meter, which stopped being true once SolarEdge (cloud API)
+  and MQTT input shipped.
+- `AGENTS.md` (the guide an AI coding agent follows to self-install
+  WattSnatch) had an entire Phase 5 written as if Enphase were the only
+  supported inverter, with no instructions for Fronius, SolarEdge, SPAN
+  Panel, or Sungrow, and no mention of battery setup anywhere in the file.
+  An agent following it literally could not have set up any of those four
+  inverter brands or a home battery. Rewrote Phase 5 to branch by brand
+  with the correct settings fields for each, and added battery as a row
+  in the optional integrations table.
+- The website's docs.html and index.html both documented MELCloud but
+  never mentioned MelView, despite MelView being a real, shipped platform
+  choice - fixed both, including the poll-interval summary and hardware
+  chip list.
+
 ## 2026-07-31 - v1.22.1: Install guide accuracy fixes
 
 `INSTALL.md`'s "What you need before you start" section still only

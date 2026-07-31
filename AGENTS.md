@@ -23,10 +23,14 @@ once the user confirms it's done.
 
 ## Phase 0 - Confirm the target machine
 
-WattSnatch's Enphase gateway must be reachable on the **local network** the install machine is
-on - it will not work installed on a cloud VPS talking to a home gateway remotely. Confirm with
-the user that you are running on (or have a shell into) the actual machine that will run
-WattSnatch day to day, on the same LAN as their Enphase gateway.
+Ask the user which solar meter/inverter they have: **Enphase**, **Fronius**, **SolarEdge**,
+**SPAN Panel**, **Sungrow**, or none of those (use **MQTT input** instead, fed from Home
+Assistant or anything else that already reads their inverter). Enphase, Fronius, SPAN, and
+Sungrow are local-network devices - the install machine must be reachable on the **same LAN**
+as the gateway/panel/inverter; it will not work on a cloud VPS talking to it remotely.
+SolarEdge (a cloud monitoring API) and MQTT input have no such requirement. Confirm with the
+user that you are running on (or have a shell into) the actual machine that will run WattSnatch
+day to day, on the correct network for their chosen meter.
 
 ---
 
@@ -219,7 +223,11 @@ circumstances - it requires their physical presence. Wait for them to confirm be
 
 ---
 
-## Phase 5 - Enphase gateway 🔑 + ✅
+## Phase 5 - Solar meter connection 🔑 + ✅
+
+Which sub-section applies depends on what the user told you in Phase 0.
+
+### Enphase
 
 Discovery and connection testing are safe to automate:
 
@@ -245,6 +253,31 @@ Their password is never stored - only the resulting token is. Once they confirm 
 ```bash
 curl -s -X POST http://localhost:3001/api/setup/test-connection
 ```
+
+### Fronius, SolarEdge, SPAN Panel, or Sungrow
+
+No token generation step - save the brand-specific fields via `POST /api/settings`, set
+`inverter_brand`, then test with the generic inverter route. None of these need a credential
+an agent must avoid handling; SolarEdge's API key is account-level, not a login password, but
+still let the user supply it rather than guessing or fabricating one.
+
+| Brand | `inverter_brand` value | Settings fields |
+|---|---|---|
+| Fronius | `fronius` | `fronius_ip` (local Solar API, no cloud account) |
+| SolarEdge | `solaredge` | `solaredge_api_key`, `solaredge_site_id` |
+| SPAN Panel | `span` | `span_access_token`, `span_host`, `span_solar_circuit_id` (unverified against real hardware) |
+| Sungrow | `sungrow` | `sungrow_host`, `sungrow_port`, `sungrow_unit_id` (local Modbus TCP via the WiNet-S dongle; unverified against real hardware) |
+
+```bash
+curl -s -X POST http://localhost:3001/api/settings -H "Content-Type: application/json" \
+  -d '{"inverter_brand":"<brand>", "...brand-specific fields...": "..."}'
+curl -s -X POST http://localhost:3001/api/setup/test-inverter -H "Content-Type: application/json" -d '{"brand":"<brand>"}'
+```
+
+### MQTT input (any other inverter)
+
+See the MQTT input row further below in Optional integrations - same generic
+`POST /api/setup/test-inverter {"brand":"mqtt"}` pattern applies.
 
 ---
 
@@ -305,6 +338,7 @@ All follow the same pattern - 🔑 for the credential-bearing setup call (user r
 | Integration | Credential step (🔑 - user runs) | Agent can do |
 |---|---|---|
 | myenergi Eddi | Eddi serial + myenergi API key via Settings → myenergi | Verify it starts polling (check `/api/logs` for eddi entries) |
+| Home battery (Sigenergy, Sungrow, or Tesla Powerwall) - optional, unverified against real hardware | No credential for Sigenergy/Sungrow (local Modbus TCP - just `sigenergy_host`/`sigenergy_port`/`sigenergy_unit_id` or `sungrow_host`/`sungrow_port`/`sungrow_unit_id`, shared with the Sungrow inverter connection if they have one). Tesla Powerwall needs the Gateway's local login (`powerwall_email`, `powerwall_password`, `powerwall_host`) - let the user provide it | Set `battery_brand` via `POST /api/settings`, then `POST /api/setup/test-battery {"brand":"<brand>"}` to confirm. Battery priority (`battery_priority`: `battery_first` default, or `ev_first`) only has real effect on Sungrow, the only brand with a control register |
 | MELCloud (global air-con platform) | `POST /api/setup/melcloud-credentials` with their email+password | `GET /api/setup/melcloud-status` to confirm |
 | MelView (AU/NZ air-con platform - separate from MELCloud, different account, same manufacturer) | `POST /api/setup/melview-credentials` with their email+password | `GET /api/setup/melview-status` to confirm. If MELCloud rejects a working-looking login, this is very likely why - ask which platform their "Wi-Fi Control" app actually is before assuming the password is wrong |
 | iCloud Calendar | `POST /api/setup/ical-credentials` with Apple ID + **app-specific password** (never their real iCloud password - generate one at appleid.apple.com) | `GET /api/setup/calendar/status` |
