@@ -395,7 +395,7 @@
     <div class="form-group" id="tesla-redirect-uri-group">
       <label for="tesla-redirect-uri">Redirect URI</label>
       <input type="url" id="tesla-redirect-uri" placeholder="https://yourapp.example.com/auth/tesla/callback">
-      <span class="text-secondary text-xs mt-1">Must be HTTPS and match your Tesla app registration exactly</span>
+      <span class="text-secondary text-xs mt-1">Must match your Tesla app registration exactly. HTTPS is recommended, but <code>http://localhost:3001/auth/callback</code> works fine for a local-only install.</span>
     </div>
 
     <div id="step5-error" class="alert alert-error hidden mt-1"></div>

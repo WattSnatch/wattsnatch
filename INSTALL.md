@@ -182,8 +182,9 @@ The easiest free way to satisfy this is **GitHub Pages**, and it does **not** ne
 
 1. Create a new **public** GitHub repository (e.g. `wattsnatch-key`).
 2. In **Settings → Pages**, set source to **Deploy from branch → main**.
-3. Your Pages URL will be `https://YOUR_GITHUB_USERNAME.github.io/wattsnatch-key`.
-4. You don't need to add the key file yet - the setup wizard will show you the exact key contents to paste in once it's generated (step 7 of the wizard).
+3. Add an empty file named `.nojekyll` to the root of the repository. GitHub Pages runs everything through Jekyll by default, which silently ignores files and folders starting with a dot - without this, `.well-known/...` will 404 with no explanation even though the file is there.
+4. Your Pages URL will be `https://YOUR_GITHUB_USERNAME.github.io/wattsnatch-key`.
+5. You don't need to add the key file yet - the setup wizard will show you the exact key contents to paste in once it's generated (step 7 of the wizard).
 
 ---
 
@@ -324,9 +325,13 @@ None of these are required for core solar → EV charging to work. Add them as y
 **Needs:** your Eddi hub serial number and myenergi API key (from the myenergi app account settings).
 Enter both in **Settings → myenergi**. Polls every 30 seconds once configured.
 
-### Air-conditioning monitoring - MELCloud
-**Needs:** your MELCloud account email + password (the same one used in the official MELCloud/MELView app).
-Enter in **Settings → MELCloud**; credentials are stored in your OS's secure credential store (macOS Keychain, etc. via `keytar`), not the database.
+### Air-conditioning monitoring - MELCloud or MelView
+Mitsubishi Electric actually runs **two separate cloud platforms** for air-con monitoring, not one - MELCloud globally, and a distinct AU/NZ-only platform called MelView (used by the "Wi-Fi Control" branded app in Australia and New Zealand). They are different accounts with different logins; MELCloud credentials will not work on MelView and vice versa, even though both are made by Mitsubishi and both apps look similar.
+
+**Needs:** the email + password for whichever one your account is actually on.
+Enter in **Settings → Air Conditioning**, pick MELCloud or MelView from the dropdown, and click Test Connection - it validates the login before saving. If you're not sure which one you have, try MELCloud first; if it's rejected, try MelView. Credentials are stored in your OS's secure credential store (macOS Keychain, etc. via `keytar`), not the database.
+
+**MelView does not report power or energy use at all** - only on/off state, mode, and temperature. If you're on MelView, the dashboard's air-con wattage figure will never show a value; this is a limitation of Mitsubishi's own API, not a WattSnatch bug.
 
 ### Calendar-aware trip planning - iCloud, Google, or Outlook
 Pick one provider in **Settings → Calendar**; only one is active at a time.
@@ -443,7 +448,9 @@ npm run restore -- <path-to-a-backup-zip>
 ```
 `npm run restore` takes its own safety snapshot of the *current* state before touching anything, so a restore is itself undoable if you picked the wrong backup.
 
-**Encrypting a backup:** add `--encrypt` to `npm run backup` (or use the password field next to Download Backup in Settings) to password-protect the zip with AES-256-GCM before it's written. Do this for any backup that's going to leave this machine - it bundles your Tesla command key alongside the database. `npm run restore` auto-detects a `.enc` file and prompts for the password. There is no password recovery - losing it makes that backup permanently unreadable, so keep it somewhere separate from the backup file itself.
+By default `npm run restore` asks for an interactive `y/N` confirmation before touching anything - add `--yes` to skip that (needed if you're running it from a script or automation, since there's nothing to answer the prompt otherwise, and it will simply hang forever waiting for input): `npm run restore -- <path-to-a-backup-zip> --yes`.
+
+**Encrypting a backup:** add `--encrypt` to `npm run backup` (or use the password field next to Download Backup in Settings) to password-protect the zip with AES-256-GCM before it's written. Do this for any backup that's going to leave this machine - it bundles your Tesla command key alongside the database. `npm run restore` auto-detects a `.enc` file and prompts for the password - set the `WATTSNATCH_BACKUP_PASSWORD` environment variable instead if you need to restore an encrypted backup non-interactively. There is no password recovery - losing it makes that backup permanently unreadable, so keep it somewhere separate from the backup file itself.
 
 **Update notifications:** the dashboard checks GitHub's public releases API roughly twice a day (no personal data sent - just an anonymous request for the latest tag) and shows a badge in the top bar if a newer version is available. Turn this off in Settings → Backup & Restore if you'd rather not.
 
@@ -468,6 +475,18 @@ Then delete the project folder. Consider revoking WattSnatch's access at [tesla.
 
 **`npm install` fails on `better-sqlite3` or `zeromq`**
 Missing build tools - see [System requirements](#2-system-requirements) above, then `npm install` again.
+
+**App crashes on startup with a `NODE_MODULE_VERSION` mismatch, or "Could not locate the bindings file"**
+`better-sqlite3`, `zeromq`, and `keytar` are all native modules compiled against a specific Node.js version - this happens if the app was installed under one Node version and is now being run under another (e.g. after `nvm use` switched versions, or a Node upgrade). Fix: `npm rebuild` from the project folder, then restart.
+
+**Linux: MELCloud/MelView/iCloud Calendar fail with a `keytar` error, or the app won't start at all on a headless box**
+These three integrations store credentials via `keytar`, which needs `libsecret` and a running keyring service (e.g. `gnome-keyring`) to work - neither exists by default on a headless Linux install like Raspberry Pi OS Lite. Install `libsecret-1-0` (`sudo apt install libsecret-1-0`), or skip these three integrations if you don't need them - everything else works fine without a keyring.
+
+**"Find automatically" can't find the Enphase gateway**
+This relies on mDNS (Bonjour/Avahi) resolving `envoy.local`, which isn't installed by default on minimal Linux distros and won't work across VLANs/subnets. Install `avahi-daemon` (`sudo apt install avahi-daemon`), or just enter the gateway's IP address directly - find it from your router's connected-devices list.
+
+**Enlighten login fails even though the password is correct**
+If your Enphase/Enlighten account has two-factor authentication enabled, the token-generation login can't complete it and will fail with a generic error. Temporarily disable 2FA to generate the token, or use a secondary Enlighten account without it.
 
 **Gateway shows "Error"**
 Confirm the server can reach the Enphase gateway's local IP (same subnet), and try regenerating the Enphase token in Settings.

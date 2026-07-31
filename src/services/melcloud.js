@@ -7,7 +7,13 @@
 
 'use strict';
 
-const keytar = require('keytar');
+// keytar's native module needs libsecret + a running keyring service, neither
+// of which exists by default on a headless Linux install - guarded the same
+// way calendar/icloud.js already is, so a missing keyring degrades this one
+// integration (via the try/catches below) instead of crashing the whole app
+// at startup.
+let keytar = null;
+try { keytar = require('keytar'); } catch (_e) {}
 const db = require('../db');
 const logger = require('../utils/logger');
 

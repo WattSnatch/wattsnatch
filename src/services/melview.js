@@ -27,7 +27,12 @@
 // MelView-configured AC, unlike MELCloud's rough daily-average estimate.
 
 const https = require('https');
-const keytar = require('keytar');
+// Guarded the same way melcloud.js and calendar/icloud.js are - keytar needs
+// libsecret + a running keyring service, neither present by default on a
+// headless Linux install, and an unguarded require here would crash the
+// whole app at startup rather than just this one integration.
+let keytar = null;
+try { keytar = require('keytar'); } catch (_e) {}
 const db = require('../db');
 const logger = require('../utils/logger');
 

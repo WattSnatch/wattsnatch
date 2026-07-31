@@ -2,6 +2,47 @@
 
 ---
 
+## 2026-07-31 - v1.21.1: Installation documentation and reliability fixes
+
+Prompted by a real installer's GitHub issue (Tesla developer app grant
+type/website field, now fixed) and a follow-up systematic audit of the
+whole setup wizard against every doc, looking for anything else that
+could block a first-time install:
+
+- `INSTALL.md`/`README.md`/`docs.html` now explain the Tesla developer
+  app's grant type (both Authorization Code and Client Credentials need
+  enabling, not just one) and website field (same domain as the public
+  key hosting step).
+- MELCloud vs MelView is now properly documented as two separate
+  Mitsubishi platforms with different accounts, not one - the previous
+  wording actively implied they were the same login, which is exactly
+  what caused a real installer's air-con connection to fail.
+- Fixed a real bug, not just a docs gap: `melcloud.js` and `melview.js`
+  had an unguarded `require('keytar')` that would crash the entire app
+  at startup on a headless Linux box missing `libsecret`, not just fail
+  those two integrations. Guarded the same way `calendar/icloud.js`
+  already was.
+- Documented `libsecret`/keyring requirements for MELCloud, MelView, and
+  iCloud Calendar on headless Linux; mDNS/Avahi requirements for
+  automatic Enphase gateway discovery; and that a 2FA-enabled Enlighten
+  account will fail Enphase token generation with a generic error.
+- Documented `npm run restore`'s `--yes` flag and `WATTSNATCH_BACKUP_PASSWORD`
+  environment variable, needed for a non-interactive restore - without
+  them the command hangs forever waiting for input that never comes.
+- Fixed a self-contradiction in the setup wizard: the Tesla redirect URI
+  field said "must be HTTPS," while the docs correctly say
+  `http://localhost` is fine for a local-only install. The docs were
+  right; the field text was overstated and is now fixed to match.
+- Added a `.nojekyll` step to the GitHub Pages public-key hosting
+  instructions - without it, GitHub's default Jekyll processing silently
+  drops the dot-prefixed `.well-known` folder Tesla requires.
+- Added an `engines` field to `package.json` so an unsupported Node
+  version fails with a clear message at `npm install` instead of a
+  confusing error deep inside a native module build.
+- Generalized the existing `better-sqlite3` native-module-mismatch
+  troubleshooting note to cover `zeromq` and `keytar` too, since all
+  three fail the same way after a Node version change.
+
 ## 2026-07-31 - v1.21.0: MelView AC support (AU/NZ), fixed a MELCloud login bug, air-con provider registry
 
 Root-caused a user report of "MELCloud Connection failed: Unauthorized" through several
