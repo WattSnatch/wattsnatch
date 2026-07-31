@@ -13,7 +13,7 @@ const path = require('path');
 const dbModule = require('./db');
 const controller = require('./controller');
 const myenergi = require('./services/myenergi');
-const melcloud = require('./services/melcloud');
+const ac = require('./services/ac');
 const baseline = require('./services/baseline');
 const calendar = require('./services/calendar');
 const tripPlanner = require('./services/tripPlanner');
@@ -145,7 +145,7 @@ async function main() {
     ercotPricing.start(); // no-op unless ercot_pricing_enabled and fully configured
     controller.start();
     myenergi.start();
-    melcloud.start();
+    ac.start();
     baseline.start();
     billPoller.start();
     calendar.start();
@@ -213,7 +213,7 @@ async function main() {
     ercotPricing.stop();
     controller.stop();
     myenergi.stop();
-    melcloud.stop();
+    ac.stop();
     baseline.stop();
     billPoller.stop();
     calendar.stop();

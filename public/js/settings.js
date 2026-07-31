@@ -1286,7 +1286,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ─── MELCloud configuration ────────────────────────────────────────────────
+  // ─── Air conditioning (MELCloud / MelView) ─────────────────────────────────
+  // Two genuinely separate Mitsubishi cloud platforms, same credential shape -
+  // one email/password form, routed to whichever platform is selected.
+  const acBrandSelect = document.getElementById('setting_ac_brand');
+  const acBrandNote = document.getElementById('ac-brand-note');
   const melcloudEmailInput = document.getElementById('setting_melcloud_email');
   const melcloudPassInput = document.getElementById('setting_melcloud_password');
   const melcloudTestBtn = document.getElementById('melcloud-test-btn');
@@ -1296,10 +1300,26 @@ document.addEventListener('DOMContentLoaded', () => {
   const melcloudDevicesList = document.getElementById('melcloud-devices-list');
   const melcloudStatusBadge = document.getElementById('melcloud-status-badge');
 
-  // Load MELCloud status on page load
+  const AC_BRAND_NOTES = {
+    melcloud: 'Monitors power state, mode, temperature, and energy use.',
+    melview: 'Monitors power state, mode, and temperature - MelView’s API has no energy/power consumption field, so a wattage reading will never appear for this platform.',
+  };
+
+  function acRoutePrefix() {
+    return acBrandSelect && acBrandSelect.value === 'melview' ? 'melview' : 'melcloud';
+  }
+
+  if (acBrandSelect) {
+    acBrandSelect.addEventListener('change', () => {
+      if (acBrandNote) acBrandNote.textContent = AC_BRAND_NOTES[acBrandSelect.value] || '';
+      loadMelcloudStatus();
+    });
+  }
+
+  // Load AC status on page load, for whichever platform is currently active
   async function loadMelcloudStatus() {
     try {
-      const data = await api('/api/setup/melcloud-status');
+      const data = await api(`/api/setup/${acRoutePrefix()}-status`);
       if (data.ok && data.configured) {
         melcloudStatusBadge.textContent = `${data.deviceCount} device${data.deviceCount !== 1 ? 's' : ''} connected`;
         melcloudStatusBadge.style.color = 'var(--accent-solar)';
@@ -1334,7 +1354,7 @@ document.addEventListener('DOMContentLoaded', () => {
       melcloudMessage.className = 'alert hidden';
 
       try {
-        const data = await api('/api/setup/melcloud-credentials', {
+        const data = await api(`/api/setup/${acRoutePrefix()}-credentials`, {
           method: 'POST',
           body: { email, password },
         });
@@ -1373,7 +1393,7 @@ document.addEventListener('DOMContentLoaded', () => {
       melcloudMessage.className = 'alert hidden';
 
       try {
-        const data = await api('/api/setup/melcloud-credentials', {
+        const data = await api(`/api/setup/${acRoutePrefix()}-credentials`, {
           method: 'POST',
           body: { email, password },
         });
@@ -1397,8 +1417,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Load MELCloud status on page load
-  loadMelcloudStatus();
+  // Set the brand selector to whatever's actually configured, then load that
+  // platform's status - loadMelcloudStatus() reads acBrandSelect.value, so
+  // this must happen before the initial call.
+  (async () => {
+    try {
+      const data = await api('/api/settings');
+      if (data.ok && acBrandSelect) {
+        const brand = data.settings.ac_brand || 'melcloud';
+        acBrandSelect.value = brand;
+        if (acBrandNote) acBrandNote.textContent = AC_BRAND_NOTES[brand] || '';
+      }
+    } catch (_e) {}
+    loadMelcloudStatus();
+  })();
 
   // ─── TeslaMate ────────────────────────────────────────────────────────────
   const tmTestBtn    = document.getElementById('teslamate-test-btn');

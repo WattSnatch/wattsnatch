@@ -139,7 +139,23 @@
           <span class="flow-node-today" id="hw-node-today">-</span>
         </div>
       </div>
-      <div class="flow-branch" id="branch-ac">
+      <div class="flow-branch" id="branch-battery" style="display:none">
+        <div class="flow-node">
+          <div class="flow-node-icon battery" id="battery-flow-node">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1" y="7" width="18" height="10" rx="2"/>
+              <line x1="21" y1="10" x2="21" y2="14"/>
+              <line x1="5" y1="10" x2="5" y2="14"/>
+              <line x1="9" y1="10" x2="9" y2="14"/>
+              <line x1="13" y1="10" x2="13" y2="14"/>
+            </svg>
+          </div>
+          <span class="flow-node-label">Battery</span>
+          <span class="flow-node-value" id="battery-flow-node-val">- W</span>
+          <span class="flow-node-today" id="battery-flow-node-today">-</span>
+        </div>
+      </div>
+      <div class="flow-branch" id="branch-ac" style="display:none">
         <div class="flow-node">
           <div class="flow-node-icon ac" id="ac-node">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -199,29 +215,44 @@ let _flowCurveActive = {};
 
 // Default dot colours per key (solar/active state)
 const _DOT_COLORS = {
-  ev:  'rgba(74,222,128,0.9)',   // green  - solar charging
-  hw:  'rgba(251,146,60,0.9)',   // orange - solar diversion
-  ac:  'rgba(156,163,175,0.9)',  // grey   - AC
+  ev:      'rgba(74,222,128,0.9)',   // green  - solar charging
+  hw:      'rgba(251,146,60,0.9)',   // orange - solar diversion
+  ac:      'rgba(156,163,175,0.9)',  // grey   - AC
+  battery: 'rgba(167,139,250,0.9)',  // violet - home battery
 };
 const _GRID_DOT_COLOR = 'rgba(248,113,113,0.9)'; // red - grid-powered
 
 function _dotColorFor(key, mode) {
-  if (mode === 'grid')    return _GRID_DOT_COLOR;
-  if (mode === 'cooling') return 'rgba(59,130,246,0.9)';
-  if (mode === 'heating') return 'rgba(249,115,22,0.9)';
+  if (mode === 'grid')        return _GRID_DOT_COLOR;
+  if (mode === 'cooling')     return 'rgba(59,130,246,0.9)';
+  if (mode === 'heating')     return 'rgba(249,115,22,0.9)';
+  if (mode === 'charging')    return 'rgba(59,130,246,0.9)';
+  if (mode === 'discharging') return 'rgba(167,139,250,0.9)';
   return _DOT_COLORS[key] || 'rgba(148,163,184,0.9)';
 }
 
 function _strokeFor(key, active, mode) {
   if (!active) return 'rgba(148,163,184,0.15)';
-  if (mode === 'grid')    return 'rgba(248,113,113,0.35)';
-  if (mode === 'cooling') return 'rgba(59,130,246,0.35)';
-  if (mode === 'heating') return 'rgba(249,115,22,0.35)';
+  if (mode === 'grid')        return 'rgba(248,113,113,0.35)';
+  if (mode === 'cooling')     return 'rgba(59,130,246,0.35)';
+  if (mode === 'heating')     return 'rgba(249,115,22,0.35)';
+  if (mode === 'charging')    return 'rgba(59,130,246,0.35)';
+  if (mode === 'discharging') return 'rgba(167,139,250,0.35)';
   return 'rgba(148,163,184,0.35)';
 }
 
 function setFlowCurveActive(key, active, mode) {
+  // Battery only: charging vs discharging flips which way the dots travel
+  // along the path (baked into each dot's animateMotion at build time - see
+  // drawFlowCurves' `reversed` handling), not just a color change like AC's
+  // cooling/heating. A plain attribute tweak can't reverse that, so force a
+  // full rebuild whenever the direction flips.
+  const prevReversed = key === 'battery' && _flowCurveActive[key] && _flowCurveActive[key].mode === 'discharging';
+  const nextReversed  = key === 'battery' && mode === 'discharging';
+
   _flowCurveActive[key] = { active, mode };
+
+  if (prevReversed !== nextReversed) { drawFlowCurves(); return; }
 
   const dotsEl = document.getElementById('fcd-' + key);
   const pathEl = document.getElementById('fc-' + key);
@@ -251,9 +282,10 @@ function drawFlowCurves() {
   const hx = hRect.left + hRect.width / 2 - sRect.left;
 
   const branches = [
-    { id: 'branch-ev', key: 'ev', color: 'rgba(74,222,128,0.9)'  },
-    { id: 'branch-hw', key: 'hw', color: 'rgba(251,146,60,0.9)'  },
-    { id: 'branch-ac', key: 'ac', color: 'rgba(156,163,175,0.9)' },
+    { id: 'branch-ev',      key: 'ev',      color: 'rgba(74,222,128,0.9)'  },
+    { id: 'branch-hw',      key: 'hw',      color: 'rgba(251,146,60,0.9)'  },
+    { id: 'branch-battery', key: 'battery', color: 'rgba(167,139,250,0.9)' },
+    { id: 'branch-ac',      key: 'ac',      color: 'rgba(156,163,175,0.9)' },
   ];
 
   svg.innerHTML = '';
@@ -273,6 +305,10 @@ function drawFlowCurves() {
     const state  = _flowCurveActive[b.key] || { active: false, mode: null };
     const active = state.active;
     const mode   = state.mode;
+    // Battery only: discharging flows FROM the battery TO the house, the
+    // reverse of every other branch - traverse the same path backwards
+    // instead of building a second geometry.
+    const reversed = b.key === 'battery' && mode === 'discharging';
 
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.id = pathId;
@@ -298,6 +334,11 @@ function drawFlowCurves() {
       motion.setAttribute('dur', '1.8s');
       motion.setAttribute('repeatCount', 'indefinite');
       motion.setAttribute('begin', (i * 0.6) + 's');
+      if (reversed) {
+        motion.setAttribute('calcMode', 'linear');
+        motion.setAttribute('keyPoints', '1;0');
+        motion.setAttribute('keyTimes', '0;1');
+      }
       const mpath  = document.createElementNS('http://www.w3.org/2000/svg', 'mpath');
       mpath.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#' + pathId);
       motion.appendChild(mpath);
@@ -362,6 +403,12 @@ function updateFlowDiagram(d) {
   const hwNode = document.getElementById('hw-node');
   if (hwNode) hwNode.classList.toggle('active', hwActive);
 
+  const acBranch = document.getElementById('branch-ac');
+  if (acBranch) {
+    const wasHidden = acBranch.style.display === 'none';
+    acBranch.style.display = d.melcloudConfigured ? '' : 'none';
+    if (wasHidden !== (acBranch.style.display === 'none')) drawFlowCurves();
+  }
   const acNode = document.getElementById('ac-node');
   if (acNode) {
     acNode.classList.remove('active', 'cooling', 'heating');
@@ -375,16 +422,37 @@ function updateFlowDiagram(d) {
     setFlowCurveActive('ac', acActive, acMode);
   }
 
+  // Home Battery - branch hidden entirely when no battery provider is configured
+  const batteryBranch = document.getElementById('branch-battery');
+  if (batteryBranch) {
+    const wasHidden = batteryBranch.style.display === 'none';
+    batteryBranch.style.display = d.batteryConfigured ? '' : 'none';
+    if (wasHidden !== (batteryBranch.style.display === 'none')) drawFlowCurves();
+  }
+  const batteryPowerW = d.batteryPowerW || 0;
+  const batteryNode = document.getElementById('battery-flow-node');
+  if (batteryNode) {
+    batteryNode.classList.remove('charging', 'discharging');
+    let batteryMode = null;
+    if (batteryPowerW > 50)       { batteryNode.classList.add('charging');    batteryMode = 'charging'; }
+    else if (batteryPowerW < -50) { batteryNode.classList.add('discharging'); batteryMode = 'discharging'; }
+    setFlowCurveActive('battery', !!batteryMode, batteryMode);
+  }
+
   const evLabel = document.getElementById('ev-flow-label');
   if (evLabel && d.vehicleModel) evLabel.textContent = d.vehicleModel;
 
-  const houseW = Math.max(0, (d.consumption || 0) - (d.evWatts || 0) - (d.eddiDivertW || 0) - (d.acLoadW || 0));
+  // Battery charging power is folded into consumptionW by the meter (same as
+  // EV/HW/AC), so it's subtracted here too - discharging (negative) is NOT
+  // added back in, since it's power supplied, not consumed.
+  const houseW = Math.max(0, (d.consumption || 0) - (d.evWatts || 0) - (d.eddiDivertW || 0) - (d.acLoadW || 0) - Math.max(0, batteryPowerW));
   setNodeVal('solar-node-val', formatWatts(d.solar));
   setNodeVal('home-node-val',  formatWatts(houseW));
   setNodeVal('grid-node-val',  formatWatts(Math.abs(d.grid)));
   setNodeVal('ev-node-val',    formatWatts(d.evWatts || 0));
   setNodeVal('hw-node-val',    formatWatts(d.eddiDivertW || 0));
   setNodeVal('ac-node-val',    (d.acLoadW || 0) > 0 ? '~' + formatWatts(d.acLoadW) : formatWatts(0));
+  setNodeVal('battery-flow-node-val', formatWatts(Math.abs(batteryPowerW)));
 }
 
 function updateTodayTotals(t) {
@@ -392,6 +460,7 @@ function updateTodayTotals(t) {
   setNodeVal('home-node-today',  fmtEnergy(t.house) + ' today');
   setNodeVal('ev-node-today',    fmtEnergy(t.ev)    + ' today');
   setNodeVal('ac-node-today',    '-');
+  setNodeVal('battery-flow-node-today', '-');
   setNodeVal('grid-node-today',  '↑' + fmtEnergy(t.gridExport) + '  ↓' + fmtEnergy(t.gridImport));
   const hwTotal = (t.hw || 0) + (t.hwBoost || 0);
   const hwLabel = hwTotal > 0 && (t.hwBoost || 0) > 0

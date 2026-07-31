@@ -67,8 +67,13 @@ async function initializeClient() {
   }
 
   try {
+    // melcloud-api's constructor takes (email, password) as two positional
+    // arguments, not an options object - passing { email, password } here
+    // silently assigns the whole object to `this.email` and leaves
+    // `this.password` undefined, so every login attempt fails with
+    // Unauthorized regardless of how correct the actual credentials are.
     const MelcloudAPI = require('melcloud-api');
-    const client = new MelcloudAPI({ email, password });
+    const client = new MelcloudAPI(email, password);
     await client.login();
     return client;
   } catch (err) {
@@ -77,8 +82,23 @@ async function initializeClient() {
   }
 }
 
+// melcloud-api's own _parseDeviceData() normalizes MELCloud's numeric
+// OperationMode into a lowercase string - notably mapping "Cool" to the
+// literal string 'cold' (a naming quirk in that library, not a typo here).
+// Normalized to WattSnatch's existing Title-Case convention.
+const MODE_MAP = { heat: 'Heat', dry: 'Dry', cold: 'Cool', fan: 'Fan', auto: 'Auto' };
+
 /**
  * Fetch all AC devices from MELCloud.
+ *
+ * Corrected against melcloud-api's real API surface (v1.1.2) - the previous
+ * version of this function called `_client.getBuildings()`, which does not
+ * exist on this client at all (it only exposes `getDevices()` and the
+ * `getAirConditioners()` convenience wrapper around it), and read energy
+ * fields (`todayEnergyConsumption`/`energyConsumption`) that the library's
+ * own device parser never produces. Both would have thrown/returned nothing
+ * for every user, MELCloud login success or not - this was never actually
+ * working, not just broken for one platform mismatch.
  */
 async function fetchDevices() {
   if (!_client) {
@@ -90,27 +110,40 @@ async function fetchDevices() {
   }
 
   try {
-    const buildings = await _client.getBuildings();
-    const devices = [];
+    const units = await _client.getAirConditioners();
+    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD, local report boundary per MELCloud's own report endpoint
 
-    for (const building of buildings) {
-      const deviceList = building.devices || [];
-      for (const device of deviceList) {
-        devices.push({
-          device_id: device.deviceID,
-          name: device.deviceName || device.name || `Device ${device.deviceID}`,
-          is_on: device.power === 1,
-          mode: device.operationMode === 0 ? 'Cool' :
-                device.operationMode === 1 ? 'Dry' :
-                device.operationMode === 2 ? 'Fan' :
-                device.operationMode === 3 ? 'Heat' :
-                device.operationMode === 4 ? 'Auto' : 'Unknown',
-          set_temperature: device.setTemperature,
-          room_temperature: device.roomTemperature,
-          daily_energy_kwh: (device.todayEnergyConsumption || 0) / 1000, // MELCloud returns in Wh
-          total_energy_kwh: (device.energyConsumption || 0) / 1000,
-        });
+    const devices = [];
+    for (const unit of units) {
+      let dailyEnergyKwh = null;
+      try {
+        // EnergyCost/Report's totalPowerConsumption is treated as kWh
+        // directly here (not Wh, unlike the live device-state fields) -
+        // consistent with how other MELCloud integrations interpret this
+        // same endpoint, but not verified against a real account by this
+        // project. Best-effort, same status as the rest of this provider.
+        const report = await _client.getEnergyReport(unit.id, todayStr, todayStr, unit.buildingId);
+        dailyEnergyKwh = report.totalPowerConsumption || 0;
+      } catch (_e) {
+        // Some device/account combinations don't expose energy reporting
+        // (or the account has no history yet) - non-fatal, the dashboard's
+        // acLoadW estimate degrades to 0 rather than blocking the whole poll.
       }
+
+      devices.push({
+        device_id: unit.id,
+        name: unit.name || `Device ${unit.id}`,
+        is_on: !!unit.power,
+        mode: MODE_MAP[unit.mode] || 'Unknown',
+        set_temperature: unit.temperature,
+        room_temperature: unit.roomTemperature,
+        daily_energy_kwh: dailyEnergyKwh,
+        // No efficient lifetime-total field exists on this API without
+        // fetching a report over the unit's entire history on every poll -
+        // not worth the extra request; nothing in WattSnatch reads this
+        // beyond storing it in ac_telemetry for reference.
+        total_energy_kwh: null,
+      });
     }
 
     return devices;
@@ -159,6 +192,17 @@ async function poll() {
   }
 }
 
+/** Used by the setup route to validate credentials synchronously before saving. */
+async function testConnection() {
+  try {
+    _client = null;
+    const devices = await fetchDevices();
+    return { ok: true, devices };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
 function start() {
   if (!isConfigured()) {
     logger.logEvent('info', 'melcloud: not configured - skipping start');
@@ -197,4 +241,5 @@ module.exports = {
   isConfigured,
   getCredentials,
   setCredentials,
+  testConnection,
 };

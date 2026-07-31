@@ -90,7 +90,7 @@ function setInverterBrand(brand) {
   document.querySelectorAll('.brand-pill').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.brand === brand);
   });
-  ['enphase', 'fronius', 'solaredge', 'span', 'mqtt'].forEach((b) => {
+  ['enphase', 'fronius', 'solaredge', 'span', 'sungrow', 'mqtt'].forEach((b) => {
     const el = document.getElementById('brand-fields-' + b);
     if (el) el.classList.toggle('hidden', b !== brand);
   });
@@ -141,6 +141,16 @@ function collectInverterFields() {
     const circuit = document.getElementById('span-solar-circuit-input')?.value?.trim();
     if (!host || !token || !circuit) { showStepError('step2', 'Enter the panel host, access token, and solar circuit ID'); return null; }
     return { inverter_brand: 'span', span_host: host, span_access_token: token, span_solar_circuit_id: circuit };
+  }
+  if (selectedInverterBrand === 'sungrow') {
+    const host = document.getElementById('sungrow-host-input')?.value?.trim();
+    if (!host) { showStepError('step2', 'Enter the inverter/dongle host or IP'); return null; }
+    return {
+      inverter_brand: 'sungrow',
+      sungrow_host:    host,
+      sungrow_port:    document.getElementById('sungrow-port-input')?.value?.trim() || '502',
+      sungrow_unit_id: document.getElementById('sungrow-unit-id-input')?.value?.trim() || '1',
+    };
   }
   if (selectedInverterBrand === 'mqtt') {
     const broker      = document.getElementById('mqtt-in-broker')?.value?.trim();

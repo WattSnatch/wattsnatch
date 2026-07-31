@@ -408,7 +408,12 @@ router.post('/api/setup/complete', (req, res) => {
   }
 });
 
-// POST /api/setup/melcloud-credentials - save MELCloud email/password to Keychain
+// POST /api/setup/melcloud-credentials - validate then save MELCloud email/password to Keychain.
+// Actually logs in synchronously before reporting success - previously this saved
+// credentials and restarted the poller unconditionally, so a wrong password (or,
+// as happened in practice, an account on Mitsubishi's separate AU/NZ MelView
+// platform rather than MELCloud) would report "success" and only fail silently
+// on the next 60s poll cycle.
 router.post('/api/setup/melcloud-credentials', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -417,17 +422,68 @@ router.post('/api/setup/melcloud-credentials', async (req, res) => {
     }
 
     const melcloud = require('../services/melcloud');
-
-    // Save to Keychain
     await melcloud.setCredentials(email, password);
 
-    // Save email to database and mark as configured
+    const test = await melcloud.testConnection();
+    if (!test.ok) {
+      return res.json({ ok: false, error: test.error });
+    }
+
     db.setSetting('melcloud_email', email);
     db.setSetting('melcloud_configured', '1');
+    db.setSetting('ac_brand', 'melcloud');
     melcloud.restart();
 
-    logger.logEvent('info', 'MELCloud credentials configured');
-    res.json({ ok: true });
+    logger.logEvent('info', `MELCloud credentials configured (${test.devices.length} device(s) found)`);
+    res.json({ ok: true, deviceCount: test.devices.length });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/setup/melview-credentials - validate then save MelView (AU/NZ "Wi-Fi
+// Control") email/password to Keychain. Same validate-before-save pattern as
+// the MELCloud route above.
+router.post('/api/setup/melview-credentials', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ ok: false, error: 'email and password required' });
+    }
+
+    const melview = require('../services/melview');
+    await melview.setCredentials(email, password);
+
+    const test = await melview.testConnection();
+    if (!test.ok) {
+      return res.json({ ok: false, error: test.error });
+    }
+
+    db.setSetting('melview_email', email);
+    db.setSetting('melview_configured', '1');
+    db.setSetting('ac_brand', 'melview');
+    melview.restart();
+
+    logger.logEvent('info', `MelView credentials configured (${test.devices.length} device(s) found)`);
+    res.json({ ok: true, deviceCount: test.devices.length });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/setup/melview-status - check if MelView is configured
+router.get('/api/setup/melview-status', (req, res) => {
+  try {
+    const melview = require('../services/melview');
+    const isConfigured = melview.isConfigured();
+    const state = isConfigured ? melview.getState() : null;
+
+    res.json({
+      ok: true,
+      configured: isConfigured,
+      deviceCount: state ? state.devices.length : 0,
+      devices: state ? state.devices : [],
+    });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }

@@ -118,6 +118,7 @@
         <button type="button" class="btn btn-secondary brand-pill" data-brand="fronius">Fronius</button>
         <button type="button" class="btn btn-secondary brand-pill" data-brand="solaredge">SolarEdge</button>
         <button type="button" class="btn btn-secondary brand-pill" data-brand="span">SPAN Panel</button>
+        <button type="button" class="btn btn-secondary brand-pill" data-brand="sungrow">Sungrow</button>
         <button type="button" class="btn btn-secondary brand-pill" data-brand="mqtt">MQTT (other)</button>
       </div>
     </div>
@@ -174,6 +175,31 @@
       <div class="form-group">
         <label for="span-solar-circuit-input">Solar Circuit ID</label>
         <input type="text" id="span-solar-circuit-input" placeholder="e.g. the circuit ID monitoring your solar feed">
+      </div>
+    </div>
+
+    <!-- Sungrow fields -->
+    <div id="brand-fields-sungrow" class="hidden">
+      <p class="text-secondary text-xs" style="margin:0 0 0.75rem">
+        Unverified - built from published Modbus register documentation without access to real Sungrow
+        hardware. Local Modbus TCP via the WiNet-S dongle (WiFi or LAN) - older dongle firmware doesn't
+        expose all needed registers, so update it first if this fails. If you've already set up Sungrow
+        as your home battery in Settings, these are the exact same connection details - no need to enter
+        them twice, just pick Sungrow here too.
+      </p>
+      <div class="form-group">
+        <label for="sungrow-host-input">Inverter/dongle host or IP</label>
+        <input type="text" id="sungrow-host-input" placeholder="192.168.1.150 or WINET-XXXXXX.local">
+      </div>
+      <div class="input-row">
+        <div class="form-group">
+          <label for="sungrow-port-input">Modbus port</label>
+          <input type="number" id="sungrow-port-input" value="502">
+        </div>
+        <div class="form-group">
+          <label for="sungrow-unit-id-input">Unit ID</label>
+          <input type="number" id="sungrow-unit-id-input" value="1">
+        </div>
       </div>
     </div>
 

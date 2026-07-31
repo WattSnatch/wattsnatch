@@ -2,6 +2,139 @@
 
 ---
 
+## 2026-07-31 - v1.21.0: MelView AC support (AU/NZ), fixed a MELCloud login bug, air-con provider registry
+
+Root-caused a user report of "MELCloud Connection failed: Unauthorized" through several
+layers: first, a real integration bug - `melcloud.js` was calling the `melcloud-api`
+library's constructor with `new MelcloudAPI({ email, password })` (a single options
+object), but the library actually takes `(email, password)` as two positional
+arguments, so `password` was silently `undefined` on every login attempt regardless
+of how correct the real credentials were. Fixed, and confirmed via a direct
+reproduction before and after.
+
+That fix uncovered a second, deeper issue: the account in question still failed to
+authenticate, including against melcloud.com's own login page directly. Investigation
+turned up that Mitsubishi Electric actually runs **two separate cloud platforms** that
+both get casually called "MELCloud" - the global MELCloud service, and a distinct
+AU/NZ-only platform called **MelView** (`api.melview.net`), used by the region's
+"Wi-Fi Control" branded app. Different accounts, different APIs - MELCloud credentials
+don't work on MelView and vice versa, which is exactly what the user was hitting.
+
+Added a new `melview.js` provider (protocol adapted from jz-v/ha-melview, MIT licensed
+- see `THIRD_PARTY_LICENSES.md`) alongside the existing MELCloud one, and a small
+`ac.js` registry (mirroring the existing meter/battery provider registries) so
+`ac_brand` picks which platform is active - defaults to `melcloud`, so existing
+installs are unaffected. One important limitation worth knowing: **MelView's API has
+no energy or power-consumption field at all**, confirmed by reading the full reference
+integration's response handling - unlike MELCloud (which at least derives a rough
+estimated wattage from daily energy use), a MelView-configured AC will show power
+state, mode, and temperature, but never a wattage figure on the dashboard.
+
+Also fixed a related reliability gap found along the way: the Settings UI's "Test
+Connection" and "Save Credentials" buttons for MELCloud previously saved whatever
+credentials were entered and restarted the poller *unconditionally* - a wrong password
+would report "Connection successful!" and only fail silently on the next 60-second
+poll. Both routes (and MelView's new equivalent) now log in synchronously and only
+save/report success once that's actually confirmed against the real API.
+
+Verified MelView's implementation end-to-end against the real service (not just
+against a mock) - confirmed it correctly parses a genuine account-rejection response
+from `api.melview.net` (structured `id:0`/`userunits:0` body, an explicitly-expired
+auth cookie) rather than throwing on an unexpected shape, using the exact credentials
+already on file. That specific account's password turned out to be wrong for MELCloud,
+melcloud.com, *and* MelView alike - confirmed separately that Australia/NZ simply
+isn't served by MELCloud at all (Mitsubishi Electric routes that region to MelView
+exclusively at the hardware-registration level) - so for AU/NZ users this is MelView
+or nothing, not a credentials problem to keep chasing.
+
+**A second, more serious MELCloud bug found on closer review, independent of the
+above**: `fetchDevices()` called `_client.getBuildings()`, a method that does not
+exist anywhere on the `melcloud-api` v1.1.2 client (it only exposes `getDevices()`
+and the `getAirConditioners()` convenience wrapper), and read energy fields
+(`todayEnergyConsumption`/`energyConsumption`) that library's device parser never
+produces at all. Both would have thrown or returned nothing for every MELCloud user,
+login success or not - the integration was never actually functional, independent of
+the earlier login-argument bug. Rewritten against the library's real API:
+`getAirConditioners()` for device state, `getEnergyReport()` per device for today's
+energy use (best-effort - some devices/accounts don't expose it, handled per-device
+without failing the whole poll), with a `MODE_MAP` correcting a naming quirk where the
+library reports Cool mode as the literal string `'cold'`. Verified against a stub
+client exercising both the happy path and a device with no energy history.
+
+## 2026-07-30 - v1.20.0: Battery on the Energy Flow diagram, AC/Battery hidden when unconfigured
+
+The Energy Flow diagram (Solar → Home → Grid, with animated lines out to EV,
+Hot Water, and AC) had no equivalent for a home battery - configuring one only
+surfaced a separate stat card (SoC, charge bar, power as text), not a proper
+node on the diagram like every other appliance gets. Added a Battery branch
+with the same animated-line treatment, plus one wrinkle none of the existing
+branches needed: a battery's power flow is bidirectional. Charging shows a
+blue line flowing from Home outward, same direction as everything else;
+discharging reverses it - power flowing from the battery back to the house -
+shown in violet, travelling the same path backwards via the SVG
+`animateMotion` `keyPoints` reversal trick rather than building a second path.
+
+Also addressed a smaller thing noticed along the way: the AC node was always
+shown even for installs with no MELCloud configured, sitting there
+permanently idle. Both AC and the new Battery branch now hide entirely
+(`display:none`) until their respective feature is actually configured,
+rather than advertising hardware the dashboard's visitor doesn't have.
+
+House load (the "Home" node's value) already subtracted EV/Hot Water/AC power
+from total consumption to isolate the base house load - battery charging
+power needed the same treatment (it's folded into the meter's consumptionW
+reading exactly like those three), while discharging power is deliberately
+*not* added back in, since a battery supplying power isn't something the
+house consumed.
+
+Caught one real bug during verification: a direction change (charging ↔
+discharging) while the battery branch stayed continuously visible didn't
+reverse the animation, because the reversal is baked into each dot's
+`animateMotion` at SVG-build time, and only a full `drawFlowCurves()` rebuild
+applies it - a plain attribute update doesn't reverse an already-built path.
+Fixed by detecting a direction flip in `setFlowCurveActive()` and forcing a
+rebuild specifically for that case. Verified end-to-end in the browser by
+driving `dashboard.js`'s real functions with synthetic telemetry (charging →
+discharging → unconfigured) against a static copy of the dashboard, checking
+the actual SVG `keyPoints`/`keyTimes`/colors at each step - not just reading
+the code.
+
+## 2026-07-30 - v1.19.0: Sungrow solar/grid meter support
+
+Sungrow SH-series hybrid inverters were already supported as a *battery*
+(read + control, via local Modbus TCP). They were missing as a *meter* -
+even a Sungrow owner still needed a separate device just for the
+solar/grid/consumption readings that drive the core diversion loop. This adds
+that meter provider, reusing the exact same `sungrow_host`/`sungrow_port`/
+`sungrow_unit_id` settings as the battery integration - one connection
+configured once, usable for both.
+
+Given the explicit ask to make this as robust as possible without access to
+real hardware to test against: audited every existing meter provider's unit
+handling first (Enphase/Fronius/SPAN are natively watts; SolarEdge explicitly
+converts kW→W; MQTT-input has a user-configurable scale) - all already
+correct. For Sungrow specifically, the PV power and export power registers
+are 32-bit values split across two 16-bit Modbus registers in *word-swapped*
+order (low word first) per evcc's published template - gotten backwards, this
+silently produces a wildly wrong reading for any value over 65,535W, while
+coinciding with the right answer for anything smaller, which is exactly the
+kind of bug that would pass unnoticed on a small residential system and only
+surface on a larger one. Built a real Modbus TCP test server (using
+`modbus-serial`'s own `ServerTCP`) to verify the decode logic end-to-end,
+including a scenario deliberately exceeding 16 bits, plus scenarios for grid
+import/export, a battery charging/discharging (netted out of the consumption
+calculation so a hybrid unit's attached battery isn't miscounted as house
+load), and a firmware/no-battery-installed fallback - all passing before this
+shipped. A hard plausibility bound also rejects any reading no real SH-series
+system could produce, as a last line of defense against a mis-decoded
+response being silently acted on.
+
+Marked **unverified** in the UI regardless, same as every other Modbus
+provider in this project - a mock server proves the code is internally
+consistent, not that a real inverter agrees with the register map.
+
+---
+
 ## 2026-07-29 - v1.18.0: Daily energy totals published to Home Assistant
 
 WattSnatch's MQTT publisher previously only pushed instantaneous power (W) and

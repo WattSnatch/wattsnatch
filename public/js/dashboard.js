@@ -271,7 +271,14 @@ function handleTelemetry(d) {
     window._updateEddiCard(d.eddiStatus, d.eddiTemp1 ?? null, d.eddiTemp2 ?? null);
   }
 
-  // AC (MELCloud)
+  // AC (MELCloud) - branch hidden entirely when MELCloud isn't configured, rather
+  // than just showing a permanently-idle icon for a feature the user doesn't have
+  const acBranch = document.getElementById('branch-ac');
+  if (acBranch) {
+    const wasHidden = acBranch.style.display === 'none';
+    acBranch.style.display = d.melcloudConfigured ? '' : 'none';
+    if (wasHidden !== (acBranch.style.display === 'none')) drawFlowCurves();
+  }
   if (elAcNodeVal) updateEl(elAcNodeVal, formatWatts(d.acLoadW || 0));
   const acNode = document.getElementById('ac-node');
   if (acNode) {
@@ -284,6 +291,24 @@ function handleTelemetry(d) {
       else                                               { acNode.classList.add('active'); }
     }
     setFlowCurveActive('ac', acActive, acMode);
+  }
+
+  // Home Battery - branch hidden entirely when no battery provider is configured
+  const batteryBranch = document.getElementById('branch-battery');
+  if (batteryBranch) {
+    const wasHidden = batteryBranch.style.display === 'none';
+    batteryBranch.style.display = d.batteryConfigured ? '' : 'none';
+    if (wasHidden !== (batteryBranch.style.display === 'none')) drawFlowCurves();
+  }
+  const batteryPowerW = d.batteryPowerW || 0;
+  updateEl(document.getElementById('battery-flow-node-val'), formatWatts(Math.abs(batteryPowerW)));
+  const batteryNode = document.getElementById('battery-flow-node');
+  if (batteryNode) {
+    batteryNode.classList.remove('charging', 'discharging');
+    let batteryMode = null;
+    if (batteryPowerW > 50)       { batteryNode.classList.add('charging');    batteryMode = 'charging'; }
+    else if (batteryPowerW < -50) { batteryNode.classList.add('discharging'); batteryMode = 'discharging'; }
+    setFlowCurveActive('battery', !!batteryMode, batteryMode);
   }
 
   updatePill(elGatewayPill, d.gatewayOk, 'Gateway');
@@ -443,7 +468,12 @@ function updateFlowDiagram(d) {
   const hwNodeFlow = document.getElementById('hw-node');
   if (hwNodeFlow) hwNodeFlow.classList.toggle('active', (d.eddiDivertW || 0) > 50);
 
-  const houseNodeW = Math.max(0, (d.consumption || 0) - (d.evWatts || 0) - (d.eddiDivertW || 0) - (d.acLoadW || 0));
+  // Battery charging power is folded into consumptionW by the meter (same
+  // reasoning as EV/HW/AC - see src/services/battery/README.md), so it's
+  // subtracted here too to avoid double-counting it as house load. Discharging
+  // (negative) is NOT added back in - it's power the battery is supplying, not
+  // something the house consumed.
+  const houseNodeW = Math.max(0, (d.consumption || 0) - (d.evWatts || 0) - (d.eddiDivertW || 0) - (d.acLoadW || 0) - Math.max(0, d.batteryPowerW || 0));
   setNodeVal('solar-node-val',  formatWatts(d.solar));
   setNodeVal('home-node-val',   formatWatts(houseNodeW));
   setNodeVal('grid-node-val',   formatWatts(Math.abs(d.grid)));
@@ -453,7 +483,26 @@ function updateFlowDiagram(d) {
 
 // ─── Flow Curves - SVG bezier lines from Home to each bottom branch ───────────
 
+// Stores { active, mode } per curve key, so drawFlowCurves can re-apply the
+// right color/direction on resize without waiting for the next telemetry tick.
 let _flowCurveActive = {};
+
+function _dotColorFor(key, mode) {
+  if (mode === 'cooling')      return 'rgba(59,130,246,0.9)';
+  if (mode === 'heating')      return 'rgba(249,115,22,0.9)';
+  if (mode === 'charging')     return 'rgba(59,130,246,0.9)';
+  if (mode === 'discharging')  return 'rgba(167,139,250,0.9)';
+  return null; // fall back to the branch's own default color
+}
+
+function _strokeFor(active, mode) {
+  if (!active)                 return 'rgba(148,163,184,0.15)';
+  if (mode === 'cooling')      return 'rgba(59,130,246,0.35)';
+  if (mode === 'heating')      return 'rgba(249,115,22,0.35)';
+  if (mode === 'charging')     return 'rgba(59,130,246,0.35)';
+  if (mode === 'discharging')  return 'rgba(167,139,250,0.35)';
+  return 'rgba(148,163,184,0.35)';
+}
 
 function drawFlowCurves() {
   const svg      = document.getElementById('flow-curves-svg');
@@ -470,9 +519,10 @@ function drawFlowCurves() {
   const hx = hRect.left + hRect.width / 2 - sRect.left;
 
   const branches = [
-    { id: 'branch-ev',     key: 'ev',     color: 'rgba(74,222,128,0.9)'  },
-    { id: 'branch-hw',     key: 'hw',     color: 'rgba(251,146,60,0.9)'  },
-    { id: 'branch-ac',     key: 'ac',     color: 'rgba(156,163,175,0.9)' },
+    { id: 'branch-ev',      key: 'ev',      color: 'rgba(74,222,128,0.9)'  },
+    { id: 'branch-hw',      key: 'hw',      color: 'rgba(251,146,60,0.9)'  },
+    { id: 'branch-battery', key: 'battery', color: 'rgba(167,139,250,0.9)' },
+    { id: 'branch-ac',      key: 'ac',      color: 'rgba(156,163,175,0.9)' },
   ];
 
   svg.innerHTML = '';
@@ -492,13 +542,20 @@ function drawFlowCurves() {
     // Cubic bezier: leave house straight down, arrive at icon straight up (0.35 = flatter arc)
     const d  = `M ${hx} ${hy} C ${hx} ${hy + dy * 0.35} ${bx} ${by - dy * 0.35} ${bx} ${by}`;
     const pathId = `fc-${b.key}`;
-    const active  = !!_flowCurveActive[b.key];
+    const state  = _flowCurveActive[b.key] || {};
+    const active = !!state.active;
+    const mode   = state.mode;
+    // Battery only: discharging means power flows FROM the battery TO the
+    // house, the reverse of every other branch (which always flows Home ->
+    // appliance) - reversed by traversing the same path backwards rather than
+    // building a second geometry.
+    const reversed = b.key === 'battery' && mode === 'discharging';
 
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.id = pathId;
     path.setAttribute('d', d);
     path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', active ? 'rgba(148,163,184,0.35)' : 'rgba(148,163,184,0.15)');
+    path.setAttribute('stroke', _strokeFor(active, mode));
     path.setAttribute('stroke-width', '1.5');
     path.setAttribute('stroke-linecap', 'round');
     svg.appendChild(path);
@@ -508,15 +565,22 @@ function drawFlowCurves() {
     g.id = `fcd-${b.key}`;
     g.setAttribute('visibility', active ? 'visible' : 'hidden');
 
+    const dotColor = _dotColorFor(b.key, mode) || b.color;
+
     for (let i = 0; i < 3; i++) {
       const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       dot.setAttribute('r', '3');
-      dot.setAttribute('fill', b.color);
+      dot.setAttribute('fill', dotColor);
 
       const motion = document.createElementNS('http://www.w3.org/2000/svg', 'animateMotion');
       motion.setAttribute('dur', '1.8s');
       motion.setAttribute('repeatCount', 'indefinite');
       motion.setAttribute('begin', `${i * 0.6}s`);
+      if (reversed) {
+        motion.setAttribute('calcMode', 'linear');
+        motion.setAttribute('keyPoints', '1;0');
+        motion.setAttribute('keyTimes', '0;1');
+      }
       const mpath = document.createElementNS('http://www.w3.org/2000/svg', 'mpath');
       mpath.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', `#${pathId}`);
       motion.appendChild(mpath);
@@ -539,27 +603,28 @@ function drawFlowCurves() {
 }
 
 function setFlowCurveActive(key, active, mode) {
-  _flowCurveActive[key] = active;
+  // Battery only: charging vs discharging isn't just a color change like AC's
+  // cooling/heating - it flips which way the dots travel along the path,
+  // which is baked into each dot's animateMotion at build time (see
+  // drawFlowCurves' `reversed` handling). A plain attribute tweak here can't
+  // reverse that, so force a full rebuild whenever the direction flips.
+  const prevReversed = key === 'battery' && _flowCurveActive[key] && _flowCurveActive[key].mode === 'discharging';
+  const nextReversed  = key === 'battery' && mode === 'discharging';
+
+  _flowCurveActive[key] = { active, mode };
+
+  if (prevReversed !== nextReversed) { drawFlowCurves(); return; }
 
   const dotsEl = document.getElementById(`fcd-${key}`);
   const pathEl = document.getElementById(`fc-${key}`);
 
   if (dotsEl) {
     dotsEl.setAttribute('visibility', active ? 'visible' : 'hidden');
-    if (key === 'ac' && active && mode) {
-      const col = mode === 'cooling' ? 'rgba(59,130,246,0.9)' : 'rgba(249,115,22,0.9)';
-      dotsEl.querySelectorAll('circle').forEach(c => c.setAttribute('fill', col));
-    }
+    const col = _dotColorFor(key, mode);
+    if (active && col) dotsEl.querySelectorAll('circle').forEach(c => c.setAttribute('fill', col));
   }
 
-  if (pathEl) {
-    let stroke;
-    if (!active)                       stroke = 'rgba(148,163,184,0.15)';
-    else if (mode === 'cooling')       stroke = 'rgba(59,130,246,0.35)';
-    else if (mode === 'heating')       stroke = 'rgba(249,115,22,0.35)';
-    else                               stroke = 'rgba(148,163,184,0.35)';
-    pathEl.setAttribute('stroke', stroke);
-  }
+  if (pathEl) pathEl.setAttribute('stroke', _strokeFor(active, mode));
 }
 
 function updatePipe(selector, active, reverse) {
@@ -624,8 +689,9 @@ async function loadFlowTotals() {
     const imp = fmtEnergy(data.grid_import_kwh);
     set('grid-node-today', `↑${exp}  ↓${imp}`);
 
-    // AC: not tracked by db, leave as dash
+    // AC and Battery: not tracked by db, leave as dash
     set('ac-node-today', '-');
+    set('battery-flow-node-today', '-');
   } catch (_e) {}
 }
 

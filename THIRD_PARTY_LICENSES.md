@@ -73,7 +73,10 @@ SOFTWARE.
 Used for: the Modbus TCP register addresses (and, for Sungrow, the EMS-mode
 charge-control write sequence) in `src/services/battery/sigenergy.js` and
 `src/services/battery/sungrow.js`, taken from EVCC's
-`templates/definition/meter/sigenergy.yaml` and `sungrow-hybrid.yaml`.
+`templates/definition/meter/sigenergy.yaml` and `sungrow-hybrid.yaml`. The same
+`sungrow-hybrid.yaml` template's solar/grid meter register addresses (Total PV
+Power, Export Power) and word-swapped 32-bit decode convention are also used
+in `src/services/meters/sungrow.js`.
 
 ## andig/go-powerwall
 
@@ -97,7 +100,45 @@ Used for: the local Tesla Energy Gateway login flow (`/api/login/Basic`,
 (`/api/meters/aggregates`, `/api/system_status/soe`, `/api/system_status`) in
 `src/services/battery/teslaPowerwall.js`.
 
-Neither dependency's code is vendored or executed by WattSnatch - only the
-protocol knowledge (register addresses, endpoint paths, request/response
-shapes) was read from their public source and reimplemented in JavaScript
-against WattSnatch's own provider contract.
+## jz-v/ha-melview
+
+<https://github.com/jz-v/ha-melview> - MIT License.
+
+```
+MIT License
+
+Copyright (c) 2025 jz-v
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+Used for: the MelView API endpoints (`api.melview.net` - `login.aspx`,
+`rooms.aspx`, `unitcapabilities.aspx`, `unitcommand.aspx`), its cookie-based
+auth flow, and response field shapes (`power`, `setmode`, `settemp`,
+`roomtemp`, `fault`) in `src/services/melview.js` - Mitsubishi Electric's
+separate AU/NZ-only "Wi-Fi Control" cloud platform, distinct from the global
+MELCloud service `src/services/melcloud.js` already talks to. jz-v/ha-melview
+itself documents being forked from earlier WTFPL-licensed reverse-engineering
+work (haggis663/ha-melview, zacharyrs/ha-melview, and the original protocol
+write-up at NovaGL/diy-melview).
+
+Neither this nor the other dependencies above are vendored or executed by
+WattSnatch - only the protocol knowledge (register addresses, endpoint paths,
+request/response shapes) was read from their public source and reimplemented
+in JavaScript against WattSnatch's own provider contract.

@@ -450,23 +450,31 @@
         </div>
       </div>
 
-      <!-- MELCloud AC Units -->
+      <!-- Air Conditioning (MELCloud / MelView) -->
       <div class="card mb-2">
         <div class="card-header">
-          <div class="card-label">MELCloud AC Units</div>
+          <div class="card-label">Air Conditioning</div>
           <span id="melcloud-status-badge" style="font-size:0.8rem;color:var(--text-secondary)">Not configured</span>
         </div>
-        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
-          Monitor your Mitsubishi AC units' status and energy consumption via MELCloud.
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 0.75rem">
+          Monitor your Mitsubishi AC units' status via one of two separate cloud platforms - pick whichever your account is actually on. If you're not sure, try MELCloud first; if login fails, try MelView.
         </p>
+        <div class="form-group" style="margin-bottom:1rem">
+          <label for="setting_ac_brand">Platform</label>
+          <select id="setting_ac_brand">
+            <option value="melcloud">MELCloud (global)</option>
+            <option value="melview">MelView - "Wi-Fi Control" (Australia/NZ only)</option>
+          </select>
+          <span id="ac-brand-note" class="text-secondary text-xs mt-1">Monitors power state, mode, temperature, and energy use.</span>
+        </div>
         <div class="grid-2">
           <div class="form-group">
-            <label for="setting_melcloud_email">MELCloud Email</label>
+            <label for="setting_melcloud_email">Email</label>
             <input type="email" id="setting_melcloud_email" placeholder="your@email.com">
-            <span class="text-secondary text-xs mt-1">MELCloud account email</span>
+            <span class="text-secondary text-xs mt-1">The account you log into the AC's own app with</span>
           </div>
           <div class="form-group">
-            <label for="setting_melcloud_password">MELCloud Password</label>
+            <label for="setting_melcloud_password">Password</label>
             <input type="password" id="setting_melcloud_password" placeholder="Enter password">
             <span class="text-secondary text-xs mt-1">Stored securely in macOS Keychain</span>
           </div>

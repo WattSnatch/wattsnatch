@@ -269,6 +269,29 @@
 .flow-pipe-v.home-ac.cooling { color: #3b82f6; }
 .flow-pipe-v.home-ac.heating { color: #f97316; }
 
+/* ─── Home Battery node ─── */
+.flow-node-icon.battery {
+  background: rgba(167, 139, 250, 0.12);
+  border: 2px solid rgba(167, 139, 250, 0.3);
+  color: #a78bfa;
+}
+.flow-node-icon.battery.charging {
+  animation: battery-charge-glow 2s ease-in-out infinite;
+  color: #3b82f6;
+}
+.flow-node-icon.battery.discharging {
+  animation: battery-discharge-glow 2s ease-in-out infinite;
+  color: #a78bfa;
+}
+@keyframes battery-charge-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.2); }
+  50%       { box-shadow: 0 0 12px 4px rgba(59,130,246,0.15); }
+}
+@keyframes battery-discharge-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,0.2); }
+  50%       { box-shadow: 0 0 12px 4px rgba(167,139,250,0.15); }
+}
+
 .flow-dot-v {
   position: absolute;
   width: 6px;

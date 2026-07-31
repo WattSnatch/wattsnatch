@@ -10,7 +10,7 @@
 const db = require('../db');
 const logger = require('../utils/logger');
 const myenergi = require('./myenergi');
-const melcloud = require('./melcloud');
+const ac = require('./ac');
 const weatherGrid = require('./weatherGrid');
 
 // Current outside temperature from the weather service's cache (°C), or null
@@ -30,7 +30,7 @@ const ANOMALY_THRESHOLD = 1.4; // 40% above baseline
  * Determine if an AC unit is on.
  */
 function isAcOn() {
-  const acState = melcloud.getState();
+  const acState = ac.getState();
   return (acState.devices || []).some(d => d.is_on);
 }
 
@@ -42,7 +42,7 @@ async function recordLoadSnapshot(readings) {
   if (!readings) return;
 
   const eddi = myenergi.getState();
-  const acState = melcloud.getState();
+  const acState = ac.getState();
 
   // Calculate AC load
   let acLoadW = 0;
@@ -74,7 +74,7 @@ function checkAnomaly(readings) {
   }
 
   const eddi = myenergi.getState();
-  const acState = melcloud.getState();
+  const acState = ac.getState();
 
   // Calculate AC load
   let acLoadW = 0;

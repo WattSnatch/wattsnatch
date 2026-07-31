@@ -9,7 +9,7 @@
 
 const db = require('./db');
 const myenergi    = require('./services/myenergi');
-const melcloud = require('./services/melcloud');
+const ac = require('./services/ac');
 const baseline = require('./services/baseline');
 const meters = require('./services/meters');
 const battery = require('./services/battery');
@@ -79,6 +79,16 @@ class Controller {
     this._lastGatewaySuccessAt = Date.now();
     this._teslaTokenRefreshAt = 0;
     this._carSleeping = false;  // true once REST confirms asleep; cleared when ZMQ fires on wake
+    // Forces exactly one REST reconciliation of charge_limit_soc (and other
+    // fields) shortly after every boot, regardless of how fresh the persisted
+    // telemetry snapshot looks. Fixes a real gap: Fleet Telemetry only pushes
+    // ChargeLimitSoc on change (no periodic resend of an unchanged value), so
+    // if that one push happens to land during a restart - exactly when this
+    // app has been restarted repeatedly for deployments - it's lost forever
+    // and the stale value silently persists, since every OTHER field (SoC,
+    // charging state, amps) keeps updating normally and makes telemetry look
+    // perfectly healthy. Cleared once a REST reconciliation actually succeeds.
+    this._forceBootReconcile = true;
     // BLE state-source mode (tesla_state_source === 'ble'): reachability doubles as geofencing
     // (BLE only carries a few metres, so "reachable" means "at home"). Starts false so we never
     // act on the car until a BLE read confirms it is present.
@@ -730,7 +740,8 @@ class Controller {
       if (stateSource !== 'ble' && !telemetry.isStale()) this._carSleeping = false; // ZMQ came back → car awake
 
       const FALLBACK_INTERVAL = 2 * 60 * 1000;
-      const needsFallback = stateSource !== 'ble' && !this._carSleeping && (telemetry.isStale() || ts.chargingState === null);
+      const needsFallback = stateSource !== 'ble' && !this._carSleeping &&
+        (telemetry.isStale() || ts.chargingState === null || this._forceBootReconcile);
       if (needsFallback && teslaToken && (Date.now() - this._lastFallbackAt) > FALLBACK_INTERVAL) {
         this._lastFallbackAt = Date.now();
         try {
@@ -755,8 +766,15 @@ class Controller {
               logger.logEvent('info', `REST fallback: got location ${driveState.latitude},${driveState.longitude}`);
             }
             this._teslaOk = true;
+            if (this._forceBootReconcile) {
+              logger.logEvent('info', `Boot reconciliation: charge_limit_soc confirmed at ${apiCharge?.charge_limit_soc}%`);
+              this._forceBootReconcile = false;
+            }
           } else {
-            // Car confirmed asleep - ZMQ will wake us when it comes online, no need to poll again
+            // Car confirmed asleep - ZMQ will wake us when it comes online, no need to poll
+            // again until then. _forceBootReconcile deliberately stays true - _carSleeping
+            // resets to false on the wake connectivity event, so this same check fires again
+            // and reconciles as soon as the car is actually reachable, rather than giving up.
             this._carSleeping = true;
           }
         } catch (err) {
@@ -1469,8 +1487,16 @@ class Controller {
     }
 
     const eddi = myenergi.getState();
-    const acState = melcloud.getState();
+    const acState = ac.getState();
+    const acConfigured = ac.isConfigured();
     const { upcomingTrip, tripPriority, tripWithin18hrs } = this._tripContext();
+
+    // Home battery - reuses the same reading the priority-arbitration step
+    // already fetches every ~30s (see _applyBatteryPriority above), rather
+    // than polling the provider a second time just for display.
+    const batteryProvider = battery.getActiveProvider();
+    const batteryConfigured = !!(batteryProvider && batteryProvider.isConfigured());
+    const batteryReadings = batteryConfigured ? this._lastBatteryReadings : null;
 
     // Calculate AC load and modes from MELCloud devices
     let acLoadW = 0;
@@ -1553,6 +1579,11 @@ class Controller {
       acRunningCount,
       acDevices: acState.devices || [],
       acOk: acState.ok,
+      melcloudConfigured: acConfigured, // field name kept for dashboard backward-compat
+      batteryConfigured,
+      batterySocPct:  batteryReadings ? batteryReadings.socPct : null,
+      batteryPowerW:  batteryReadings ? batteryReadings.powerW : 0,
+      batteryBrand:   batteryConfigured ? batteryProvider.label : '',
       tripWithin18hrs,
       tripPriority,
       tripLocation:      upcomingTrip ? (upcomingTrip.location || upcomingTrip.summary || null) : null,

@@ -27,6 +27,7 @@ const providers = {
   fronius:   require('./fronius'),
   solaredge: require('./solaredge'),
   span:      require('./span'),
+  sungrow:   require('./sungrow'),
   mqtt:      require('./mqttInput'),
 };
 
