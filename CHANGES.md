@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-08-01 - v1.23.1: Fixes found by actually cloning the public repo
+
+The v1.23.0 audit was static analysis against the working copy. Doing what an
+actual installer does - cloning the published repo from scratch - immediately
+surfaced problems that reading the source never would have:
+
+- **A 17 MB compiled `tesla-proxy` binary was being published in the repo.**
+  It is a Mach-O arm64 executable, so it cannot run on Linux, Windows, or an
+  Intel Mac. Worse than dead weight: the install guide tells you to build the
+  proxy and copy it to exactly that path, so finding the file already there
+  invited people to skip the build and then hit a bare "Exec format error"
+  from the service. Root cause was the same as the TLS keys: it is listed in
+  `.gitignore`, but was committed before that rule existed and never
+  untracked. Checking for the whole class (`git ls-files --cached --ignored`)
+  found exactly three such files; all three are now untracked, so the
+  published tree is clean automatically rather than by remembering to delete
+  them during export.
+- **A link added in the previous release pointed at `wattsnatch.com`,** which
+  does not resolve. The real domain is `wattsnatch.app`.
+- `TELEMETRY.md` had a table-of-contents link to an anchor that does not
+  resolve on GitHub, the same three-hyphen heading issue fixed elsewhere in
+  v1.23.0.
+- `DEPLOY_TO_PI.md`, `DEPLOY_TO_SERVER.md` and `TELEMETRY.md` were not covered
+  by the previous audit at all. They have now had the same checks applied;
+  aside from the anchor above they were accurate, and `DEPLOY_TO_SERVER.md`
+  independently confirmed the corrected proxy launch flags.
+
 ## 2026-08-01 - v1.23.0: Second documentation audit, verified against the source
 
 The v1.22.2 audit checked whether features were *mentioned* in the docs. It

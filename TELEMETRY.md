@@ -15,7 +15,7 @@ This is an **optional, advanced** setup guide. WattSnatch works completely fine 
 5. [Get a valid TLS certificate](#5-get-a-valid-tls-certificate)
 6. [Register the hostname with your Tesla developer app](#6-register-the-hostname-with-your-tesla-developer-app)
 7. [Run Tesla's fleet-telemetry server](#7-run-teslas-fleet-telemetry-server)
-8. [Tell Tesla to start streaming - the WattSnatch side](#8-tell-tesla-to-start-streaming--the-wattsnatch-side)
+8. [Tell Tesla to start streaming - the WattSnatch side](#8-tell-tesla-to-start-streaming---the-wattsnatch-side)
 9. [Verifying it's working](#9-verifying-its-working)
 10. [Keeping it running](#10-keeping-it-running)
 11. [Troubleshooting](#11-troubleshooting)
