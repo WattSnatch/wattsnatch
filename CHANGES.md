@@ -2,6 +2,40 @@
 
 ---
 
+## 2026-08-01 - v1.23.3: README described a setup wizard that does not exist
+
+Checking the README's hardware setup instructions against the actual wizard
+found its walkthrough was not merely incomplete, it described a different
+program:
+
+- **The README documented a 7-step wizard. The real one has 12 steps.** The
+  version in the README was written when Enphase was the only supported meter
+  and had never been updated. It told every reader to enter an Enphase gateway
+  IP and serial as step 1 regardless of what hardware they own, and never
+  mentioned the brand-selection step at all, so Fronius, SolarEdge, SPAN,
+  Sungrow and MQTT users had no documented path through setup in the README.
+- **It omitted the virtual key pairing step entirely** - the step that is
+  mandatory for every install, cannot be done from the machine running
+  WattSnatch, and requires an iPhone at the car. Someone following the README
+  alone would have had no idea it was coming.
+- It also omitted the Fleet API versus Bluetooth LE choice, which reshapes
+  half the remaining steps, and the Bluetooth LE proxy step.
+- It described the gateway serial as being entered in the first step; it is
+  actually entered in the Enphase authentication step, which only Enphase
+  users ever see.
+- It labelled the background service step "(macOS only)". Linux has been
+  supported via systemd for some time.
+- The step 2 field list is now documented per brand, along with which brands
+  need a cloud account and which are local-network only.
+
+Elsewhere in the README, several statements still assumed Enphase was the only
+meter: the opening description, the troubleshooting entry, and the
+architecture diagram. The privacy section was the one that mattered most - it
+said solar data only ever leaves your network once during setup, which is true
+for Enphase but wrong for SolarEdge, whose readings are polled from
+SolarEdge's cloud for as long as you use it. All corrected, and every brand
+named in the README is now checked against the providers that actually exist.
+
 ## 2026-08-01 - v1.23.2: README gaps, including the field that started all this
 
 The redirect URI fix in v1.22.3 corrected INSTALL.md and AGENTS.md, and

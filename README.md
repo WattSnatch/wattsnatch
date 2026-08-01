@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/WattSnatch/wattsnatch/actions/workflows/test.yml/badge.svg)](https://github.com/WattSnatch/wattsnatch/actions/workflows/test.yml)
 
-Automatically divert excess solar power to your Tesla. When your Enphase solar system is generating more than your home needs, WattSnatch adjusts your Tesla's charge rate in real time so you're charging from the sun rather than the grid - and stops or reduces charging when solar drops.
+Automatically divert excess solar power to your Tesla. When your solar system is generating more than your home needs, WattSnatch adjusts your Tesla's charge rate in real time so you're charging from the sun rather than the grid - and stops or reduces charging when solar drops.
 
 **What you need:**
 - An Enphase IQ Gateway (Envoy) on your local network (Fronius, SolarEdge, SPAN Panel, and Sungrow are also supported - or feed **any** inverter in over MQTT, see below)
@@ -199,15 +199,35 @@ npm start
 
 Open **http://localhost:3001** in your browser.
 
-The wizard will walk you through these steps in order:
+The wizard has 12 steps. Two of them are skipped depending on choices you make, so you won't see all 12:
 
-1. **Enphase** - enter your gateway's local IP address (find it in your router's device list, or in the Enphase app) and the serial number from the sticker on the gateway
-2. **Enphase token** - enter your Enphase account email and password (the password is used once to generate a local token and is never stored)
-3. **Tesla credentials** - paste your Client ID and Client Secret from Step 4
-4. **Public key** - the wizard generates an EC key pair and shows you the public key. Create the file `.well-known/appspecific/com.tesla.3p.public-key.pem` in your GitHub Pages repo and paste the key in. Once the URL is live, click Next.
-5. **Tesla auth** - you'll be redirected to Tesla's login page. Sign in and grant access to your vehicle.
-6. **Charging settings** - configure your preferences (see Settings reference below)
-7. **Install service** (macOS only) - installs WattSnatch as a background service that starts automatically at login
+1. **Welcome** - overview, nothing to enter.
+2. **Connect your solar inverter** - pick your brand, then fill in its fields (see the table below). Enphase has a "Find automatically" button that discovers the gateway over your local network.
+3. **Authenticate with Enphase** - **Enphase only.** Your Enlighten email and password, plus the gateway serial number from the sticker on the unit. The password is used once to generate a local token and is never stored. Every other brand skips this step entirely.
+4. **How should WattSnatch talk to your car?** - choose **Fleet API + Fleet Telemetry** (Tesla's cloud, the default) or **Bluetooth LE** (fully cloud-free, but the machine must be in Bluetooth range of the car). This choice reshapes the remaining steps.
+5. **Tesla Developer App** - paste the Client ID and Client Secret from Step 4 above. Fleet API mode also asks for the Redirect URI and sends you through Tesla's login; Bluetooth LE mode does neither.
+6. **Vehicle Connected** - Fleet API confirms the car detected on your Tesla account. Bluetooth LE asks you to type the VIN, since there is no token to look it up with.
+7. **Register Public Key with Tesla** - the wizard shows your public key. Put it at `.well-known/appspecific/com.tesla.3p.public-key.pem` on the domain you gave Tesla, then click Verify.
+8. **Pair Virtual Key with Car** - required for both modes, and you must do it in person: on an **iPhone**, open Safari to the link shown, tap Add Key, and hold your key card to the console reader. Tesla requires this of every third-party app.
+9. **Bluetooth LE Proxy** - **Bluetooth LE only.** Enter and test the URL of your TeslaBleHttpProxy. Fleet API mode skips this.
+10. **Charging Preferences** - min/max amps, hold timer, voltage, electricity rate (see Settings reference below).
+11. **Install Background Service** - macOS (launchd) and Linux (systemd). Starts WattSnatch automatically on boot, and in Fleet API mode installs the `tesla-proxy` service too. On Windows, use PM2 instead (see below).
+12. **Done.**
+
+**What each solar brand asks for in step 2:**
+
+| Brand | Fields | Needs a cloud account? |
+|---|---|---|
+| **Enphase IQ Gateway** | Gateway IP or hostname | Yes - Enlighten login in step 3 |
+| **Fronius** | Inverter IP or hostname | No, local only |
+| **SolarEdge** | API Key, Site ID | Yes - from your SolarEdge monitoring account |
+| **SPAN Panel** | Panel host or IP, Access Token, Solar Circuit ID | Token from SPAN; unverified against real hardware |
+| **Sungrow** | Inverter/dongle host or IP, Modbus port, Unit ID | No, local Modbus TCP; unverified against real hardware |
+| **MQTT (any other inverter)** | Broker URL, username/password, solar topic, a second grid or consumption topic, plus sign/scale/stale options | No - you publish the readings yourself |
+
+Enphase, Fronius, SPAN and Sungrow are local-network devices, so WattSnatch must be on the same LAN as them. SolarEdge and MQTT have no such requirement.
+
+If you get interrupted, reopen `http://localhost:3001/setup` and it resumes where you left off.
 
 ---
 
@@ -353,10 +373,11 @@ These are the core charging settings. Everything else is configured in the dashb
 
 ## Troubleshooting
 
-**Gateway: Error**
-- Check the Enphase gateway IP address in Settings
-- Make sure your server is on the same local network as the gateway
-- Try regenerating the Enphase token in Settings (you'll need your Enphase email and password again)
+**Gateway / meter: Error**
+- Check the address for your meter in Settings (gateway IP for Enphase, inverter IP for Fronius, host for SPAN or Sungrow, API key and site ID for SolarEdge)
+- For local-network meters (Enphase, Fronius, SPAN, Sungrow), make sure your server is on the same LAN as the device
+- **Enphase:** try regenerating the token in Settings (you'll need your Enlighten email and password again)
+- **MQTT input:** check the broker is reachable and that readings are still arriving - the reading goes stale after the timeout you configured, which is treated as an error rather than as zero solar
 
 **Tesla: Error**
 - Go to Settings and click **Re-authorise Tesla**
@@ -385,7 +406,7 @@ These are the core charging settings. Everything else is configured in the dashb
 All data is stored locally in a SQLite database at `~/.solarcharge/solarcharge.db` in your home directory (the internal folder/file name predates the WattSnatch rebrand and hasn't been migrated yet - this is a known cosmetic inconsistency, not a functional issue). Nothing is sent to any third-party cloud service during normal operation, except:
 
 - **Tesla Fleet API** - to read your car's state and send charging commands
-- **Enphase cloud** - only once during setup to generate a local token; all ongoing data comes directly from your gateway on the local network
+- **Your solar meter** - Enphase contacts Enphase's cloud only once during setup to mint a local token, after which all readings come straight from the gateway on your LAN. Fronius, SPAN, Sungrow and MQTT input are local-network only and never leave your network. SolarEdge is the exception: it has no local API, so readings are polled from SolarEdge's cloud monitoring service for as long as you use it.
 
 Your Tesla OAuth tokens and Enphase tokens are encrypted at rest using AES-256. Telemetry history is retained for 7 days, event logs for 90 days, and charge session records are kept indefinitely.
 
@@ -394,8 +415,8 @@ Your Tesla OAuth tokens and Enphase tokens are encrypted at rest using AES-256. 
 ## Architecture overview
 
 ```
-Enphase IQ Gateway (local LAN)
-    ↓ HTTP polling every 15s
+Solar meter (Enphase / Fronius / SolarEdge / SPAN / Sungrow / MQTT)
+    ↓ polling every 15s (local LAN, or cloud API for SolarEdge)
 WattSnatch server (Node.js / Express / SQLite)
     ↓ SSE push
 Browser dashboard (vanilla JS)
