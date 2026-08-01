@@ -165,12 +165,15 @@ WattSnatch uses Tesla's official Fleet API, which requires a free developer regi
    - **Purpose:** Personal use / home automation
    - **Website:** a domain you control, e.g. a free GitHub Pages URL - see [INSTALL.md](INSTALL.md#5-register-a-tesla-developer-app) for the full walkthrough including what this is for
 4. **Grant type:** enable both Authorization Code and Client Credentials (Machine-to-Machine) - WattSnatch needs both, not just one
-5. Under **API and Scopes**, tick all of:
+5. **Allowed Redirect URI:** `http://localhost:3001/auth/tesla/callback`
+
+   Get this exactly right, including the `/tesla/` part - `/auth/callback` is not a real route and will fail with "Cannot GET" after you log in to Tesla. If you run WattSnatch on a port other than 3001, use that port here instead. You'll enter this same value in the setup wizard, and the two must match exactly.
+6. Under **API and Scopes**, tick all of:
    - Vehicle Information
    - Vehicle Location
    - Vehicle Commands
    - Vehicle Charging Management
-6. Save and note your **Client ID** and **Client Secret** - you'll enter these in the setup wizard
+7. Save and note your **Client ID** and **Client Secret** - you'll enter these in the setup wizard
 
 ---
 
@@ -319,11 +322,15 @@ If port 3001 is already in use on your machine:
 
 ```bash
 # Mac / Linux
-PORT=8080 npm start
+PORT=8085 npm start
 
 # Windows
-set PORT=8080 && npm start
+set PORT=8085 && npm start
 ```
+
+**If you change the port, update your Tesla Redirect URI to match.** Both the Redirect URI on your app at [developer.tesla.com](https://developer.tesla.com) and the one in the setup wizard need the new port, e.g. `http://localhost:8085/auth/tesla/callback`. A mismatch here fails only at the very end of the Tesla login, which makes it a confusing one to diagnose.
+
+`PORT` is one of five environment variables WattSnatch reads - see [INSTALL.md](INSTALL.md#environment-variables) for the full list, including how to move the database or point at a proxy on a different host.
 
 ---
 
@@ -339,6 +346,8 @@ set PORT=8080 && npm start
 | Charger voltage | 240 V | Your home charger voltage. 240V in Australia, UK, and Europe. US homes are typically 240V for EV chargers. |
 | Electricity rate | $0.30/kWh | Used only for the "Est. Saved" display - enter your grid import rate. |
 | Home radius | 0.1 km | GPS geofence radius. Solar charging control is suspended when your car is outside this radius (e.g. at a Supercharger). |
+
+These are the core charging settings. Everything else is configured in the dashboard's Settings page - solar meter brand, home battery, air conditioning, time-of-use rates, calendar, notifications, and Home Assistant. See [FEATURES.md](FEATURES.md) for what each one does.
 
 ---
 

@@ -2,6 +2,31 @@
 
 ---
 
+## 2026-08-01 - v1.23.2: README gaps, including the field that started all this
+
+The redirect URI fix in v1.22.3 corrected INSTALL.md and AGENTS.md, and
+v1.23.0 corrected the setup wizard's own hint. Checking README.md properly
+showed it had never documented the field at all:
+
+- **README's "Create a Tesla Developer account" step listed App name,
+  Purpose, Website, Grant type and Scopes, but omitted Allowed Redirect URI
+  entirely** - a required field on Tesla's form, and the exact one that
+  blocked a real installer. README is a standalone install path, so anyone
+  following only it got no guidance on the field at all, then failed at the
+  final step of the Tesla login. Now documented with the correct
+  `/auth/tesla/callback` path and an explicit warning about the `/tesla/`
+  segment.
+- **"Changing the port" told people to run on a different port without
+  mentioning that the Redirect URI has to match it.** The installer who hit
+  the original bug was running on port 8085, which is precisely this case.
+  The example now uses 8085 and spells out that both the Tesla app and the
+  setup wizard need the new port, and notes that a mismatch only fails at the
+  very end of the login, which makes it hard to diagnose.
+- README documented `PORT` but none of the other four environment variables;
+  it now links to the reference table added in v1.23.0.
+- The settings reference table covers the core charging settings only. It now
+  says so, and points at where everything else is configured.
+
 ## 2026-08-01 - v1.23.1: Fixes found by actually cloning the public repo
 
 The v1.23.0 audit was static analysis against the working copy. Doing what an
