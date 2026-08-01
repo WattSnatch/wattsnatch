@@ -58,7 +58,7 @@ The database is the part that grows. Telemetry is kept for 5 years, because the 
 | RAM | 1 GB free | 2 GB+ free |
 | Disk | 5 GB free (app + dependencies ≈ 120 MB; database grows ~600 MB/year) | 20 GB+ if you want years of history |
 | OS | macOS, Windows, or Linux | macOS or Linux for an always-on install (macOS additionally gets the one-click background-service installer and Keychain credential storage) |
-| Node.js | v18 or later (LTS recommended) | Latest LTS |
+| Node.js | **v20 or later** (`better-sqlite3` does not support v18; Debian 12's apt ships v18, see below) | Latest LTS |
 | Build tools | A C/C++ compiler toolchain - two dependencies (`better-sqlite3`, `zeromq`) compile native code during `npm install` if no prebuilt binary exists for your platform | - |
 | Network | Same LAN as your solar meter if it's a local-network device (Enphase, Fronius, SPAN, Sungrow) - a cloud VPS can't reach those. SolarEdge and MQTT input have no LAN requirement. Outbound internet is needed either way for the Tesla Fleet API. | Wired Ethernet on an always-on machine |
 
@@ -74,13 +74,33 @@ If `npm install` fails partway through with a `node-gyp` or compiler error, this
 ## 3. Install Node.js and the app
 
 ### Install Node.js
-Download the LTS installer from [nodejs.org](https://nodejs.org) for your OS, or use a version manager (`nvm`, `fnm`). Confirm it worked:
+
+**You need Node.js 20 or later.** WattSnatch's SQLite driver (`better-sqlite3`) does not support Node 18, even though Node 18 is still widely packaged as "current" by Linux distributions.
+
+**macOS / Windows:** download the LTS installer from [nodejs.org](https://nodejs.org), or use a version manager (`nvm`, `fnm`).
+
+**Debian / Ubuntu / Raspberry Pi OS:** do **not** use `apt install nodejs` on its own. Debian 12 (bookworm) ships Node **18.20**, which is too old, and `apt` will not offer you anything newer. Use NodeSource instead:
 ```bash
-node --version   # should print v18.x.x or later
+sudo apt install -y curl ca-certificates
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+Or install [`nvm`](https://github.com/nvm-sh/nvm) and run `nvm install 22`.
+
+Confirm it worked:
+```bash
+node --version   # must print v20.x.x or later
 npm --version
 ```
 
 ### Get the code
+
+On a minimal Linux server image there is often no `git` yet, so install it first:
+```bash
+sudo apt install -y git      # Debian/Ubuntu; skip if you already have git
+```
+
+Then clone and install:
 ```bash
 git clone https://github.com/WattSnatch/wattsnatch.git
 cd wattsnatch

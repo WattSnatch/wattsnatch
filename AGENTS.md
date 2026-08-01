@@ -37,7 +37,9 @@ day to day, on the correct network for their chosen meter.
 ## Phase 1 - Core install ✅
 
 ```bash
-node --version   # must be v18+; if missing or older, stop and ask the user to install it
+node --version   # must be v20+ (better-sqlite3 does not support v18). On Debian/Ubuntu,
+                 # apt only offers v18 - use NodeSource or nvm. If missing or older,
+                 # stop and ask the user to install it.
 git clone https://github.com/WattSnatch/wattsnatch.git
 cd wattsnatch
 npm install

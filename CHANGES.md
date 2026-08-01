@@ -2,6 +2,43 @@
 
 ---
 
+## 2026-08-01 - v1.24.1: Node 20 minimum, found by a real Debian install
+
+Walked INSTALL.md end to end on a clean Debian 12 container to check the
+Linux path, which had never been exercised. Three things came out of it:
+
+- **Node 20 is now the minimum, and the docs said 18.** `better-sqlite3@12`
+  declares support for Node 20 and later only, but `package.json` advertised
+  `>=18.0.0`, both guides said "18 or later", and the pre-flight check
+  validates against that declared value, so it passed. Debian 12's
+  `apt install nodejs` gives exactly 18.20, which makes the most likely Linux
+  path land on an unsupported combination that our own tooling green-lights.
+  It does build and run on 18 (verified with a real SQLite write), but it is
+  outside what the dependency supports. `engines` is now `>=20.0.0` and the
+  docs give a NodeSource recipe for Debian, verified to install Node 22.23 on
+  bookworm with no engine warnings.
+- **`git` was needed before it was mentioned.** Section 3 said to clone the
+  repository, but git is only installed in section 4. A minimal Debian server
+  image has no git, so the documented order fails immediately. Now installed
+  before the clone.
+- **The keyring pre-flight warning pointed at the wrong fix.** Installing
+  `libsecret-1-0` as documented does fix the module load, and the functional
+  check then correctly reports that the keyring itself is unreachable, but it
+  repeated the advice to install libsecret, which by then is already present.
+  When the failure is a D-Bus or machine-id error it now says so and points at
+  a keyring service instead.
+
+Verified working on Debian 12 aarch64: native module compilation, the
+pre-flight check (correctly flagging missing libsecret and avahi with
+actionable fixes), the `openssl` certificate step verbatim, the server
+booting, and the wizard serving all 12 step panels with the corrected
+redirect URI hint. `/auth/callback` returns 404 and
+`/auth/tesla/callback` returns 302, confirming the original fix against a
+running Linux instance.
+
+Not covered: systemd service installation, which needs an init system a
+container does not provide, and Windows.
+
 ## 2026-08-01 - v1.24.0: Documentation checked against the code, automatically
 
 Earlier passes matched identifiers - routes, settings keys, file paths,

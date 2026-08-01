@@ -130,10 +130,18 @@ async function checkKeytarFunctional() {
     await keytar.deletePassword('WattSnatch-preflight-check', 'test');
     pass('Credential storage (keytar)', 'OS keychain/keyring is reachable');
   } catch (err) {
-    const linuxNote = process.platform === 'linux'
-      ? ' On Linux this needs libsecret and a running keyring service (e.g. gnome-keyring) - install with "sudo apt install libsecret-1-0", or skip MELCloud/MelView/iCloud Calendar if you don\'t need them.'
-      : '';
-    warn('Credential storage (keytar)', `native module loaded but the keyring isn't reachable (${err.message}).${linuxNote} Only affects MELCloud, MelView, and iCloud Calendar - everything else works fine without it.`);
+    // The module loaded, so libsecret is already present - telling the user to
+    // install it again (as this check used to) sends them down the wrong path.
+    // What's missing at this point is a reachable keyring service, and the
+    // D-Bus variants of the error say so explicitly.
+    let linuxNote = '';
+    if (process.platform === 'linux') {
+      const noBus = /machine-id|message bus|DBUS_SESSION|dbus/i.test(err.message);
+      linuxNote = noBus
+        ? ' libsecret is installed, but there is no session D-Bus/keyring daemon for it to talk to - usual on a headless server or in a container. Install and start one ("sudo apt install gnome-keyring dbus-x11"), or leave it: nothing else needs it.'
+        : ' On Linux this needs libsecret plus a running keyring service (e.g. gnome-keyring). If libsecret is missing, "sudo apt install libsecret-1-0" installs it.';
+    }
+    warn('Credential storage (keytar)', `native module loaded but the keyring isn't reachable (${err.message}).${linuxNote} Only affects MELCloud, MelView, and iCloud Calendar - everything else works fine without them.`);
   }
 }
 

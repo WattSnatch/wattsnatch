@@ -27,7 +27,7 @@ WattSnatch is deliberately lightweight - measured on a real long-running install
 | CPU | 1 core, any 64-bit CPU from the last decade | 2+ cores (Raspberry Pi 4 class or better) |
 | RAM | 1 GB free | 2 GB+ free |
 | Disk | 5 GB free (app + dependencies ≈ 120 MB; database grows ~600 MB/year, telemetry kept 5 years) | 20 GB+ if you want years of history |
-| OS | macOS, Linux, or Windows with Node.js 18+ | macOS (gets one-click background-service install and Keychain credential storage) or Linux |
+| OS | macOS, Linux, or Windows with Node.js 20+ | macOS (gets one-click background-service install and Keychain credential storage) or Linux |
 | Network | Wired or Wi-Fi on the **same LAN as your solar meter**, if it's a local-network device (Enphase, Fronius, SPAN, Sungrow) - a cloud VPS won't reach those. SolarEdge (cloud API) and MQTT input have no LAN requirement. | Always-on machine (Mac mini, Pi, home server) |
 
 Two dependencies (`better-sqlite3`, `zeromq`) compile native code during `npm install`, so build tools must be present: Xcode Command Line Tools on macOS, `build-essential python3` on Debian/Ubuntu, or the "Desktop development with C++" workload on Windows.
@@ -72,7 +72,9 @@ AGENTS.md marks every step with ✅ (agent), 🔑 (your credentials), 🌐 (your
 
 ### Step 1 - Install Node.js
 
-Download and install Node.js **version 18 or later** from [nodejs.org](https://nodejs.org). Choose the LTS version.
+Download and install Node.js **version 20 or later** from [nodejs.org](https://nodejs.org). Choose the LTS version.
+
+**On Debian, Ubuntu or Raspberry Pi OS**, `apt install nodejs` gives you Node 18, which is too old - `better-sqlite3` does not support it. Use NodeSource or `nvm` instead; see [INSTALL.md](INSTALL.md#install-nodejs) for the exact commands. You'll also need `git` before cloning: `sudo apt install -y git`.
 
 To verify it's installed, open Terminal (Mac/Linux) or Command Prompt (Windows) and run:
 
