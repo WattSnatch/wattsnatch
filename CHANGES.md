@@ -2,249 +2,262 @@
 
 ---
 
-## 2026-08-01 - v1.23.3: README described a setup wizard that does not exist
+## 2026-08-01 - v1.24.0: Documentation checked against the code, automatically
 
-Checking the README's hardware setup instructions against the actual wizard
-found its walkthrough was not merely incomplete, it described a different
-program:
+Earlier passes matched identifiers - routes, settings keys, file paths,
+anchors - against the code. That catches a wrong URL. It does not catch a
+sentence like "the wizard has 7 steps" or "telemetry is kept for 7 days",
+because there is no identifier in it to check. This release covers that class
+too, and automates the checking.
 
-- **The README documented a 7-step wizard. The real one has 12 steps.** The
-  version in the README was written when Enphase was the only supported meter
-  and had never been updated. It told every reader to enter an Enphase gateway
-  IP and serial as step 1 regardless of what hardware they own, and never
-  mentioned the brand-selection step at all, so Fronius, SolarEdge, SPAN,
-  Sungrow and MQTT users had no documented path through setup in the README.
-- **It omitted the virtual key pairing step entirely** - the step that is
-  mandatory for every install, cannot be done from the machine running
-  WattSnatch, and requires an iPhone at the car. Someone following the README
-  alone would have had no idea it was coming.
-- It also omitted the Fleet API versus Bluetooth LE choice, which reshapes
-  half the remaining steps, and the Bluetooth LE proxy step.
-- It described the gateway serial as being entered in the first step; it is
-  actually entered in the Enphase authentication step, which only Enphase
-  users ever see.
-- It labelled the background service step "(macOS only)". Linux has been
-  supported via systemd for some time.
+- **What a backup archive contains.** INSTALL.md and the website described
+  backup archives as credential-free on the basis that credentials live in
+  the OS keychain, listing myenergi among them. Three integrations use the
+  keychain (MELCloud, MelView, iCloud); the remaining 20 credential settings -
+  the Tesla client secret, Solcast, SolarEdge, SPAN, myenergi and Google Maps
+  API keys, and MQTT passwords - are stored in the database, which is what a
+  backup contains. Backup archives should be treated as secrets: rotate the
+  keys covered by any archive that has been stored somewhere shared, and use
+  `npm run backup -- --encrypt` for anything leaving the machine. The docs now
+  describe the contents accurately and give the encryption step the
+  prominence it warrants.
+- **The Linux uninstall command named `tesla-proxy`.** The setup wizard
+  generates `wattsnatch-proxy`, so an install done through the wizard's own
+  "Install Background Service" button would run the documented uninstall and
+  leave the proxy in place. Both names are now covered.
+- **Uninstall did not mention `~/.solarcharge`.** It covered the project
+  folder, but the database, backups and encrypted tokens live outside it.
+- **Telemetry retention was documented as 7 days across four files. It is
+  5 years.** The code is right: the Data page's last-quarter and last-year
+  views read from that table, so weekly pruning would break them. The disk
+  guidance followed from the wrong figure - telemetry grows the database by
+  around 1.7 MB per day, roughly 600 MB per year (measured: 129 MB after 75
+  days) - so the minimum disk requirement is now 5 GB rather than 2 GB.
+- Docs described a 5-second poll tick and 10-second Tesla command throttle.
+  Those figures came from a development machine; the shipped default is 15
+  seconds, so a new install polls every 15s and sends commands every 30s.
+- FEATURES.md described a "10-step" wizard and the website "10 steps"; it has
+  12. Both also still described the meter polling step as Enphase-only.
+- INSTALL.md's system requirements still called being on the same LAN as an
+  Enphase gateway a hard requirement, which does not hold for SolarEdge or
+  MQTT.
+
+`npm run check-docs` is new, and the reason this should not recur. It verifies
+documentation against the code rather than against itself: API paths
+(including ones written as full localhost URLs), npm scripts, referenced
+source files, internal anchors using GitHub's own slug rules, the wizard step
+count read from `public/setup.html`, that every meter and battery provider in
+the code is documented somewhere, retention and interval numbers against the
+constants in `src/db.js`, and files that git tracks despite `.gitignore`
+matching them. Each correction above is covered by a test.
+
+## 2026-08-01 - v1.23.3: README setup walkthrough updated
+
+The README's hardware setup walkthrough predated multi-brand meter support
+and had not kept pace with the wizard:
+
+- **It described 7 steps; the wizard has 12.** That walkthrough was written
+  when Enphase was the only supported meter. It opened with an Enphase
+  gateway IP and serial regardless of hardware and did not mention the
+  brand-selection step, so Fronius, SolarEdge, SPAN, Sungrow and MQTT users
+  had no path through setup in the README.
+- **Virtual key pairing was missing** - a step every install needs, which
+  cannot be done from the machine running WattSnatch and requires an iPhone
+  at the car.
+- The Fleet API versus Bluetooth LE choice, which reshapes half the remaining
+  steps, and the Bluetooth LE proxy step were also missing.
+- The gateway serial is entered in the Enphase authentication step, which
+  only Enphase users see, not in the first step.
+- The background service step was labelled "(macOS only)"; Linux via systemd
+  has been supported for some time.
 - The step 2 field list is now documented per brand, along with which brands
   need a cloud account and which are local-network only.
 
-Elsewhere in the README, several statements still assumed Enphase was the only
-meter: the opening description, the troubleshooting entry, and the
-architecture diagram. The privacy section was the one that mattered most - it
-said solar data only ever leaves your network once during setup, which is true
-for Enphase but wrong for SolarEdge, whose readings are polled from
-SolarEdge's cloud for as long as you use it. All corrected, and every brand
-named in the README is now checked against the providers that actually exist.
+Several other statements assumed Enphase was the only meter: the opening
+description, the troubleshooting entry and the architecture diagram. The
+privacy section said solar data leaves your network only once during setup,
+which holds for Enphase, Fronius, SPAN, Sungrow and MQTT, but SolarEdge has
+no local API and is polled from SolarEdge's cloud for as long as you use it.
+Now stated per brand, and every brand named in the README is checked against
+the providers that exist.
 
-## 2026-08-01 - v1.23.2: README gaps, including the field that started all this
+## 2026-08-01 - v1.23.2: Redirect URI and port guidance in the README
 
-The redirect URI fix in v1.22.3 corrected INSTALL.md and AGENTS.md, and
-v1.23.0 corrected the setup wizard's own hint. Checking README.md properly
-showed it had never documented the field at all:
+v1.22.3 corrected INSTALL.md and AGENTS.md, and v1.23.0 corrected the setup
+wizard's own hint. The README is a standalone install path and had not been
+covered:
 
-- **README's "Create a Tesla Developer account" step listed App name,
-  Purpose, Website, Grant type and Scopes, but omitted Allowed Redirect URI
-  entirely** - a required field on Tesla's form, and the exact one that
-  blocked a real installer. README is a standalone install path, so anyone
-  following only it got no guidance on the field at all, then failed at the
-  final step of the Tesla login. Now documented with the correct
-  `/auth/tesla/callback` path and an explicit warning about the `/tesla/`
+- **The "Create a Tesla Developer account" step listed App name, Purpose,
+  Website, Grant type and Scopes, but not Allowed Redirect URI** - a required
+  field on Tesla's form, so anyone following only the README had no guidance
+  on it and would stop at the final step of the Tesla login. Now documented
+  with the correct `/auth/tesla/callback` path and a note about the `/tesla/`
   segment.
-- **"Changing the port" told people to run on a different port without
-  mentioning that the Redirect URI has to match it.** The installer who hit
-  the original bug was running on port 8085, which is precisely this case.
+- **"Changing the port" did not mention that the Redirect URI has to match.**
   The example now uses 8085 and spells out that both the Tesla app and the
-  setup wizard need the new port, and notes that a mismatch only fails at the
-  very end of the login, which makes it hard to diagnose.
+  setup wizard need the new port, and notes that a mismatch surfaces only at
+  the very end of the login, which makes it awkward to diagnose.
 - README documented `PORT` but none of the other four environment variables;
   it now links to the reference table added in v1.23.0.
 - The settings reference table covers the core charging settings only. It now
   says so, and points at where everything else is configured.
 
-## 2026-08-01 - v1.23.1: Fixes found by actually cloning the public repo
+## 2026-08-01 - v1.23.1: Clean-clone fixes
 
-The v1.23.0 audit was static analysis against the working copy. Doing what an
-actual installer does - cloning the published repo from scratch - immediately
-surfaced problems that reading the source never would have:
+v1.23.0 was static analysis against the working copy. Cloning the published
+repository the way an installer does surfaced a few things that reading the
+source would not:
 
-- **A 17 MB compiled `tesla-proxy` binary was being published in the repo.**
-  It is a Mach-O arm64 executable, so it cannot run on Linux, Windows, or an
-  Intel Mac. Worse than dead weight: the install guide tells you to build the
-  proxy and copy it to exactly that path, so finding the file already there
-  invited people to skip the build and then hit a bare "Exec format error"
-  from the service. Root cause was the same as the TLS keys: it is listed in
-  `.gitignore`, but was committed before that rule existed and never
+- **A 17 MB prebuilt `tesla-proxy` binary was tracked in the repo.** It is a
+  Mach-O arm64 executable, so it is of no use on Linux, Windows or an Intel
+  Mac - and it sat at exactly the path the install guide has you build to, so
+  finding it present could lead to the build step being skipped and an
+  "Exec format error" from the service. Same root cause as the TLS keys: it is
+  listed in `.gitignore` but was committed before that rule existed and never
   untracked. Checking for the whole class (`git ls-files --cached --ignored`)
-  found exactly three such files; all three are now untracked, so the
-  published tree is clean automatically rather than by remembering to delete
-  them during export.
+  found three such files; all three are now untracked, so the published tree
+  stays clean automatically rather than by remembering to delete them.
 - **A link added in the previous release pointed at `wattsnatch.com`,** which
-  does not resolve. The real domain is `wattsnatch.app`.
+  does not resolve. The domain is `wattsnatch.app`.
 - `TELEMETRY.md` had a table-of-contents link to an anchor that does not
   resolve on GitHub, the same three-hyphen heading issue fixed elsewhere in
   v1.23.0.
-- `DEPLOY_TO_PI.md`, `DEPLOY_TO_SERVER.md` and `TELEMETRY.md` were not covered
-  by the previous audit at all. They have now had the same checks applied;
+- `DEPLOY_TO_PI.md`, `DEPLOY_TO_SERVER.md` and `TELEMETRY.md` were outside
+  the scope of the previous pass. The same checks have now been applied;
   aside from the anchor above they were accurate, and `DEPLOY_TO_SERVER.md`
   independently confirmed the corrected proxy launch flags.
 
-## 2026-08-01 - v1.23.0: Second documentation audit, verified against the source
+## 2026-08-01 - v1.23.0: Documentation verified against the source
 
-The v1.22.2 audit checked whether features were *mentioned* in the docs. It
-did not check whether the specific values in the docs actually matched the
-code, which is exactly how the wrong Tesla redirect URI shipped and blocked a
-real installer. This pass verified every concrete claim against the source:
-every API path, settings key, npm script, file path, environment variable,
-and internal link. Findings, worst first:
+The v1.22.2 pass checked whether features were *mentioned* in the docs. It did
+not check whether documented values matched the code. This pass verified every
+concrete claim against the source: every API path, settings key, npm script,
+file path, environment variable and internal link.
 
-- **The Tesla proxy's TLS certificate was never created by anything.** Both
-  the generated launchd and systemd services start `tesla-proxy` with
-  `-cert keys/proxy-tls-cert.pem -tls-key keys/proxy-tls-key.pem`, but
-  nothing in the app or the docs ever generated those two files, and
-  INSTALL.md actively claimed the setup wizard created them ("will generate
-  an EC keypair and TLS certificate for this proxy automatically"). Only the
-  EC keypair was ever generated. Any Fleet API install from the public repo
-  would have got a proxy service that starts and immediately dies. INSTALL.md,
-  README.md, and AGENTS.md now include the `openssl` command to generate it,
-  and `npm run preflight` warns when the files are missing, with the exact
-  command to fix it.
+- **The Tesla proxy's TLS certificate had no documented creation step.** The
+  generated launchd and systemd services start `tesla-proxy` with
+  `-cert keys/proxy-tls-cert.pem -tls-key keys/proxy-tls-key.pem`, but nothing
+  in the app or the docs generated those two files, and INSTALL.md described
+  the setup wizard as creating them ("will generate an EC keypair and TLS
+  certificate for this proxy automatically") when it generates the EC keypair
+  only. INSTALL.md, README.md and AGENTS.md now include the `openssl` command,
+  and `npm run preflight` warns when the files are missing and prints it.
 - **The manual proxy launch command was wrong in both guides.** README.md
   passed the Tesla command-signing keypair (`keys/public.pem` /
   `keys/private.pem`) as the proxy's TLS certificate, which is a different
-  thing entirely. Both guides also used `-key` instead of `-tls-key` and
-  omitted `-key-file`. All four occurrences now match what the service
-  generators actually run.
-- **The setup wizard's own Redirect URI hint showed the wrong path.** The
-  field the installer was looking at when they got stuck said
-  `http://localhost:3001/auth/callback`. Corrected to
-  `/auth/tesla/callback`, with a note to adjust the port if changed.
-- `AGENTS.md` pointed at `src/routes/settings.js`, which does not exist. The
+  key. Both guides also used `-key` instead of `-tls-key` and omitted
+  `-key-file`. All four occurrences now match what the service generators run.
+- **The setup wizard's Redirect URI hint showed `/auth/callback`.** Corrected
+  to `/auth/tesla/callback`, with a note to adjust the port if changed.
+- `AGENTS.md` pointed at `src/routes/settings.js`, which does not exist; the
   settings endpoint lives in `src/routes/api.js`.
 - An internal link in INSTALL.md pointed at an anchor that does not resolve on
   GitHub, because a heading containing " - " renders as three hyphens.
-- `ac_brand` was read by `ac.js` and the settings UI but was absent from both
-  the database defaults and the settings write whitelist. Now registered in
-  both, so it can be set through the API like every other brand setting.
+- `ac_brand` was read by `ac.js` and the settings UI but absent from both the
+  database defaults and the settings write whitelist. Now registered in both,
+  so it can be set through the API like every other brand setting.
 - Five environment variables are read by the app; three of them
   (`WATTSNATCH_DB_PATH`, `TESLA_PROXY_URL`, `FLEET_TELEMETRY_ADDR`) were
   documented nowhere. INSTALL.md now has a reference table for all five.
 
-## 2026-08-01 - v1.22.3: Fix wrong Tesla redirect URI in the docs
+## 2026-08-01 - v1.22.3: Correct the Tesla Redirect URI in the docs
 
-A real installer opened a GitHub issue after getting stuck on the Tesla
-developer app's Redirect URI field: they entered `http://localhost:3001/
-auth/callback` exactly as INSTALL.md and AGENTS.md instructed, completed
-Tesla's OAuth login, and landed on "Cannot GET /auth/callback/" back in
-their browser.
+INSTALL.md and AGENTS.md gave `http://localhost:3001/auth/callback` as the
+Tesla developer app's Allowed Redirect URI. The app's callback route is
+`/auth/tesla/callback` (see `src/routes/auth.js`); the setup wizard's own
+placeholder text already had this right, but both documents were missing the
+`/tesla/` segment, so OAuth completed and then landed on a route that does not
+exist. Fixed in both, and added the same "enable both grant types" guidance to
+AGENTS.md, which INSTALL.md already had.
 
-The docs were simply wrong. The app's actual callback route is
-`/auth/tesla/callback` (confirmed in `src/routes/auth.js`) - the setup
-wizard's own placeholder text already had this right, but INSTALL.md and
-AGENTS.md were both missing the `/tesla/` segment. Fixed both, and while
-in that section of AGENTS.md, added the same "enable both grant types"
-guidance INSTALL.md already had, which AGENTS.md was missing entirely.
+## 2026-07-31 - v1.22.2: Battery and inverter coverage in the docs
 
-## 2026-07-31 - v1.22.2: Full documentation audit for battery and inverter coverage
-
-Prompted by a direct question: has every doc actually been updated for
-everything that's shipped, not just the ones already touched recently?
-Cross-checked README.md, AGENTS.md, and the website's docs.html/index.html
+Cross-checked README.md, AGENTS.md and the website's docs.html/index.html
 against the real feature set (`src/services/meters/`, `src/services/battery/`,
-`ac.js`) and found real gaps, not just wording:
+`ac.js`):
 
-- `README.md` never mentioned Sungrow as a supported inverter, never
-  mentioned home battery support at all, and never linked to FEATURES.md -
-  someone reading only the README would have no idea batteries, air-con
-  monitoring, or four of the six solar meter brands exist. Also fixed a
-  stale line claiming the install machine must always be on the same LAN
-  as the solar meter, which stopped being true once SolarEdge (cloud API)
-  and MQTT input shipped.
-- `AGENTS.md` (the guide an AI coding agent follows to self-install
-  WattSnatch) had an entire Phase 5 written as if Enphase were the only
-  supported inverter, with no instructions for Fronius, SolarEdge, SPAN
-  Panel, or Sungrow, and no mention of battery setup anywhere in the file.
-  An agent following it literally could not have set up any of those four
-  inverter brands or a home battery. Rewrote Phase 5 to branch by brand
-  with the correct settings fields for each, and added battery as a row
-  in the optional integrations table.
-- The website's docs.html and index.html both documented MELCloud but
-  never mentioned MelView, despite MelView being a real, shipped platform
-  choice - fixed both, including the poll-interval summary and hardware
-  chip list.
+- `README.md` did not mention Sungrow as a supported inverter, did not mention
+  home battery support, and did not link to FEATURES.md, so someone reading
+  only the README would not know that batteries, air-con monitoring or four of
+  the six solar meter brands exist. Also corrected a line stating the install
+  machine must be on the same LAN as the solar meter, which stopped applying
+  once SolarEdge (cloud API) and MQTT input shipped.
+- `AGENTS.md` (the guide an AI coding agent follows to install WattSnatch) had
+  its Phase 5 written around Enphase, with no instructions for Fronius,
+  SolarEdge, SPAN Panel or Sungrow, and no mention of battery setup. Phase 5
+  now branches by brand with the correct settings fields for each, and battery
+  setup is a row in the optional integrations table.
+- The website's docs.html and index.html documented MELCloud but not MelView,
+  which is a shipped platform choice - fixed in both, including the
+  poll-interval summary and hardware chip list.
 
-## 2026-07-31 - v1.22.1: Install guide accuracy fixes
+## 2026-07-31 - v1.22.1: Install guide covers all six solar meters
 
-`INSTALL.md`'s "What you need before you start" section still only
-mentioned Enphase, and the setup wizard step table still described only
-4 inverter brands with a login step presented as if it applied to
-everyone:
+`INSTALL.md`'s "What you need before you start" section still mentioned only
+Enphase, and the setup wizard step table described four inverter brands with a
+login step presented as if it applied to everyone:
 
-- Section 1 now lists all six supported solar meter options (Enphase,
-  Fronius, SolarEdge, SPAN Panel, Sungrow, MQTT input), notes which two
-  are unverified against real hardware, and makes the "same local
-  network" requirement conditional on the meter actually being a local
-  device rather than stating it as a universal rule.
-- The setup wizard step table (section 7) now lists all six brands and
-  makes clear that the Enlighten login step only appears for Enphase -
-  every other brand skips straight past it.
-- Fixed a broken internal link left over from the section 1 rewrite.
+- Section 1 now lists all six solar meter options (Enphase, Fronius,
+  SolarEdge, SPAN Panel, Sungrow, MQTT input), notes which two are unverified
+  against real hardware, and makes the "same local network" requirement
+  conditional on the meter being a local device.
+- The setup wizard step table (section 7) lists all six brands and makes clear
+  that the Enlighten login step appears for Enphase only.
+- Fixed an internal link left over from the section 1 rewrite.
 
 ## 2026-07-31 - v1.22.0: Pre-flight check script
 
-Added `npm run preflight` - a new script that checks every failure mode
-that's actually bitten a real install so far, all in one pass, before the
-setup wizard starts: Node version against `package.json`'s `engines`
-field, whether `better-sqlite3`/`zeromq`/`keytar` actually load (and
-whether that's a missing build toolchain or an ABI mismatch from a Node
-version change), a live functional check that the OS keychain/keyring is
-actually reachable (not just that the native module loaded), port
-availability, filesystem write access for the database and keys
-directories, mDNS/Avahi presence for Enphase gateway auto-discovery, and
-basic internet connectivity. Exits non-zero if anything needs attention,
-so it's scriptable - AGENTS.md now tells an agent to run this and confirm
-a clean exit before proceeding with setup, rather than discovering these
-one at a time mid-install with a different confusing error each time.
+Added `npm run preflight` - a script that checks the known first-install
+failure modes in one pass, before the setup wizard starts: Node version
+against `package.json`'s `engines` field, whether
+`better-sqlite3`/`zeromq`/`keytar` actually load (and whether a failure is a
+missing build toolchain or an ABI mismatch from a Node version change), a live
+functional check that the OS keychain/keyring is reachable rather than just
+that the native module loaded, port availability, filesystem write access for
+the database and keys directories, mDNS/Avahi presence for Enphase gateway
+auto-discovery, and basic internet connectivity. Exits non-zero if anything
+needs attention, so it is scriptable - AGENTS.md now tells an agent to run it
+and confirm a clean exit before proceeding with setup, rather than meeting
+these one at a time mid-install.
 
 ## 2026-07-31 - v1.21.1: Installation documentation and reliability fixes
 
-Prompted by a real installer's GitHub issue (Tesla developer app grant
-type/website field, now fixed) and a follow-up systematic audit of the
-whole setup wizard against every doc, looking for anything else that
-could block a first-time install:
+Prompted by GitHub issue #1 (Tesla developer app grant type/website field, now
+fixed) and a follow-up pass over the whole setup wizard against every doc,
+looking for anything else that could block a first-time install:
 
-- `INSTALL.md`/`README.md`/`docs.html` now explain the Tesla developer
-  app's grant type (both Authorization Code and Client Credentials need
-  enabling, not just one) and website field (same domain as the public
-  key hosting step).
-- MELCloud vs MelView is now properly documented as two separate
-  Mitsubishi platforms with different accounts, not one - the previous
-  wording actively implied they were the same login, which is exactly
-  what caused a real installer's air-con connection to fail.
-- Fixed a real bug, not just a docs gap: `melcloud.js` and `melview.js`
-  had an unguarded `require('keytar')` that would crash the entire app
-  at startup on a headless Linux box missing `libsecret`, not just fail
-  those two integrations. Guarded the same way `calendar/icloud.js`
-  already was.
-- Documented `libsecret`/keyring requirements for MELCloud, MelView, and
-  iCloud Calendar on headless Linux; mDNS/Avahi requirements for
-  automatic Enphase gateway discovery; and that a 2FA-enabled Enlighten
-  account will fail Enphase token generation with a generic error.
+- `INSTALL.md`/`README.md`/`docs.html` now explain the Tesla developer app's
+  grant type (both Authorization Code and Client Credentials need enabling,
+  not just one) and website field (same domain as the public key hosting
+  step).
+- MELCloud vs MelView is now documented as two separate Mitsubishi platforms
+  with different accounts; the previous wording implied a single login, and
+  the resulting failure looks like a wrong password.
+- `melcloud.js` and `melview.js` loaded `keytar` unconditionally, so a
+  headless Linux box missing `libsecret` could fail at startup rather than
+  just skipping those two integrations. Both are now guarded the same way
+  `calendar/icloud.js` already was.
+- Documented `libsecret`/keyring requirements for MELCloud, MelView and iCloud
+  Calendar on headless Linux; mDNS/Avahi requirements for automatic Enphase
+  gateway discovery; and that a 2FA-enabled Enlighten account fails Enphase
+  token generation with a generic error.
 - Documented `npm run restore`'s `--yes` flag and `WATTSNATCH_BACKUP_PASSWORD`
-  environment variable, needed for a non-interactive restore - without
-  them the command hangs forever waiting for input that never comes.
-- Fixed a self-contradiction in the setup wizard: the Tesla redirect URI
-  field said "must be HTTPS," while the docs correctly say
-  `http://localhost` is fine for a local-only install. The docs were
-  right; the field text was overstated and is now fixed to match.
+  environment variable, needed for a non-interactive restore - without them
+  the command waits for input that never comes.
+- Fixed a contradiction between the setup wizard and the docs: the Tesla
+  redirect URI field said "must be HTTPS", while the docs correctly say
+  `http://localhost` is fine for a local-only install. The field text now
+  matches.
 - Added a `.nojekyll` step to the GitHub Pages public-key hosting
-  instructions - without it, GitHub's default Jekyll processing silently
-  drops the dot-prefixed `.well-known` folder Tesla requires.
-- Added an `engines` field to `package.json` so an unsupported Node
-  version fails with a clear message at `npm install` instead of a
-  confusing error deep inside a native module build.
-- Generalized the existing `better-sqlite3` native-module-mismatch
-  troubleshooting note to cover `zeromq` and `keytar` too, since all
-  three fail the same way after a Node version change.
+  instructions - without it, Jekyll processing drops the dot-prefixed
+  `.well-known` folder Tesla requires.
+- Added an `engines` field to `package.json` so an unsupported Node version
+  reports that at `npm install` instead of failing inside a native module
+  build.
+- Generalized the `better-sqlite3` native-module-mismatch troubleshooting note
+  to cover `zeromq` and `keytar`, since all three fail the same way after a
+  Node version change.
+
 
 ## 2026-07-31 - v1.21.0: MelView AC support (AU/NZ), fixed a MELCloud login bug, air-con provider registry
 

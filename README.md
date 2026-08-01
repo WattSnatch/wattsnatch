@@ -20,13 +20,13 @@ The setup wizard lets you choose how WattSnatch talks to your car: Tesla's cloud
 
 ## System requirements
 
-WattSnatch is deliberately lightweight - measured on a real long-running install, it idles at ~140 MB RAM and near-0% CPU between 5-second poll ticks.
+WattSnatch is deliberately lightweight - measured on a real long-running install, it idles at ~140 MB RAM and near-0% CPU between poll ticks (every 15s by default).
 
 | | Minimum | Recommended |
 |---|---|---|
 | CPU | 1 core, any 64-bit CPU from the last decade | 2+ cores (Raspberry Pi 4 class or better) |
 | RAM | 1 GB free | 2 GB+ free |
-| Disk | 2 GB free (app + dependencies ≈ 120 MB; the database grows to ~100 MB over months and auto-prunes old telemetry) | 5 GB free |
+| Disk | 5 GB free (app + dependencies ≈ 120 MB; database grows ~600 MB/year, telemetry kept 5 years) | 20 GB+ if you want years of history |
 | OS | macOS, Linux, or Windows with Node.js 18+ | macOS (gets one-click background-service install and Keychain credential storage) or Linux |
 | Network | Wired or Wi-Fi on the **same LAN as your solar meter**, if it's a local-network device (Enphase, Fronius, SPAN, Sungrow) - a cloud VPS won't reach those. SolarEdge (cloud API) and MQTT input have no LAN requirement. | Always-on machine (Mac mini, Pi, home server) |
 
@@ -408,7 +408,7 @@ All data is stored locally in a SQLite database at `~/.solarcharge/solarcharge.d
 - **Tesla Fleet API** - to read your car's state and send charging commands
 - **Your solar meter** - Enphase contacts Enphase's cloud only once during setup to mint a local token, after which all readings come straight from the gateway on your LAN. Fronius, SPAN, Sungrow and MQTT input are local-network only and never leave your network. SolarEdge is the exception: it has no local API, so readings are polled from SolarEdge's cloud monitoring service for as long as you use it.
 
-Your Tesla OAuth tokens and Enphase tokens are encrypted at rest using AES-256. Telemetry history is retained for 7 days, event logs for 90 days, and charge session records are kept indefinitely.
+Your Tesla OAuth tokens and Enphase tokens are encrypted at rest using AES-256. Telemetry history is retained for 5 years (the Data page's last-quarter and last-year views read from it), event logs for 90 days, and charge session records indefinitely. On a real install, telemetry grows the database by roughly 1.7 MB per day, or about 600 MB per year - worth knowing if you're running from a small SD card.
 
 ---
 

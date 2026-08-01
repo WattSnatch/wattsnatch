@@ -14,7 +14,7 @@ This is the original and central feature - everything else is built around it.
 
 ### The control loop (`src/controller.js`)
 Every 5 seconds the controller:
-1. Polls the local Enphase IQ Gateway for solar production, house consumption, and grid import/export (W).
+1. Polls the configured solar meter (Enphase, Fronius, SolarEdge, SPAN, Sungrow, or MQTT input) for solar production, house consumption, and grid import/export (W).
 2. Reads the car's live charge state from Tesla **Fleet Telemetry** (a ZMQ push feed - no polling required for normal operation).
 3. Computes solar excess: `solar_w − consumption_w + existing_ev_charge_w`.
 4. Applies a rolling average (**smoothing window**, default 3 readings) so passing clouds don't cause flapping.
@@ -22,7 +22,7 @@ Every 5 seconds the controller:
 6. Runs a state machine that starts, stops, or re-targets the car's charge rate to match.
 7. Pushes the result to the dashboard instantly via Server-Sent Events.
 
-Tesla commands are throttled to every **other** tick (10s) while Enphase itself is still polled every tick (5s), roughly halving Tesla Fleet API command costs without hurting solar responsiveness.
+Tesla commands are throttled to every **other** tick, while the solar meter is still polled every tick, roughly halving Tesla Fleet API command costs without hurting solar responsiveness. Tick length is `polling_interval_seconds`, which defaults to 15s (so meter every 15s, Tesla commands every 30s).
 
 **Optional: Bluetooth LE command backend.** By default, charge start/stop/amps/limit commands go through the local `tesla-http-proxy` (signs commands, relays via Tesla's cloud Fleet API). Setting `tesla_command_backend` to `ble` in Settings routes those same commands through [TeslaBleHttpProxy](https://github.com/wimaha/TeslaBleHttpProxy) instead - commands go straight to the car over Bluetooth LE, no cloud hop. BLE only works while the car is within range (a few metres), so it's a home-charging alternative.
 
@@ -299,7 +299,7 @@ Full configuration UI for every integration and threshold in this document, plus
 
 ## 10. Setup & Operations
 
-- **10-step guided setup wizard** - Enphase gateway discovery & pairing, Tesla developer app registration walkthrough, EC keypair generation for Tesla's vehicle-command signing requirement, Tesla OAuth flow, charging preference defaults, and (macOS) background-service installation.
+- **12-step guided setup wizard** (two steps are conditional: the Enphase login is skipped for other meter brands, and the Bluetooth LE proxy step is skipped in Fleet API mode) - solar meter selection and connection testing, Enphase gateway discovery & pairing, Tesla developer app registration walkthrough, EC keypair generation for Tesla's vehicle-command signing requirement, Tesla OAuth flow, charging preference defaults, and (macOS) background-service installation.
 - **Tesla local command proxy** - commands are signed locally via Tesla's official `tesla-http-proxy` using an EC P-256 keypair, per Tesla's vehicle-command security model; WattSnatch itself never holds unsigned command authority.
 - **Token lifecycle management** (`tokens.js`) - hourly check that renews the Tesla access token automatically (via refresh token) when within 10 minutes of expiry, and warns ahead of Enphase JWT expiry (which requires re-entering the Enlighten password once, never stored).
 - **Encrypted credential storage** - OAuth tokens are AES-256-GCM encrypted at rest in SQLite; sensitive service credentials (MELCloud, myenergi) are stored in the OS Keychain via `keytar`.

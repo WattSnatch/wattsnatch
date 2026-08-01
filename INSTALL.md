@@ -48,17 +48,19 @@ WattSnatch is **one required core** (solar monitoring + Tesla charge control) pl
 
 ## 2. System requirements
 
-WattSnatch is lightweight. Measured on a real long-running install: ~140 MB RAM at steady state, near-0% CPU between poll ticks, and a database that grows to roughly 100 MB over months (old telemetry is auto-pruned after 7 days).
+WattSnatch is lightweight on CPU and memory: measured on a real long-running install, ~140 MB RAM at steady state and near-0% CPU between poll ticks.
+
+The database is the part that grows. Telemetry is kept for 5 years, because the Data page's last-quarter and last-year views read from it, so it accumulates at roughly **1.7 MB per day, about 600 MB per year** (measured: 129 MB after 75 days). Event logs are pruned after 90 days; charge sessions and financial records are kept indefinitely and are tiny by comparison. Plan disk space accordingly if you're running from an SD card or a small VPS volume.
 
 | | Minimum | Recommended |
 |---|---|---|
 | CPU | 1 core, any 64-bit CPU | 2+ cores - a Raspberry Pi 4, old laptop, NUC, or Mac mini is plenty |
 | RAM | 1 GB free | 2 GB+ free |
-| Disk | 2 GB free (app + dependencies ≈ 120 MB, database ≈ 100 MB after months) | 5 GB free |
+| Disk | 5 GB free (app + dependencies ≈ 120 MB; database grows ~600 MB/year) | 20 GB+ if you want years of history |
 | OS | macOS, Windows, or Linux | macOS or Linux for an always-on install (macOS additionally gets the one-click background-service installer and Keychain credential storage) |
 | Node.js | v18 or later (LTS recommended) | Latest LTS |
 | Build tools | A C/C++ compiler toolchain - two dependencies (`better-sqlite3`, `zeromq`) compile native code during `npm install` if no prebuilt binary exists for your platform | - |
-| Network | Same LAN as your Enphase gateway (hard requirement - a cloud VPS won't work); outbound internet for the Tesla Fleet API | Wired Ethernet on an always-on machine |
+| Network | Same LAN as your solar meter if it's a local-network device (Enphase, Fronius, SPAN, Sungrow) - a cloud VPS can't reach those. SolarEdge and MQTT input have no LAN requirement. Outbound internet is needed either way for the Tesla Fleet API. | Wired Ethernet on an always-on machine |
 
 **Build tools by platform:**
 - **macOS:** install Xcode Command Line Tools: `xcode-select --install`
@@ -478,7 +480,9 @@ npm install
 ```
 Then restart the service (`pm2 restart wattsnatch` on Windows, `launchctl kickstart -k gui/$(id -u)/com.YOURUSERNAME.wattsnatch` on macOS, `sudo systemctl restart wattsnatch` on Linux).
 
-**Backing up first matters.** A bad update is a 10-second recovery if you have a recent backup, and a much bigger problem if you don't. `npm run backup` (or the Download Backup button in Settings → Backup & Restore) writes a zip of your database and `keys/` folder to `~/.solarcharge/backups/` - it does *not* include credentials stored in your OS's secure keychain (myenergi/MELCloud/iCloud), which stay on this machine regardless.
+**Backing up first matters.** A bad update is a 10-second recovery if you have a recent backup, and a much bigger problem if you don't. `npm run backup` (or the Download Backup button in Settings → Backup & Restore) writes a zip of your database and `keys/` folder to `~/.solarcharge/backups/`.
+
+**Treat that zip as highly sensitive.** It contains your Tesla command signing key, and the database inside it holds most of your credentials in readable form: API keys and tokens for Solcast, SolarEdge, SPAN, myenergi, Google Maps, MQTT, and your Tesla client secret, among others. The only credentials *not* in a backup are the three kept in your operating system's credential store (MELCloud, MelView, and iCloud passwords), which never leave this machine. Encrypt any backup that's going to leave the machine, as described below.
 
 WattSnatch also **backs itself up automatically once a day** (on by default - see Settings → Backup & Restore), so `npm run update`'s pre-update backup is a belt-and-braces extra, not your only line of defence. Automatic backups live in `~/.solarcharge/backups/auto/` with daily snapshots for a week, thinning to one per week for ~3 months before being pruned - no manual cleanup needed.
 
@@ -501,16 +505,38 @@ By default `npm run restore` asks for an interactive `y/N` confirmation before t
 
 ## 14. Uninstalling
 
+**1. Stop and remove the services.**
+
 **macOS:**
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.YOURUSERNAME.wattsnatch.plist
 launchctl unload ~/Library/LaunchAgents/com.YOURUSERNAME.wattsnatch.proxy.plist
 rm ~/Library/LaunchAgents/com.YOURUSERNAME.wattsnatch*.plist
 ```
-**Windows:** `pm2 delete wattsnatch tesla-proxy && pm2 save`
-**Linux:** `sudo systemctl disable --now wattsnatch tesla-proxy`
 
-Then delete the project folder. Consider revoking WattSnatch's access at [tesla.com/teslaaccount/security](https://tesla.com/teslaaccount/security) under Third-Party Apps if you're not reinstalling.
+**Linux:** the proxy's unit name depends on how you installed it. The setup wizard's "Install Background Service" step creates `wattsnatch-proxy`; if you wrote the unit by hand following section 9, you named it `tesla-proxy`. Disabling a unit that doesn't exist is harmless, so if you're unsure, run both:
+```bash
+sudo systemctl disable --now wattsnatch wattsnatch-proxy
+sudo systemctl disable --now tesla-proxy    # only if you created it by hand
+sudo rm -f /etc/systemd/system/wattsnatch.service \
+           /etc/systemd/system/wattsnatch-proxy.service \
+           /etc/systemd/system/tesla-proxy.service
+sudo systemctl daemon-reload
+```
+
+**Windows:** `pm2 delete wattsnatch tesla-proxy && pm2 save`
+
+**2. Delete the project folder** (the code, and `keys/` with your Tesla command key inside it).
+
+**3. Delete your data**, which lives *outside* the project folder and is not removed by step 2:
+```bash
+rm -rf ~/.solarcharge
+```
+That directory holds the SQLite database, all automatic and manual backups, and your encrypted Tesla/Enphase tokens. Keep it instead of deleting if you might reinstall later, or take a backup out of `~/.solarcharge/backups/` first.
+
+**4. Credentials in your OS keychain.** MELCloud, MelView and iCloud passwords are stored in your operating system's credential store, outside both locations above. Remove them from Keychain Access on macOS, or your keyring manager on Linux, searching for the service name `WattSnatch`. Every other credential lives in the database and is removed with step 3.
+
+**5. Revoke WattSnatch's access** at [tesla.com/teslaaccount/security](https://tesla.com/teslaaccount/security) under Third-Party Apps, if you're not reinstalling.
 
 ---
 
