@@ -147,12 +147,17 @@ Tell the user, don't do it yourself:
 
 1. Go to https://developer.tesla.com and sign in with their normal Tesla account.
 2. **Create Application** - any name, purpose "Personal use / home automation".
-3. Enable scopes: Vehicle Information, Vehicle Location, Vehicle Commands, Vehicle Charging
+3. Enable **both** grant types - Authorization Code and Client Credentials (sometimes labelled
+   Machine-to-Machine) - not just one. WattSnatch needs both: Authorization Code for the actual
+   OAuth login the user completes, Client Credentials for a one-time domain-registration call
+   later in the wizard.
+4. Enable scopes: Vehicle Information, Vehicle Location, Vehicle Commands, Vehicle Charging
    Management.
-4. Set Redirect URI - `http://localhost:3001/auth/callback` if running locally only. **Bluetooth
-   LE users:** this field is still required by Tesla's app registration form, but you'll never
-   actually complete an OAuth redirect to it, so any valid-looking HTTPS URL is fine.
-5. Save, and have them give you the **Client ID** and **Client Secret** (these are app
+5. Set Redirect URI - `http://localhost:3001/auth/tesla/callback` if running locally only (note
+   the `/tesla/` segment - `/auth/callback` alone returns "Cannot GET"). **Bluetooth LE users:**
+   this field is still required by Tesla's app registration form, but you'll never actually
+   complete an OAuth redirect to it, so any valid-looking HTTPS URL is fine.
+6. Save, and have them give you the **Client ID** and **Client Secret** (these are app
    credentials, not a personal password - safe for them to paste to you).
 
 Once you have both:
@@ -160,7 +165,7 @@ Once you have both:
 ```bash
 curl -s -X POST http://localhost:3001/api/settings \
   -H "Content-Type: application/json" \
-  -d '{"tesla_client_id":"<CLIENT_ID>","tesla_client_secret":"<CLIENT_SECRET>","tesla_redirect_uri":"http://localhost:3001/auth/callback"}'
+  -d '{"tesla_client_id":"<CLIENT_ID>","tesla_client_secret":"<CLIENT_SECRET>","tesla_redirect_uri":"http://localhost:3001/auth/tesla/callback"}'
 ```
 *(Check `src/routes/settings.js` for the exact settings-write endpoint shape if this differs -
 the setup wizard writes these same keys via its own form.)*

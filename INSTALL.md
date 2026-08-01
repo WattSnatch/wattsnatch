@@ -173,7 +173,7 @@ Before you start, decide on the domain you'll use to host your public key in ste
    - Vehicle Location
    - Vehicle Commands
    - Vehicle Charging Management
-6. Set the **Redirect URI** - this must match what you'll enter in the setup wizard. If you're only running this locally, `http://localhost:3001/auth/callback` is fine. If you'll access it via a domain, use that domain instead.
+6. Set the **Redirect URI** - this must match what you'll enter in the setup wizard. If you're only running this locally, `http://localhost:3001/auth/tesla/callback` is fine (note the `/tesla/` segment - `/auth/callback` alone will not work). If you'll access it via a domain, use that domain instead, keeping the same `/auth/tesla/callback` path. If you're running on a different port, adjust the port number accordingly.
 7. Save the app and note your **Client ID** and **Client Secret** somewhere safe - you'll paste these into the setup wizard in step 5 below. (If you're planning to use Bluetooth LE - see [below](#tesla-vehicle-connection-fleet-api-vs-bluetooth-le) - the Redirect URI doesn't matter since you'll never complete the OAuth login, but the developer app registration itself is still required.)
 
 Tesla's own developer portal has changed its exact wording and layout more than once, so if a label here doesn't match exactly what you see, look for the closest equivalent - the underlying requirement (both grant types enabled, a domain Tesla can associate with your app) stays the same.

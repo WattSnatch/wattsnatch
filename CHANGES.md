@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-08-01 - v1.22.3: Fix wrong Tesla redirect URI in the docs
+
+A real installer opened a GitHub issue after getting stuck on the Tesla
+developer app's Redirect URI field: they entered `http://localhost:3001/
+auth/callback` exactly as INSTALL.md and AGENTS.md instructed, completed
+Tesla's OAuth login, and landed on "Cannot GET /auth/callback/" back in
+their browser.
+
+The docs were simply wrong. The app's actual callback route is
+`/auth/tesla/callback` (confirmed in `src/routes/auth.js`) - the setup
+wizard's own placeholder text already had this right, but INSTALL.md and
+AGENTS.md were both missing the `/tesla/` segment. Fixed both, and while
+in that section of AGENTS.md, added the same "enable both grant types"
+guidance INSTALL.md already had, which AGENTS.md was missing entirely.
+
 ## 2026-07-31 - v1.22.2: Full documentation audit for battery and inverter coverage
 
 Prompted by a direct question: has every doc actually been updated for
