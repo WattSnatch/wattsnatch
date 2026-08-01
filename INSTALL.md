@@ -153,7 +153,27 @@ cp tesla-http-proxy /path/to/wattsnatch/tesla-proxy
 cd ..
 ```
 
-The setup wizard (step 7) will generate an EC keypair and TLS certificate for this proxy automatically - you don't need to do that by hand.
+### Generate the proxy's TLS certificate
+
+`tesla-http-proxy` serves over HTTPS, so it needs its own TLS certificate. This is **separate** from the Tesla command-signing keypair (`keys/private.pem` / `keys/public.pem`), which the setup wizard generates for you in step 7 - the TLS certificate is not generated automatically, so create it now:
+
+**macOS / Linux:**
+```bash
+cd /path/to/wattsnatch
+openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 3650 \
+  -keyout keys/proxy-tls-key.pem -out keys/proxy-tls-cert.pem \
+  -subj "/CN=localhost"
+chmod 600 keys/proxy-tls-key.pem
+```
+
+**Windows** (from the `wattsnatch` folder, using the OpenSSL bundled with Git for Windows):
+```
+openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 3650 -keyout keys\proxy-tls-key.pem -out keys\proxy-tls-cert.pem -subj "/CN=localhost"
+```
+
+A self-signed certificate is fine here: the proxy only ever listens on localhost, and WattSnatch is configured not to require a publicly-trusted certificate for it. Keep `proxy-tls-key.pem` private and never commit it to a public repository.
+
+You should now have four files in `keys/` once the wizard finishes step 7: `proxy-tls-cert.pem` and `proxy-tls-key.pem` (created just now, the proxy's HTTPS identity) plus `private.pem` and `public.pem` (created by the wizard, the keypair your car trusts).
 
 ---
 
@@ -209,7 +229,7 @@ Open **http://localhost:3001** in a browser on the same machine (or any device o
 | Step | What it does |
 |---|---|
 | 1 | Welcome / overview |
-| 2 | Choose your solar meter brand - **Enphase** (gateway IP, with "Find automatically" LAN discovery), **Fronius** or **SolarEdge**, **SPAN Panel** or **Sungrow** (both unverified against real hardware), or **MQTT (other)** to feed any inverter in over MQTT (see [MQTT solar input](#mqtt-solar-input-any-unsupported-inverter)). Each brand's connection fields appear here - only Enphase needs an Enlighten login (next step); every other brand skips straight to step 4. |
+| 2 | Choose your solar meter brand - **Enphase** (gateway IP, with "Find automatically" LAN discovery), **Fronius** or **SolarEdge**, **SPAN Panel** or **Sungrow** (both unverified against real hardware), or **MQTT (other)** to feed any inverter in over MQTT (see [MQTT solar input](#mqtt-solar-input---any-unsupported-inverter)). Each brand's connection fields appear here - only Enphase needs an Enlighten login (next step); every other brand skips straight to step 4. |
 | 3 | **Enphase only** - enter your Enlighten account email + password once, which generates a local access token; **your password itself is never stored.** Skipped entirely for every other brand. |
 | 4 | Choose **Fleet API + Fleet Telemetry** or **Bluetooth LE** - this sets how WattSnatch reads and controls your car for the rest of setup |
 | 5 | Paste your Tesla Client ID / Client Secret from the developer app you registered. **Fleet mode** also asks for a Redirect URI and clicking through completes Tesla's OAuth login in your browser; **Bluetooth LE mode** only needs the Client ID/Secret and never leaves this page |
@@ -257,7 +277,7 @@ pm2 startup
 ```
 Run whatever command `pm2 startup` prints - it registers PM2 with Windows startup. For the Tesla proxy, create `start-proxy.bat`:
 ```bat
-tesla-proxy.exe -cert keys\proxy-tls-cert.pem -key keys\proxy-tls-key.pem -port 4443
+tesla-proxy.exe -cert keys\proxy-tls-cert.pem -tls-key keys\proxy-tls-key.pem -key-file keys\private.pem -port 4443
 ```
 ```
 pm2 start start-proxy.bat --name tesla-proxy
@@ -294,7 +314,7 @@ After=network.target
 Type=simple
 User=YOUR_USERNAME
 WorkingDirectory=/path/to/wattsnatch
-ExecStart=/path/to/wattsnatch/tesla-proxy -cert keys/proxy-tls-cert.pem -key keys/proxy-tls-key.pem -port 4443
+ExecStart=/path/to/wattsnatch/tesla-proxy -cert keys/proxy-tls-cert.pem -tls-key keys/proxy-tls-key.pem -key-file keys/private.pem -port 4443
 Restart=always
 
 [Install]
@@ -414,6 +434,20 @@ For real-time (sub-second) updates instead, Tesla offers a **Fleet Telemetry** p
 - Registering that hostname with your Tesla developer app and sending a `fleet_telemetry_config` request (WattSnatch's setup route for this currently has one maintainer's domain **hardcoded** - see [section 16](#16-current-self-hosting-limitations))
 
 Treat this as a follow-up project once the core app is working, not a day-one requirement.
+
+---
+
+### Environment variables
+
+All optional - every one has a working default, so a standard install needs none of them. Set them in your service definition (launchd plist, systemd unit, or PM2 config) if you need to override a default.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PORT` | `3001` | Port the dashboard and API listen on. If you change it, your Tesla developer app's Redirect URI must use the same port. |
+| `WATTSNATCH_DB_PATH` | `~/.solarcharge/solarcharge.db` | Full path to the SQLite database file. Useful for putting the database on a different disk, or for running a second isolated instance. |
+| `TESLA_PROXY_URL` | `https://localhost:4443` | Where to reach the Tesla command proxy. Change only if you run the proxy on a different port or host. |
+| `FLEET_TELEMETRY_ADDR` | `tcp://127.0.0.1:5678` | ZeroMQ address WattSnatch listens on for Fleet Telemetry pushes. Only relevant if you run Fleet Telemetry (see above). |
+| `WATTSNATCH_BACKUP_PASSWORD` | (unset) | Password for restoring an encrypted backup non-interactively. See [Updating](#13-updating). |
 
 ---
 

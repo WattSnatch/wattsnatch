@@ -318,6 +318,7 @@ router.post('/api/settings', (req, res) => {
       'ercot_pricing_enabled', 'ercot_api_username', 'ercot_api_password', 'ercot_settlement_point',
       'span_host', 'span_access_token', 'span_solar_circuit_id',
       'auto_trip_charging_enabled',
+      'ac_brand',
       'battery_brand', 'battery_priority',
       'sigenergy_host', 'sigenergy_port', 'sigenergy_unit_id',
       'sungrow_host', 'sungrow_port', 'sungrow_unit_id',

@@ -99,6 +99,18 @@ Windows: install Go from go.dev/dl, open a **new** terminal so PATH picks it up,
 `tesla-proxy.exe`. This one you may need to ask the user to run if your shell can't invoke a
 freshly-installed `go` in the same session.
 
+Then generate the proxy's TLS certificate. It serves over HTTPS and needs its own cert; this is
+**separate** from the Tesla command-signing keypair generated later in Phase 3, and nothing
+creates it automatically, so the proxy service will fail to start without it:
+```bash
+cd /path/to/wattsnatch
+openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 3650 \
+  -keyout keys/proxy-tls-key.pem -out keys/proxy-tls-cert.pem -subj "/CN=localhost"
+chmod 600 keys/proxy-tls-key.pem
+```
+Self-signed is correct here (localhost only, and the app doesn't require a trusted CA for it).
+Never commit `proxy-tls-key.pem` to a public repository.
+
 **Bluetooth LE** - build [TeslaBleHttpProxy](https://github.com/wimaha/TeslaBleHttpProxy) instead
 (same signing key, different binary, no cloud calls at runtime):
 
@@ -167,7 +179,7 @@ curl -s -X POST http://localhost:3001/api/settings \
   -H "Content-Type: application/json" \
   -d '{"tesla_client_id":"<CLIENT_ID>","tesla_client_secret":"<CLIENT_SECRET>","tesla_redirect_uri":"http://localhost:3001/auth/tesla/callback"}'
 ```
-*(Check `src/routes/settings.js` for the exact settings-write endpoint shape if this differs -
+*(Check `src/routes/api.js` for the exact settings-write endpoint shape if this differs -
 the setup wizard writes these same keys via its own form.)*
 
 ### Host the public key 🌐 (agent can do the repo/pages part ✅ with confirmation)

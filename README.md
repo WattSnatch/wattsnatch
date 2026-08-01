@@ -140,6 +140,18 @@ sudo cp tesla-http-proxy /usr/local/bin/tesla-proxy
 cd ..
 ```
 
+**Then generate the proxy's TLS certificate.** The proxy serves over HTTPS and needs its own certificate. This is separate from the Tesla command-signing keypair the setup wizard creates for you, and is not generated automatically:
+
+```bash
+cd /path/to/wattsnatch
+openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 3650 \
+  -keyout keys/proxy-tls-key.pem -out keys/proxy-tls-cert.pem \
+  -subj "/CN=localhost"
+chmod 600 keys/proxy-tls-key.pem
+```
+
+Self-signed is fine - the proxy only listens on localhost. Keep `proxy-tls-key.pem` private and never commit it to a public repository. See [INSTALL.md](INSTALL.md#4-build-the-tesla-command-proxy) for the Windows command and more detail.
+
 ---
 
 ### Step 4 - Create a Tesla Developer account
@@ -234,7 +246,7 @@ Copy and run the command that `pm2 startup` outputs - this registers it with Win
 
 For the Tesla proxy, create a file called `start-proxy.bat` inside the WattSnatch folder:
 ```bat
-tesla-proxy -cert keys\public.pem -key keys\private.pem -port 4443
+tesla-proxy -cert keys\proxy-tls-cert.pem -tls-key keys\proxy-tls-key.pem -key-file keys\private.pem -port 4443
 ```
 
 Then add it to PM2:
@@ -273,7 +285,7 @@ After=network.target
 Type=simple
 User=YOUR_USERNAME
 WorkingDirectory=/path/to/wattsnatch
-ExecStart=/usr/local/bin/tesla-proxy -cert keys/public.pem -key keys/private.pem -port 4443
+ExecStart=/usr/local/bin/tesla-proxy -cert keys/proxy-tls-cert.pem -tls-key keys/proxy-tls-key.pem -key-file keys/private.pem -port 4443
 Restart=always
 
 [Install]

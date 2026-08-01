@@ -2,6 +2,47 @@
 
 ---
 
+## 2026-08-01 - v1.23.0: Second documentation audit, verified against the source
+
+The v1.22.2 audit checked whether features were *mentioned* in the docs. It
+did not check whether the specific values in the docs actually matched the
+code, which is exactly how the wrong Tesla redirect URI shipped and blocked a
+real installer. This pass verified every concrete claim against the source:
+every API path, settings key, npm script, file path, environment variable,
+and internal link. Findings, worst first:
+
+- **The Tesla proxy's TLS certificate was never created by anything.** Both
+  the generated launchd and systemd services start `tesla-proxy` with
+  `-cert keys/proxy-tls-cert.pem -tls-key keys/proxy-tls-key.pem`, but
+  nothing in the app or the docs ever generated those two files, and
+  INSTALL.md actively claimed the setup wizard created them ("will generate
+  an EC keypair and TLS certificate for this proxy automatically"). Only the
+  EC keypair was ever generated. Any Fleet API install from the public repo
+  would have got a proxy service that starts and immediately dies. INSTALL.md,
+  README.md, and AGENTS.md now include the `openssl` command to generate it,
+  and `npm run preflight` warns when the files are missing, with the exact
+  command to fix it.
+- **The manual proxy launch command was wrong in both guides.** README.md
+  passed the Tesla command-signing keypair (`keys/public.pem` /
+  `keys/private.pem`) as the proxy's TLS certificate, which is a different
+  thing entirely. Both guides also used `-key` instead of `-tls-key` and
+  omitted `-key-file`. All four occurrences now match what the service
+  generators actually run.
+- **The setup wizard's own Redirect URI hint showed the wrong path.** The
+  field the installer was looking at when they got stuck said
+  `http://localhost:3001/auth/callback`. Corrected to
+  `/auth/tesla/callback`, with a note to adjust the port if changed.
+- `AGENTS.md` pointed at `src/routes/settings.js`, which does not exist. The
+  settings endpoint lives in `src/routes/api.js`.
+- An internal link in INSTALL.md pointed at an anchor that does not resolve on
+  GitHub, because a heading containing " - " renders as three hyphens.
+- `ac_brand` was read by `ac.js` and the settings UI but was absent from both
+  the database defaults and the settings write whitelist. Now registered in
+  both, so it can be set through the API like every other brand setting.
+- Five environment variables are read by the app; three of them
+  (`WATTSNATCH_DB_PATH`, `TESLA_PROXY_URL`, `FLEET_TELEMETRY_ADDR`) were
+  documented nowhere. INSTALL.md now has a reference table for all five.
+
 ## 2026-08-01 - v1.22.3: Fix wrong Tesla redirect URI in the docs
 
 A real installer opened a GitHub issue after getting stuck on the Tesla

@@ -389,6 +389,10 @@ function initDb() {
     myenergi_serial:       '',
     myenergi_api_key:      '',
     myenergi_poll_seconds: '30',
+    // Which Mitsubishi cloud platform the air-con integration talks to. Two
+    // genuinely separate services; see src/services/ac.js. Defaults to melcloud
+    // to match the pre-MelView behaviour for existing installs.
+    ac_brand:                   'melcloud',
     melcloud_configured:        '0',
     melcloud_email:             '',
     ical_configured:            '0',

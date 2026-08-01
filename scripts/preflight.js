@@ -174,6 +174,34 @@ function checkWritable(dirPath, label) {
   }
 }
 
+// ── Tesla proxy TLS certificate ──────────────────────────────────────────────
+// tesla-http-proxy serves over HTTPS and is started by the generated launchd/
+// systemd service with -cert keys/proxy-tls-cert.pem -tls-key keys/proxy-tls-key.pem.
+// Nothing in the app creates these (unlike private.pem/public.pem, which the setup
+// wizard generates), so a missing cert means the proxy service starts and immediately
+// dies - with the failure only visible in the proxy's own log. Warn rather than fail:
+// Bluetooth LE installs never run this proxy and don't need the cert at all.
+
+function checkProxyTlsCert() {
+  const keysDir = path.join(__dirname, '..', 'keys');
+  const cert = path.join(keysDir, 'proxy-tls-cert.pem');
+  const key = path.join(keysDir, 'proxy-tls-key.pem');
+  const missing = [];
+  if (!fs.existsSync(cert)) missing.push('proxy-tls-cert.pem');
+  if (!fs.existsSync(key)) missing.push('proxy-tls-key.pem');
+
+  if (missing.length === 0) {
+    pass('Tesla proxy TLS certificate', 'present in keys/');
+    return;
+  }
+  warn(
+    'Tesla proxy TLS certificate',
+    `missing ${missing.join(' + ')} in keys/ - required for Fleet API mode (not needed for Bluetooth LE). ` +
+    'Generate with: openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 3650 ' +
+    '-keyout keys/proxy-tls-key.pem -out keys/proxy-tls-cert.pem -subj "/CN=localhost"'
+  );
+}
+
 // ── mDNS (Bonjour/Avahi) - used for automatic Enphase gateway discovery ──────
 
 function checkMdns() {
@@ -221,6 +249,7 @@ async function main() {
   await checkPort(parseInt(process.env.PORT || '3001', 10));
   checkWritable(path.join(os.homedir(), '.solarcharge'), 'Database directory');
   checkWritable(path.join(__dirname, '..', 'keys'), 'Keys directory');
+  checkProxyTlsCert();
   checkMdns();
   await checkInternet();
 
