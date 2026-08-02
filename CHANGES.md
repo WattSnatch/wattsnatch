@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-08-02 - v1.24.3: How the car actually authenticates your telemetry server
+
+Learned the hard way, on a live install, over an afternoon: the vehicle does
+not validate the telemetry server against a public trust store. It validates
+against **exactly the CA chain in the last `fleet_telemetry_config` it
+applied**. Tesla's docs state it plainly ("the full certificate chain used to
+generate the server's TLS certificate"), but nothing in our documentation did,
+and three consequences of it were undocumented traps:
+
+- **The `ca` field must be the full chain**, intermediate and root together. A
+  lone intermediate can be rejected even when it directly issued the leaf.
+- **Scheduled certificate renewal *causes* an outage** when Let's Encrypt
+  rotates intermediates: the renewed cert no longer chains to what the car has
+  pinned, the car drops every connection with `remote error: tls: bad
+  certificate`, and WattSnatch silently degrades to slow REST polling. The
+  v1.24.2 guidance ("schedule certbot renew plus a restart") set exactly this
+  trap and has been corrected: after any renewal that changes the issuer, the
+  CA field must be updated and the config re-sent to Tesla.
+- **The app's built-in CA default is a snapshot of one intermediate (E7)** that
+  no longer matches newly issued certificates. Leaving the CA field blank -
+  which the docs recommended - now breaks on first contact with a current
+  certificate. The docs now say to always paste the real chain.
+
+TELEMETRY.md gains the trust model up front, a renewal checklist, the
+`bad certificate` troubleshooting entry (the error every affected user will
+see), and a zero-outage migration procedure for changing hostname or CA: the
+`ca` field accepts a bundle, so the car can be made to trust old and new
+chains simultaneously while each piece is moved and verified one step at a
+time.
+
 ## 2026-08-02 - v1.24.2: Public key hosting, and the telemetry certificate
 
 Two problems found by tracing a working install end to end rather than reading

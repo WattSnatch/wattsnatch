@@ -97,10 +97,43 @@ sudo certbot renew --dry-run   # confirms renewal will work
 ```
 Certbot installs its own renewal timer/cron job automatically on most systems; just confirm it's active (`systemctl list-timers | grep certbot` on Linux).
 
-**About the CA field WattSnatch sends to Tesla:** the `fleet_telemetry_config` request includes a `ca` field - the intermediate certificate Tesla's vehicle firmware should trust when connecting to your server. WattSnatch defaults this to the current Let's Encrypt **E7** intermediate. Let's Encrypt periodically rotates which intermediate signs new certs (E5/E6/E7/E8 etc.) - if your certificate ends up signed by a different intermediate, or you're using a different CA entirely, paste the correct intermediate certificate into the **CA certificate** field in WattSnatch's Settings → Fleet Telemetry section rather than relying on the built-in default. You can identify which intermediate signed your cert with:
+### How the car decides whether to trust your server - read this before anything breaks
+
+This is the single most important fact in this guide, and it is not obvious:
+**the vehicle does not use a normal public trust store. It validates your
+server's TLS certificate against exactly the `ca` chain contained in the last
+`fleet_telemetry_config` it applied - nothing else.** Tesla's own docs describe
+the `ca` field as "the full certificate chain used to generate the server's TLS
+certificate".
+
+Three consequences follow, and each one has caused a real outage:
+
+1. **The `ca` field must be the full chain** - every certificate above your
+   leaf (intermediate *and* root), not just the issuing intermediate. A lone
+   intermediate can be rejected even when it directly issued your cert.
+2. **Any change to your certificate's chain silently strands the car.** If a
+   renewal comes from a different intermediate (Let's Encrypt rotates them:
+   E5/E6/E7, and newer generations regularly), the car keeps validating against
+   the old chain and drops every connection with `remote error: tls: bad
+   certificate`. Nothing on your side errors - the car just stops connecting
+   and WattSnatch quietly falls back to slow REST polling.
+3. **The fix for a chain change is always a config re-send** (section 8), never
+   just a certificate swap and restart.
+
+Extract the full chain to paste into WattSnatch's **CA certificate** field
+(Settings → Fleet Telemetry) - everything in `fullchain.pem` except the first
+certificate (the leaf):
+
 ```bash
-openssl x509 -in /etc/letsencrypt/live/telemetry.yourdomain.com/fullchain.pem -noout -issuer
+awk '/BEGIN CERT/{n++} n>=2' /etc/letsencrypt/live/telemetry.yourdomain.com/fullchain.pem
 ```
+
+Do not leave the CA field blank. WattSnatch's built-in default is a snapshot of
+one Let's Encrypt intermediate (E7) that will not match certificates issued
+after Let's Encrypt rotates again - relying on it means your setup breaks on a
+future renewal, not today, which is the worst kind of breakage. Always paste
+the chain of the certificate you are actually serving. The `ca` field accepts
+a bundle of several certificates, which section 10 uses for safe migrations.
 
 ---
 
@@ -139,8 +172,13 @@ With your telemetry server running and reachable, this part is fully self-servic
 
 1. Go to **Settings → Fleet Telemetry (Advanced)**.
 2. Enter your **telemetry server hostname** (e.g. `telemetry.yourdomain.com`) and leave port at `443`.
-3. Leave the **CA certificate** field blank unless section 5's note about intermediate rotation applies to you.
+3. Paste the **full CA chain** of your certificate into the **CA certificate** field (section 5 has the exact command). Do not leave it blank - the built-in default breaks on future renewals.
 4. Click **Send Config to Tesla**.
+
+The car applies a new config within a few minutes of being awake and online.
+When it applies one that changes the connection details, it drops its current
+session and reconnects - a `DISCONNECTED` followed by a fresh `CONNECTED` in
+the fleet-telemetry log is the sign the new config took effect.
 
 Behind the scenes this calls `POST /api/setup/send-telemetry-config`, which builds the `fleet_telemetry_config` payload from your settings and sends it to Tesla via the local Tesla command proxy (the same signed-command proxy from `INSTALL.md` section 4 - it must be running for this step to work). A success response means Tesla has accepted the config and will push it to your car the next time it's online.
 
@@ -159,7 +197,54 @@ The fields WattSnatch requests, and at what interval, are fixed in code (`src/ro
 
 ## 10. Keeping it running
 
-- **Certificate renewal**: confirmed automatic in section 5 - but if you ever change your DNS/hosting setup, re-verify `certbot renew --dry-run` still works.
+### Certificate renewal is NOT fire-and-forget
+
+An automatic `certbot renew` plus a service restart is **not enough**, and
+setting exactly that up and walking away is how this breaks. Renewal gives you
+a new certificate; if Let's Encrypt has rotated intermediates since the last
+one, the new chain no longer matches the `ca` the car has pinned (section 5),
+and the car silently stops connecting the moment the renewed cert is served.
+`fleet-telemetry` also only reads its certificate at startup, so a renewal
+without a restart changes nothing at all.
+
+After **every** renewal, check whether the chain changed:
+
+```bash
+openssl x509 -in /etc/letsencrypt/live/telemetry.yourdomain.com/fullchain.pem -noout -issuer
+```
+
+If the issuer differs from what is in your WattSnatch **CA certificate** field:
+update that field with the new full chain (section 5's command) and **Send
+Config to Tesla** again. If it is unchanged, a restart of `fleet-telemetry` is
+all that's needed. Symptoms of getting this wrong: continuous
+`TLS handshake error ... remote error: tls: bad certificate` lines in the
+fleet-telemetry log from your car's IP, while WattSnatch shows stale, slow
+data - no error is raised anywhere.
+
+### Changing the hostname (or CA) without an outage
+
+Because the `ca` field accepts a bundle, migrations can be made safe and
+reversible. To move to a new hostname or a new certificate chain:
+
+1. Get a certificate covering **both** the old and new hostnames (one cert,
+   two SANs), or when only the chain is changing, keep the current cert.
+2. Set the CA field to a bundle of **both** chains: the one the car currently
+   trusts plus the new one, concatenated. Send Config to Tesla. The car now
+   trusts either.
+3. Point `fleet-telemetry` at the new certificate and restart it. The car
+   reconnects, validating the new chain against the bundle.
+4. Update the hostname in Settings, Send Config again. The car drops its
+   session and reconnects to the new name.
+5. Let it soak through at least one full car sleep/wake cycle - the wake
+   reconnect is the real test of DNS plus certificate plus config together.
+6. Only then clean up: remove the old DNS record, and send one final config
+   with the old chain removed from the bundle.
+
+One change per step, verify the reconnect after each, and every step is
+individually reversible.
+
+### The rest
+
 - **Dynamic DNS**: if your home IP changes and DDNS lags behind, the hostname will stop resolving correctly until it catches up - most DDNS clients update every few minutes, which is normally fine.
 - **Service restarts**: run `fleet-telemetry` as a proper background service (not a manual foreground process) using the same service-manager pattern (`launchd`/`systemd`/PM2) you used for WattSnatch itself in `INSTALL.md`, so it survives reboots and crashes.
 - If you ever stop running Fleet Telemetry, WattSnatch falls straight back to REST polling automatically - there's nothing to "undo" on the WattSnatch side; it degrades gracefully if the ZMQ socket simply isn't there.
@@ -180,8 +265,18 @@ Almost always a certificate path or permissions issue - confirm the binary can a
 **Port forwarding seems right but the external test in section 4 still fails**
 Double-check your WattSnatch machine's local IP hasn't changed (reserve it in your router's DHCP settings), and confirm no other local firewall (e.g. macOS's own firewall, `ufw` on Linux) is blocking inbound 443.
 
+**`TLS handshake error ... remote error: tls: bad certificate` from your car's IP, over and over**
+The car is rejecting your certificate because it no longer chains to the `ca`
+the car has pinned from its last-applied config. This is what a renewal onto a
+rotated intermediate looks like, and it is also what a wrong or partial CA
+field looks like (a lone intermediate instead of the full chain). Fix: put the
+full chain of the certificate you are actually serving into the CA field and
+Send Config to Tesla again (sections 5 and 10). Note the error text says the
+*remote* end (the car) sent the alert - your server's certificate loads fine,
+which is exactly why nothing else complains.
+
 **It worked, then silently stopped some weeks later**
-Check certificate expiry first (`openssl x509 -enddate -noout -in fullchain.pem`) - a lapsed renewal is the most common cause.
+Check certificate expiry first (`openssl x509 -enddate -noout -in fullchain.pem`) - a lapsed renewal is the most common cause. If the certificate is current but was recently *renewed*, check whether the renewal changed the issuer chain - see the entry above and section 10.
 
 ---
 

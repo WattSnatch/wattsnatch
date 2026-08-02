@@ -524,6 +524,18 @@ sudo certbot renew --quiet && sudo nginx -s reload && sudo launchctl kickstart -
 
 On Linux, substitute `systemctl restart` for the `launchctl` command. Run it twice daily from a LaunchDaemon, systemd timer, or cron - certbot renews only inside the last 30 days, so running it often is harmless.
 
+**But scheduled renewal alone is not sufficient - and this is the part everyone
+misses.** The vehicle validates your server against the exact CA chain in the
+last `fleet_telemetry_config` it received, not against a public trust store.
+When a renewal comes from a different Let's Encrypt intermediate (they rotate
+regularly), the automatic renew-and-restart above *causes* a silent outage: the
+car rejects the new certificate, drops off, and WattSnatch degrades to slow
+polling with no error anywhere. After any renewal that changes the certificate's
+issuer, you must update the CA field in Settings and re-send the config to
+Tesla. [TELEMETRY.md](TELEMETRY.md) covers the full mechanism, the renewal
+checklist, and a zero-outage migration procedure - read it before relying on
+telemetry in production.
+
 Verify what you actually have, rather than assuming:
 
 ```bash
