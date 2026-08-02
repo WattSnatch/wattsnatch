@@ -113,6 +113,19 @@ chmod 600 keys/proxy-tls-key.pem
 Self-signed is correct here (localhost only, and the app doesn't require a trusted CA for it).
 Never commit `proxy-tls-key.pem` to a public repository.
 
+**Do not confuse this cert with the Fleet Telemetry one.** There are two unrelated certificates in
+a full install, and conflating them wastes a lot of time:
+
+| | Proxy TLS cert | Fleet Telemetry cert |
+|---|---|---|
+| Files | `keys/proxy-tls-{cert,key}.pem` | `/etc/letsencrypt/live/<domain>/` |
+| Serves | `localhost:4443` only | the public internet, port 443 |
+| Type | self-signed, 10-year | CA-signed (Let's Encrypt), 90-day |
+| If it expires | proxy won't start - loud failure | **car silently stops streaming** - see below |
+| Needed for | sending commands | receiving telemetry |
+
+Only the second one expires on a schedule anyone has to care about.
+
 **Bluetooth LE** - build [TeslaBleHttpProxy](https://github.com/wimaha/TeslaBleHttpProxy) instead
 (same signing key, different binary, no cloud calls at runtime):
 
@@ -187,23 +200,31 @@ the setup wizard writes these same keys via its own form.)*
 ### Host the public key 🌐 (agent can do the repo/pages part ✅ with confirmation)
 
 Tesla requires the public key from Phase 2 reachable at
-`https://<domain>/.well-known/appspecific/com.tesla.3p.public-key.pem`. The simplest path is a
-public GitHub Pages repo. You *can* create this with `gh repo create` and push the key file
-yourself - but creating a new public GitHub repo is visible, hard-to-reverse action, so **confirm
-with the user first**, same as any repo creation. Once it's live:
+`https://<domain>/.well-known/appspecific/com.tesla.3p.public-key.pem`. Note the leading `/`:
+Tesla reads it from the **domain root**, never from a path below it. The GitHub Pages repo must
+therefore be named exactly `USERNAME.github.io` - a **user site**, served from the root. A repo
+with any other name is a *project site* at `USERNAME.github.io/repo-name`, which cannot serve the
+root path and will fail Tesla's fetch no matter what you put in it. The repo also needs an empty
+`.nojekyll` file at its root, or Jekyll silently drops the `.well-known` folder.
+
+You *can* create this with `gh repo create` and push the key file yourself - but creating a new
+public GitHub repo is a visible, hard-to-reverse action, so **confirm with the user first**, same
+as any repo creation. Once it's live:
 
 ```bash
 curl -s -X POST http://localhost:3001/api/setup/verify-key-url \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://USERNAME.github.io/wattsnatch-key"}'
+  -d '{"url":"https://USERNAME.github.io"}'
 ```
-`{"ok":true,"match":true}` confirms Tesla can see the correct key.
+`{"ok":true,"match":true}` confirms Tesla can see the correct key. This endpoint checks the domain
+root regardless of what you pass, matching Tesla's own behaviour.
 
 ```bash
 curl -s -X POST http://localhost:3001/api/setup/register-partner \
   -H "Content-Type: application/json" \
-  -d '{"domain":"USERNAME.github.io/wattsnatch-key"}'
+  -d '{"domain":"USERNAME.github.io"}'
 ```
+`domain` must be a bare hostname with no scheme and no path.
 This call only needs the Client ID/Secret saved above (no OAuth token) - run it directly for
 **both** paths. Fleet-mode setups also get this triggered automatically as a fallback if vehicle
 auto-fetch below returns a 412, but there's no reason to wait for that - calling it here is safe
@@ -371,6 +392,43 @@ All follow the same pattern - 🔑 for the credential-bearing setup call (user r
 | Home Assistant / MQTT (bring your own inverter data) | Broker URL/credentials plus two topic names (solar, grid or consumption), via the same Settings card or `POST /api/settings` (`mqtt_in_broker_url`, `mqtt_in_username`, `mqtt_in_password`, `mqtt_in_topic_solar`, `mqtt_in_second_type`, `mqtt_in_topic_second`, `mqtt_in_grid_sign`, `mqtt_in_scale`, `mqtt_in_stale_seconds`), then set `inverter_brand` to `mqtt` | `POST /api/setup/test-inverter {"brand":"mqtt"}` after saving |
 | TeslaMate | Postgres host/port/credentials for their existing TeslaMate instance, via Settings | Test the connection once entered |
 | Tesla Bluetooth LE (commands and/or vehicle state) | - (no credential beyond the Phase 2/3 developer app + key pairing shared with Fleet API) | Covered in Phase 2 above. `tesla_command_backend` controls command delivery; `tesla_state_source` controls where vehicle state (battery, charging status) comes from. Set both to `ble` for a fully cloud-free setup, or mix them (e.g. BLE commands + Fleet Telemetry state) if the user wants that. `POST /api/tesla/test-ble` verifies proxy reachability without sending any command. |
+
+---
+
+## Runtime architecture of a full Fleet install
+
+Worth reading before diagnosing anything, because the read path and the write path
+share nothing. Either can be broken while the other looks perfectly healthy.
+
+```
+READ  car --(mTLS)--> :443 --(L4 passthrough)--> fleet-telemetry :9443
+                                                        |
+                                                   ZeroMQ :5678
+                                                        v
+WRITE WattSnatch :3001 --> tesla-proxy :4443 --(signs)--> Tesla Fleet API --> car
+```
+
+| Port | Process | Notes |
+|---|---|---|
+| 3001 | WattSnatch | dashboard and API |
+| 4443 | `tesla-proxy` | signs commands with `keys/private.pem`; localhost only, self-signed TLS |
+| 5678 | ZeroMQ | `fleet-telemetry` publishes, WattSnatch subscribes (`FLEET_TELEMETRY_ADDR`) |
+| 9443 | `fleet-telemetry` | terminates the car's mTLS; needs the CA-signed cert |
+| 443 | L4 proxy | raw TCP passthrough to 9443 - **must not** terminate TLS, or the car's client cert is stripped |
+| 4430 | web server | optional parking spot for the public key, since 443 is taken |
+
+Diagnostic notes that are easy to get wrong:
+
+- `fleet-telemetry` typically runs as **root** (low port, cert access). A non-root
+  `lsof` will not see its sockets and will look like nothing is listening. Use `sudo`.
+- Commands go through the proxy, but `wake_up` does **not** - it calls Tesla's API
+  directly (`src/services/tesla.js`), because waking needs no signing.
+- `tesla_command_backend` (`fleet` | `ble`) picks the command path; `tesla_state_source`
+  picks the read path. They are independent and can be mixed.
+- The app never reads `tesla_public_key_url` at runtime - it is written once at setup.
+  An unreachable key URL breaks re-registration and re-pairing, nothing else.
+- Service names may not match the product name on older installs (e.g. launchd labels
+  under `com.*.solarcharge.*`). Search by port or binary, not by the word "wattsnatch".
 
 ---
 

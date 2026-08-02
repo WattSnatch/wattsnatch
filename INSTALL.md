@@ -201,14 +201,14 @@ You should now have four files in `keys/` once the wizard finishes step 7: `prox
 
 ## 5. Register a Tesla developer app
 
-Before you start, decide on the domain you'll use to host your public key in step 6 below (a free GitHub Pages URL like `YOUR_USERNAME.github.io/wattsnatch-key` works fine) - you'll need that same domain for this step too, not just step 6.
+Before you start, decide on the domain you'll use to host your public key in step 6 below (a free GitHub Pages user site like `YOUR_USERNAME.github.io` works fine) - you'll need that same domain for this step too, not just step 6. It must be a bare domain with no path after it, because Tesla only ever reads the key from the domain root.
 
 1. Go to [developer.tesla.com](https://developer.tesla.com) and sign in with your normal Tesla account.
 2. Click **Create Application**.
 3. Fill in:
    - **App name:** anything (e.g. "WattSnatch")
    - **Purpose:** Personal use / home automation
-   - **Website:** the same domain you'll host your public key at (step 6) - e.g. `https://YOUR_USERNAME.github.io/wattsnatch-key`. This doesn't need to be a real business site; Tesla just needs a domain it can later verify your public key against.
+   - **Website:** the same domain you'll host your public key at (step 6) - e.g. `https://YOUR_USERNAME.github.io`, with no path after it. This doesn't need to be a real business site; Tesla just needs a domain it can later verify your public key against.
 4. **Grant type:** enable **both** Authorization Code and Client Credentials (sometimes labelled Machine-to-Machine) on the same application - don't pick just one. WattSnatch needs both: Authorization Code is the actual login flow you'll complete in the setup wizard to authorize your specific vehicle, while Client Credentials is used once, automatically, for a one-time domain-registration call (`partner_accounts`) that happens later in the wizard - you won't need to configure that part separately, it just needs the grant type enabled here first.
 5. Under **API and Scopes**, enable:
    - Vehicle Information
@@ -229,13 +229,17 @@ Tesla requires your app's EC public key to be reachable at:
 https://<your-domain>/.well-known/appspecific/com.tesla.3p.public-key.pem
 ```
 
+Note the leading `/` - Tesla reads the key from the **root** of the domain. This is the detail that decides how you set GitHub Pages up.
+
 The easiest free way to satisfy this is **GitHub Pages**, and it does **not** need to be the same machine or domain your WattSnatch dashboard runs on - this is purely to satisfy Tesla's verification requirement.
 
-1. Create a new **public** GitHub repository (e.g. `wattsnatch-key`).
+1. Create a new **public** GitHub repository named exactly `YOUR_GITHUB_USERNAME.github.io`. The name matters: that exact form makes it a **user site**, served from the domain root. An ordinary repository name gives you a *project site* at `YOUR_GITHUB_USERNAME.github.io/repo-name`, which serves everything one level down and therefore cannot host `/.well-known/...` at the root where Tesla looks.
 2. In **Settings → Pages**, set source to **Deploy from branch → main**.
 3. Add an empty file named `.nojekyll` to the root of the repository. GitHub Pages runs everything through Jekyll by default, which silently ignores files and folders starting with a dot - without this, `.well-known/...` will 404 with no explanation even though the file is there.
-4. Your Pages URL will be `https://YOUR_GITHUB_USERNAME.github.io/wattsnatch-key`.
+4. Your Pages URL will be `https://YOUR_GITHUB_USERNAME.github.io`, and the key will end up at `https://YOUR_GITHUB_USERNAME.github.io/.well-known/appspecific/com.tesla.3p.public-key.pem`.
 5. You don't need to add the key file yet - the setup wizard will show you the exact key contents to paste in once it's generated (step 7 of the wizard).
+
+If you already own a domain, any host that can serve a static file at that exact root path works just as well.
 
 ---
 
@@ -452,10 +456,93 @@ By default, WattSnatch gets vehicle data by **polling the Tesla REST API** as a 
 
 For real-time (sub-second) updates instead, Tesla offers a **Fleet Telemetry** push feed - but standing this up yourself requires:
 - Your **own public domain name** with a valid CA-signed TLS certificate (Tesla will not connect to a self-signed cert)
-- Running [Tesla's `fleet-telemetry` server binary](https://github.com/teslamotors/fleet-telemetry) somewhere publicly reachable on port 443
+- Running [Tesla's `fleet-telemetry` server binary](https://github.com/teslamotors/fleet-telemetry), reachable from the internet on port 443
 - Registering that hostname with your Tesla developer app and sending a `fleet_telemetry_config` request (WattSnatch's setup route for this currently has one maintainer's domain **hardcoded** - see [section 16](#16-current-self-hosting-limitations))
 
 Treat this as a follow-up project once the core app is working, not a day-one requirement.
+
+**Do not confuse this certificate with the proxy one.** Section 4's `proxy-tls-cert.pem` is self-signed and only ever serves `localhost:4443`. The Fleet Telemetry certificate is a different thing entirely: it faces the public internet, and Tesla's cars will refuse a self-signed one.
+
+#### Where the car's connection actually lands
+
+The car opens a **mutual-TLS** connection: it presents its own client certificate, and `fleet-telemetry` needs to see it. That rules out an ordinary HTTPS reverse proxy in front, because terminating TLS would strip the client certificate. Two arrangements work:
+
+**Option A - bind port 443 directly.** Simplest. Run `fleet-telemetry` with `"port": 443` in its config and forward 443 to it at the router. Nothing else on that machine can use 443.
+
+**Option B - TCP passthrough.** Run `fleet-telemetry` on a high port (say 9443) and put a **layer-4** proxy in front, which forwards raw TCP without touching TLS. With nginx that means a `stream` block, *not* a `server` block in `http`:
+
+```nginx
+# nginx.conf, at top level - NOT inside the http { } block
+stream {
+    server {
+        listen 443;
+        proxy_pass 192.168.1.10:9443;   # LAN address of the fleet-telemetry machine
+    }
+}
+```
+
+Option B is worth the extra step if you want anything else on that host to use TLS, or if you would rather not run `fleet-telemetry` as root just to bind a low port.
+
+#### The port 443 conflict, and why it matters later
+
+Whichever option you pick, port 443 on that hostname is now committed to Fleet Telemetry. It cannot also serve HTTPS pages - which matters because Tesla fetches your **public key** from `https://<domain>/.well-known/appspecific/com.tesla.3p.public-key.pem` on port 443 (section 6).
+
+If you host your public key on a *different* domain (GitHub Pages, as section 6 describes), there is no conflict and you can stop reading here.
+
+If you use the *same* domain for both, the key will be unreachable the moment Fleet Telemetry takes 443. That is fine day-to-day - WattSnatch never reads that URL at runtime, and partner registration is one-time - but it will block you if you ever need to re-register the partner account or re-pair the virtual key. Keep a way back: serve the key on an alternative port so the file and its nginx block already exist, and you only have to move the listener to 443 temporarily.
+
+```nginx
+# inside the http { } block - a parking spot for the key
+server {
+    listen 4430 ssl;
+    server_name your-domain.example;
+
+    ssl_certificate     /etc/letsencrypt/live/your-domain.example/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.example/privkey.pem;
+
+    location /.well-known/appspecific/com.tesla.3p.public-key.pem {
+        alias /path/to/your/com.tesla.3p.public-key.pem;
+        default_type text/plain;
+    }
+}
+```
+
+#### Getting the certificate, and keeping it
+
+[Let's Encrypt](https://letsencrypt.org) via `certbot` is the usual route. Which challenge type you can use depends on the port conflict above:
+
+- **DNS-01 (recommended).** Proves domain ownership through a DNS TXT record, so it needs no inbound ports at all and works even with 443 fully committed to Fleet Telemetry. Requires a DNS provider with an API and the matching certbot plugin, e.g. `certbot-dns-cloudflare`.
+- **HTTP-01.** Needs port 80 reachable from the internet. Workable, but it is one more port to forward and it fails silently if your router configuration changes.
+
+**Certbot does not renew on its own.** Installing certbot does not install a scheduler on macOS - it obtains the certificate and stops there. Certificates last 90 days. If nothing runs `certbot renew`, yours will expire, and the failure mode is nasty: the car simply stops connecting, `fleet-telemetry` keeps running, and WattSnatch falls back to REST polling. **You get stale vehicle data, not an error.** Charging decisions made on stale battery readings are exactly the kind of bug that is discovered the morning after.
+
+Schedule the renewal, and restart the services that hold the certificate. `fleet-telemetry` reads its certificate **once at startup** and will keep using the expired one in memory until it is restarted:
+
+```bash
+sudo certbot renew --quiet && sudo nginx -s reload && sudo launchctl kickstart -k system/com.solarcharge.telemetry
+```
+
+On Linux, substitute `systemctl restart` for the `launchctl` command. Run it twice daily from a LaunchDaemon, systemd timer, or cron - certbot renews only inside the last 30 days, so running it often is harmless.
+
+Verify what you actually have, rather than assuming:
+
+```bash
+sudo openssl x509 -enddate -noout -in /etc/letsencrypt/live/your-domain.example/fullchain.pem
+```
+
+#### How the pieces connect
+
+Once the car is streaming, `fleet-telemetry` republishes each record onto ZeroMQ, and WattSnatch subscribes. That is what `FLEET_TELEMETRY_ADDR` (below, default `tcp://127.0.0.1:5678`) points at, and it must match the `zmq.addr` in your `fleet-telemetry` config. The full path:
+
+```
+car --(mTLS)--> :443 --(passthrough, Option B)--> fleet-telemetry :9443
+                                                        |
+                                                   ZeroMQ :5678
+                                                        v
+                                                    WattSnatch
+```
+
+Commands travel the other way and share none of this: WattSnatch posts to the local signing proxy on `https://localhost:4443`, which signs with `keys/private.pem` and relays to Tesla's Fleet API. Telemetry and commands are independent - either can be broken while the other works, which is worth remembering when diagnosing.
 
 ---
 

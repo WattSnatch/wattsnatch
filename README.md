@@ -183,10 +183,13 @@ WattSnatch uses Tesla's official Fleet API, which requires a free developer regi
 
 Tesla requires your app's public key to be accessible at a public URL. The easiest free method is GitHub Pages.
 
-1. Create a **new public GitHub repository** (e.g. `wattsnatch-key`)
+Tesla reads the key from the **root** of the domain, at `/.well-known/appspecific/com.tesla.3p.public-key.pem`, so the Pages site has to be a **user site** rather than a project site.
+
+1. Create a **new public GitHub repository** named exactly `YOUR_GITHUB_USERNAME.github.io`. That exact name is what makes it a user site served from the domain root - any other name gives you a project site one level down, which cannot serve the root path Tesla fetches.
 2. In the repo's **Settings → Pages**, set source to **Deploy from branch → main**
-3. Your GitHub Pages URL will be: `https://YOUR_GITHUB_USERNAME.github.io/wattsnatch-key`
-4. In the **Tesla developer portal**, set your app's **Allowed Origin** to this URL
+3. Add an empty `.nojekyll` file to the repo root, or Jekyll will silently drop the `.well-known` folder and the key will 404
+4. Your GitHub Pages URL will be: `https://YOUR_GITHUB_USERNAME.github.io`
+5. In the **Tesla developer portal**, set your app's **Allowed Origin** to this URL, with no path after it
 
 You don't need to put anything in the repo yet - the setup wizard will generate your key pair and tell you exactly what to paste in.
 
@@ -429,6 +432,20 @@ WattSnatch controller
     ↓ charge commands
 Tesla proxy (local, port 4443) → signs with EC private key → Tesla cloud → car
 ```
+
+Reading vehicle state and sending commands are separate paths that share nothing, so
+either can fail while the other keeps working. By default state comes from polling the
+Fleet API. If you also run Fleet Telemetry (optional, see
+[INSTALL.md](INSTALL.md#real-time-telemetry---tesla-fleet-telemetry-advanced-optional)),
+the car pushes to your own server instead:
+
+```
+car → :443 (raw TCP passthrough) → fleet-telemetry :9443 → ZeroMQ :5678 → WattSnatch
+```
+
+That path needs a CA-signed certificate on a public domain, and **it must be renewed on
+a schedule**. When it lapses the car simply stops connecting and WattSnatch falls back to
+polling - you get stale data rather than an error.
 
 ---
 

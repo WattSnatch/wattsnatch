@@ -2,6 +2,49 @@
 
 ---
 
+## 2026-08-02 - v1.24.2: Public key hosting, and the telemetry certificate
+
+Two problems found by tracing a working install end to end rather than reading
+the code, after a user hit the first one and worked around it unaided.
+
+**The public key must be at the domain root.** Tesla fetches it from
+`https://<domain>/.well-known/appspecific/com.tesla.3p.public-key.pem`. Every
+guide said to use a GitHub Pages *project* site at
+`USERNAME.github.io/wattsnatch-key`, which serves one level down and cannot host
+that path, so the documented route could not work. The repository must be named
+`USERNAME.github.io` - a user site, served from the root.
+
+`verify-key-url` made this worse rather than catching it: it appended
+`/.well-known/...` to whatever URL it was given, so a project site returned 200
+and the wizard showed a green tick for a setup Tesla could never resolve. It now
+checks the domain root regardless of input, matching Tesla's own behaviour, and
+explains the user-site requirement when the root 404s. `AGENTS.md` also passed a
+path in the `partner_accounts` `domain` field, which takes a bare hostname.
+
+**The Fleet Telemetry certificate was documented as a bare requirement** - "a
+valid CA-signed certificate", with no method, no renewal guidance, and an
+assumption that `fleet-telemetry` binds 443 directly. Now covered:
+
+- Both deployment shapes: binding 443 directly, or layer-4 TCP passthrough to a
+  high port. The passthrough must not terminate TLS, or the car's mTLS client
+  certificate is stripped before `fleet-telemetry` can see it.
+- Committing 443 to telemetry makes the public key URL unreachable on that
+  domain. Harmless day to day, since the app never reads it at runtime, but it
+  blocks re-registration and re-pairing, so there is now a documented way to
+  keep a path back.
+- DNS-01 against HTTP-01, and why DNS-01 fits when 443 is already taken.
+- **Certbot installs no scheduler.** Certificates last 90 days, and an expired
+  one raises no error: the car stops connecting, WattSnatch falls back to REST
+  polling, and the symptom is stale vehicle data rather than a failure.
+  `fleet-telemetry` also reads its certificate only at startup, so renewing
+  without restarting it changes nothing.
+
+`AGENTS.md` gains a port map and the read/write path split, plus the diagnostic
+traps that made this slow to work out: `fleet-telemetry` runs as root so its
+sockets are invisible to a non-root `lsof`, `wake_up` bypasses the signing proxy
+because waking needs no signature, and launchd labels on older installs do not
+contain the product name.
+
 ## 2026-08-01 - v1.24.1: Node 20 minimum, found by a real Debian install
 
 Walked INSTALL.md end to end on a clean Debian 12 container to check the

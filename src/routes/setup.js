@@ -209,7 +209,20 @@ router.post('/api/setup/verify-key-url', async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ ok: false, error: 'url required' });
 
-    const keyUrl = url.replace(/\/$/, '') + '/.well-known/appspecific/com.tesla.3p.public-key.pem';
+    // Tesla always fetches the key from the domain root, not from any path below
+    // it, so verify exactly where Tesla will look. Appending to a path-bearing
+    // URL would pass here and still 404 for Tesla.
+    let origin;
+    let hadPath = false;
+    try {
+      const supplied = new URL(url.includes('://') ? url : `https://${url}`);
+      origin = supplied.origin;
+      hadPath = supplied.pathname.replace(/\/$/, '') !== '';
+    } catch {
+      return res.json({ ok: false, error: `Could not parse "${url}" as a URL` });
+    }
+
+    const keyUrl = `${origin}/.well-known/appspecific/com.tesla.3p.public-key.pem`;
 
     // Fetch the key from the URL
     const fetched = await new Promise((resolve, reject) => {
@@ -231,7 +244,15 @@ router.post('/api/setup/verify-key-url', async (req, res) => {
     });
 
     if (fetched.status !== 200) {
-      return res.json({ ok: false, error: `URL returned status ${fetched.status}` });
+      const pathHint = hadPath
+        ? ` Tesla reads the key from the domain root, so a GitHub Pages project`
+          + ` site cannot serve it - the repository must be named`
+          + ` USERNAME.github.io so the key sits at ${origin}/.well-known/...`
+        : '';
+      return res.json({
+        ok: false,
+        error: `${keyUrl} returned status ${fetched.status}.${pathHint}`,
+      });
     }
 
     // Compare with stored key
