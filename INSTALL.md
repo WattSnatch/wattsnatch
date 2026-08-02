@@ -690,7 +690,7 @@ Since this project may go open source, here's an honest list of what still assum
 
 | Item | File | Issue |
 |---|---|---|
-| Fleet Telemetry hostname | `src/routes/setup.js` (`send-telemetry-config`) | Hardcodes one maintainer's telemetry server domain. Real-time telemetry (section 11) isn't usable out of the box until this is made configurable - the REST-polling fallback works fine without it. |
+| Fleet Telemetry server | not applicable - you must supply one | The hostname is a normal setting (`fleet_telemetry_hostname`), so nothing is hardcoded. What the app cannot do for you is *stand up* the server: you need your own public domain, a CA-signed certificate you keep renewed, and Tesla's `fleet-telemetry` binary running somewhere reachable. See [section 11](#real-time-telemetry---tesla-fleet-telemetry-advanced-optional) and [TELEMETRY.md](TELEMETRY.md). The REST-polling fallback works fine without any of it. |
 | Bill-email ingestion | `src/services/billPoller.js` + `db.js` default `cf_worker_url` | No included mechanism to get bill emails into the app; relies on an external Cloudflare Worker not in this repo. Manual PDF upload works today as a substitute. |
 | Single shared password | `src/middleware/sessionAuth.js` | One dashboard password for the whole household, not per-user accounts. Fine for a home LAN, worth knowing before wider deployment. |
 | Timezone assumptions | `aiInsights.js`, `notifications.js`, `dashboard.js`, `retailerComparison.js` | Timestamp formatting in AI briefings and notifications is hardcoded to `Australia/Brisbane` (AEST). Core charging logic uses the server's local clock and works anywhere; only the display strings in those features assume AEST until made configurable. |

@@ -190,7 +190,7 @@ curl -k -X POST "https://localhost:4443/api/1/vehicles/${VIN}/fleet_telemetry_co
   -d "{
     \"vins\": [\"${VIN}\"],
     \"config\": {
-      \"hostname\": \"telemetry.parallelhometech.com.au\",
+      \"hostname\": \"telemetry.your-domain.example\",
       \"port\": 443,
       \"ca\": \"\",
       \"fields\": {
@@ -300,7 +300,7 @@ curl "https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/vehicles/${VIN}/fleet_te
   -H "Authorization: Bearer ${TOKEN}"
 
 # Verify the TLS cert is being served correctly externally
-openssl s_client -connect telemetry.parallelhometech.com.au:443 </dev/null 2>/dev/null \
+openssl s_client -connect telemetry.your-domain.example:443 </dev/null 2>/dev/null \
   | openssl x509 -noout -subject -dates
 ```
 
