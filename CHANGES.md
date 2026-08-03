@@ -2,6 +2,38 @@
 
 ---
 
+## 2026-08-03 - v1.25.2: Fleet API region, and honest Sungrow hardware notes
+
+**The Tesla Fleet API base URL was hardcoded to one region.** Tesla serves the
+Fleet API from separate regional deployments, and an account registered in one
+cannot be reached through another. WattSnatch always called the North
+America / Asia-Pacific endpoint - which is why this went unnoticed: that single
+region covers both places this project has been built and used, the US and
+Australia. Anyone in Europe, the Middle East, Africa or China was broken, and
+the failures name neither the region nor the account, so it reads as a broken
+app rather than a setting.
+
+There is now a **Fleet API region** setting (Settings -> Tesla) with `na`, `eu`
+and `cn`. It defaults to `na`, so existing installs are unaffected and no
+Australian or US user needs to touch it. The base URL is read per call rather
+than captured at startup, so changing it takes effect without a restart.
+
+**Documented which Sungrow hardware the driver actually targets.** The Sungrow
+support was written against **SH-series hybrid** inverters on a **WiNet-S**
+dongle, and its registers - taken from EVCC's `sungrow-hybrid` template -
+include battery registers. The docs said "unverified against real hardware",
+which was true but not the useful part: they did not say *which* hardware it was
+written for. SG-series string inverters such as the SG5K-D have a different
+register layout and no battery, and older dongles like the WiFi V31 generally do
+not expose Modbus TCP on the LAN at all, which is why they never appear as a
+network device.
+
+For any Sungrow that is not an SH-series on a WiNet-S, the MQTT input provider
+is the supported path and works with any inverter. Both the README and the
+website now say so.
+
+---
+
 ## 2026-08-03 - v1.25.1: Register the domain before sending you to Tesla
 
 Setting up Fleet API mode could dead-end at the Tesla login with:

@@ -802,6 +802,15 @@
             <label for="setting_tesla_vin">Vehicle VIN</label>
             <input type="text" id="setting_tesla_vin" placeholder="5YJ3E1EA…">
           </div>
+          <div class="form-group">
+            <label for="setting_tesla_region">Fleet API region</label>
+            <select id="setting_tesla_region">
+              <option value="na">North America / Asia-Pacific (incl. Australia)</option>
+              <option value="eu">Europe, Middle East &amp; Africa</option>
+              <option value="cn">China</option>
+            </select>
+            <span class="text-secondary text-xs mt-1">Tesla runs the Fleet API from separate regional servers, and an account registered in one region cannot be reached through another. Australia and New Zealand use North America / Asia-Pacific.</span>
+          </div>
         </div>
       </div>
 

@@ -379,6 +379,11 @@ function initDb() {
     tesla_client_id: '',
     tesla_client_secret: '',
     tesla_redirect_uri: '',
+      // Which Tesla Fleet API region this account belongs to: 'na', 'eu' or 'cn'.
+      // 'na' covers North America AND Asia-Pacific (Australia, NZ, Japan, etc).
+      // Defaults to 'na' so existing installs keep the endpoint they were built
+      // against; only Europe/Middle East/Africa and China need to change it.
+      tesla_region: 'na',
     enphase_serial: '',
     enphase_email: '',
     schedule_enabled: 'false',

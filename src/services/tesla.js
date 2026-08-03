@@ -14,7 +14,34 @@ const fs = require('fs');
 const crypto = require('crypto');
 const db = require('../db');
 
-const TESLA_BASE = 'https://fleet-api.prd.na.vn.cloud.tesla.com';
+// Tesla runs the Fleet API from separate regional deployments, and an account
+// registered in one region is not reachable through another - calls fail with
+// errors that name neither the region nor the account, so a wrong base URL
+// looks like a broken app rather than a misconfiguration.
+//
+// 'na' covers North America AND Asia-Pacific (including Australia), which is
+// why this went unnoticed for so long: the two regions this project was built
+// and tested in share one endpoint. Europe/Middle East/Africa and China each
+// need their own.
+const TESLA_REGIONS = {
+  na: 'https://fleet-api.prd.na.vn.cloud.tesla.com',
+  eu: 'https://fleet-api.prd.eu.vn.cloud.tesla.com',
+  cn: 'https://fleet-api.prd.cn.vn.cloud.tesla.cn',
+};
+const DEFAULT_TESLA_REGION = 'na';
+
+/**
+ * Base URL for the Fleet API region this account belongs to.
+ *
+ * Read per call rather than captured at module load: the setting is chosen
+ * during setup, which happens after this module is first required, and can be
+ * changed later in Settings without restarting.
+ */
+function fleetBase() {
+  const region = (db.getSetting('tesla_region') || DEFAULT_TESLA_REGION).toLowerCase();
+  return TESLA_REGIONS[region] || TESLA_REGIONS[DEFAULT_TESLA_REGION];
+}
+
 const TESLA_AUTH = 'https://auth.tesla.com';
 const PROXY_URL = process.env.TESLA_PROXY_URL || 'https://localhost:4443';
 const DEFAULT_BLE_PROXY_URL = 'http://localhost:8080';
@@ -106,7 +133,7 @@ async function getPartnerToken(clientId, clientSecret) {
     client_id: clientId,
     client_secret: clientSecret,
     scope: 'vehicle_cmds vehicle_charging_cmds',
-    audience: TESLA_BASE,
+    audience: fleetBase(),
   }).toString();
 
   const res = await jsonFetch(`${TESLA_AUTH}/oauth2/v3/token`, {
@@ -126,7 +153,7 @@ async function getPartnerToken(clientId, clientSecret) {
  * Register the app domain with Tesla's Fleet API (required one-time before any API calls).
  */
 async function registerPartnerAccount(partnerToken, domain) {
-  const res = await jsonFetch(`${TESLA_BASE}/api/1/partner_accounts`, {
+  const res = await jsonFetch(`${fleetBase()}/api/1/partner_accounts`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${partnerToken}` },
     body: JSON.stringify({ domain }),
@@ -190,7 +217,7 @@ async function refreshAccessToken(refreshToken, clientId, clientSecret) {
  * List vehicles associated with the account.
  */
 async function listVehicles(accessToken) {
-  const res = await jsonFetch(`${TESLA_BASE}/api/1/vehicles`, {
+  const res = await jsonFetch(`${fleetBase()}/api/1/vehicles`, {
     headers: authHeader(accessToken),
   });
 
@@ -210,7 +237,7 @@ async function listVehicles(accessToken) {
  * Get the cloud-reported state of a single vehicle ('online', 'asleep', 'offline').
  */
 async function getVehicleState(vin, accessToken) {
-  const res = await jsonFetch(`${TESLA_BASE}/api/1/vehicles`, {
+  const res = await jsonFetch(`${fleetBase()}/api/1/vehicles`, {
     headers: authHeader(accessToken),
   });
   if (res.status !== 200) throw new Error(`List vehicles failed with status ${res.status}`);
@@ -225,7 +252,7 @@ async function getVehicleState(vin, accessToken) {
  */
 async function getVehicleData(vin, accessToken) {
   const res = await jsonFetch(
-    `${TESLA_BASE}/api/1/vehicles/${vin}/vehicle_data`,
+    `${fleetBase()}/api/1/vehicles/${vin}/vehicle_data`,
     { headers: authHeader(accessToken) }
   );
 
@@ -282,7 +309,7 @@ function assertCommandOk(res, label, okReasons = []) {
 async function wakeVehicle(vin, accessToken) {
   const url = useBleCommands()
     ? `${commandBaseUrl()}/api/1/vehicles/${vin}/command/wake_up`
-    : `${TESLA_BASE}/api/1/vehicles/${vin}/wake_up`;
+    : `${fleetBase()}/api/1/vehicles/${vin}/wake_up`;
 
   const res = await jsonFetch(url, {
     method: 'POST',
@@ -471,6 +498,8 @@ function generateKeyPair(appDir) {
 }
 
 module.exports = {
+  fleetBase,
+  TESLA_REGIONS,
   getAuthUrl,
   exchangeCode,
   refreshAccessToken,

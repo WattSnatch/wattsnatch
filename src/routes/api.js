@@ -309,7 +309,7 @@ router.post('/api/settings', (req, res) => {
       'min_charge_amps', 'max_charge_amps', 'hold_minutes',
       'smoothing_window', 'polling_interval_seconds', 'charger_voltage',
       'electricity_rate_aud', 'electricity_rate_mode', 'export_rate_mode', 'auto_backup_enabled', 'gateway_ip', 'tesla_vin',
-      'tesla_client_id', 'tesla_client_secret', 'tesla_redirect_uri',
+      'tesla_client_id', 'tesla_client_secret', 'tesla_redirect_uri', 'tesla_region',
       'tesla_command_backend', 'tesla_ble_proxy_url', 'tesla_state_source',
       'enphase_serial', 'enphase_email', 'tesla_display_name',
       'home_latitude', 'home_longitude', 'home_radius_km', 'google_maps_api_key', 'ha_link_key',

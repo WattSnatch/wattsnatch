@@ -187,7 +187,7 @@ const FIELD_IDS = [
   'min_charge_amps', 'max_charge_amps', 'hold_minutes',
   'smoothing_window', 'polling_interval_seconds', 'charger_voltage',
   'gateway_ip', 'tesla_vin',
-  'tesla_client_id', 'tesla_redirect_uri',
+  'tesla_client_id', 'tesla_redirect_uri', 'tesla_region',
   'tesla_command_backend', 'tesla_ble_proxy_url', 'tesla_state_source',
   'enphase_serial', 'enphase_email',
   'home_latitude', 'home_longitude', 'home_radius_km',

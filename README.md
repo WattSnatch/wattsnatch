@@ -177,6 +177,20 @@ WattSnatch uses Tesla's official Fleet API, which requires a free developer regi
    - Vehicle Charging Management
 7. Save and note your **Client ID** and **Client Secret** - you'll enter these in the setup wizard
 
+**If you are not in North America or Asia-Pacific, set your region.** Tesla runs
+the Fleet API from separate regional servers, and an account registered in one
+region cannot be reached through another - the failures name neither the region
+nor your account, so a wrong setting looks like a broken app. Settings → Tesla →
+**Fleet API region**:
+
+| Region | Covers |
+|---|---|
+| `na` (default) | North America **and Asia-Pacific**, including Australia and New Zealand |
+| `eu` | Europe, Middle East, Africa |
+| `cn` | China |
+
+Australian and US installs need no change; this exists for everyone else.
+
 ---
 
 ### Step 5 - Host your public key (one-time)
@@ -227,10 +241,27 @@ The wizard has 12 steps. Two of them are skipped depending on choices you make, 
 | **Fronius** | Inverter IP or hostname | No, local only |
 | **SolarEdge** | API Key, Site ID | Yes - from your SolarEdge monitoring account |
 | **SPAN Panel** | Panel host or IP, Access Token, Solar Circuit ID | Token from SPAN; unverified against real hardware |
-| **Sungrow** | Inverter/dongle host or IP, Modbus port, Unit ID | No, local Modbus TCP; unverified against real hardware |
+| **Sungrow (SH-series hybrid + WiNet-S)** | Inverter/dongle host or IP, Modbus port, Unit ID | No, local Modbus TCP; unverified against real hardware |
 | **MQTT (any other inverter)** | Broker URL, username/password, solar topic, a second grid or consumption topic, plus sign/scale/stale options | No - you publish the readings yourself |
 
 Enphase, Fronius, SPAN and Sungrow are local-network devices, so WattSnatch must be on the same LAN as them. SolarEdge and MQTT have no such requirement.
+
+**Which Sungrow systems this covers.** The Sungrow driver was written against the
+**SH-series hybrid** inverters using a **WiNet-S** dongle over local Modbus TCP,
+and its register addresses come from EVCC's `sungrow-hybrid` template - they
+include battery registers. Two things follow:
+
+- **SG-series string inverters** (SG5K-D and similar) are a different register
+  layout and have no battery, so this driver is not expected to work with them.
+- **Older dongles**, such as the WiFi V31, generally do not expose Modbus TCP on
+  your LAN at all - they upload to iSolarCloud instead. If the dongle never
+  appears as a device on your network, that is usually why, and no amount of
+  configuration will reach it.
+
+If your Sungrow isn't an SH-series on a WiNet-S, use the **MQTT input** provider
+instead: publish your solar and grid figures from whatever already talks to your
+inverter (Home Assistant, for example) and WattSnatch drives charging from those
+exactly as it would from a native gateway. That path works with any inverter.
 
 If you get interrupted, reopen `http://localhost:3001/setup` and it resumes where you left off.
 
@@ -405,6 +436,14 @@ means the `partner_accounts` registration has not succeeded for your domain.
     -d '{"domain":"yourname.github.io"}'
   ```
   It needs only the Client ID/Secret already saved, and is safe to repeat.
+
+**Tesla API calls fail for no obvious reason, and you are outside North America / Asia-Pacific**
+Check Settings → Tesla → **Fleet API region**. Tesla serves the Fleet API from
+separate regional deployments and an account registered in one is unreachable
+through another. The default (`na`) covers North America and Asia-Pacific
+including Australia; European accounts need `eu` and Chinese accounts `cn`.
+Symptoms are unhelpful - authentication or vehicle calls fail without naming the
+region as the cause.
 
 **Tesla: Error**
 - Go to Settings and click **Re-authorise Tesla**
