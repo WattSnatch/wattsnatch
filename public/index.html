@@ -340,6 +340,16 @@
           <div class="control-off-text">Charging control disabled - car manages itself</div>
         </div>
 
+        <!-- Certificate health. Shown only when renewal is failing, expiry is
+             near, or the renewal job has stopped running - all of which end in
+             the car silently refusing to send telemetry if left alone. -->
+        <div id="cert-banner" class="cert-banner hidden">
+          <div class="cert-text">
+            <div class="cert-title">Certificate needs attention</div>
+            <div class="cert-desc" id="cert-banner-desc"></div>
+          </div>
+        </div>
+
         <div id="scheduled-banner" class="scheduled-banner hidden">
           <div class="scheduled-text">
             <div class="scheduled-title">Scheduled charging</div>

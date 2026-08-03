@@ -91,11 +91,33 @@ sudo certbot certonly --standalone -d telemetry.yourdomain.com
 
 This produces `fullchain.pem` and `privkey.pem` under `/etc/letsencrypt/live/telemetry.yourdomain.com/`. The `fleet-telemetry` binary needs both files (section 7).
 
-**Set up auto-renewal** - Let's Encrypt certs expire every 90 days:
+**Where this certificate should live.** `fleet-telemetry` runs as your normal
+user and must be able to read its own private key, so keep its certificate in a
+certbot tree that user owns, rather than in root-owned `/etc/letsencrypt`:
+
 ```bash
-sudo certbot renew --dry-run   # confirms renewal will work
+certbot certonly --config-dir ~/.solarcharge/letsencrypt \
+                 --work-dir ~/.solarcharge/letsencrypt/work \
+                 --logs-dir ~/.solarcharge/letsencrypt/logs \
+                 -d telemetry.yourdomain.com
 ```
-Certbot installs its own renewal timer/cron job automatically on most systems; just confirm it's active (`systemctl list-timers | grep certbot` on Linux).
+
+This produces `fullchain.pem` and `privkey.pem` under
+`~/.solarcharge/letsencrypt/live/<name>/`, and it is these paths that go in the
+`fleet-telemetry` config in section 7. Section 10 explains why this separation
+exists and what goes wrong without it.
+
+**Set up auto-renewal** - Let's Encrypt certs expire every 90 days, and this is
+the single most common way a working telemetry setup dies months later.
+Confirm renewal works:
+
+```bash
+certbot renew --config-dir ~/.solarcharge/letsencrypt --dry-run
+```
+
+Do **not** rely on the renewal timer certbot installs for you. It only renews
+certificates in `/etc/letsencrypt`, so it will never touch this one. Section 10
+covers scheduling a job that renews both trees and tells you when it fails.
 
 ### How the car decides whether to trust your server - read this before anything breaks
 
@@ -197,6 +219,140 @@ The fields WattSnatch requests, and at what interval, are fixed in code (`src/ro
 
 ## 10. Keeping it running
 
+### There are two certificate trees, and this is the trap
+
+A WattSnatch host ends up with **two separate certbot installations**. Almost
+every certificate problem people hit traces back to not knowing that, so it is
+worth being precise about which is which:
+
+| | System tree | Telemetry tree |
+|---|---|---|
+| Path | `/etc/letsencrypt` | `~/.solarcharge/letsencrypt` |
+| Certificate for | The dashboard, served by nginx | Your car, served by `fleet-telemetry` |
+| Owned by | root | the user WattSnatch runs as |
+| Renewed by | `certbot renew` (as root) | `certbot renew --config-dir ~/.solarcharge/letsencrypt` |
+
+They are separate because `fleet-telemetry` runs as your normal user and has to
+be able to read its own `privkey.pem`. If root renewed that certificate, the new
+key would land root-owned at mode `0600` and `fleet-telemetry` would fail to
+read it at its next restart - which is a failure that appears **weeks** after
+the change that caused it.
+
+**The trap:** a plain `certbot renew`, and every guide on the internet that
+tells you to schedule one, only ever looks at `/etc/letsencrypt`. If that is all
+you have scheduled, your dashboard certificate renews forever and your
+**telemetry certificate silently expires**. Nothing warns you. The first symptom
+is your car quietly ceasing to report, up to 90 days later.
+
+To see what each tree holds:
+
+```bash
+sudo certbot certificates                                      # system tree
+certbot certificates --config-dir ~/.solarcharge/letsencrypt   # telemetry tree
+```
+
+### The renewal job
+
+`scripts/cert-renew.js` handles both trees in one run. It:
+
+1. Records every certificate's serial and issuer **before** renewing.
+2. Renews the system tree as root, and the telemetry tree **as the WattSnatch
+   user** (so renewed keys stay readable by `fleet-telemetry`).
+3. Records serials and issuers **after**, and compares.
+4. Reloads nginx, and restarts `fleet-telemetry`, **only if** a certificate
+   actually changed. A routine no-op run never disturbs a working system.
+5. Writes `~/.solarcharge/cert-status.json`, which the app reads to show
+   certificate health in the dashboard.
+
+Run it by hand any time - it is safe, and `--dry-run` never touches a live
+certificate:
+
+```bash
+npm run cert-renew -- --dry-run
+```
+
+Exit code is 0 when everything is healthy and 1 when something needs attention,
+so it is usable from any monitoring you already have.
+
+Two things it deliberately does **not** do. It does not use certbot's
+`--deploy-hook` to restart `fleet-telemetry`, because that hook would run as the
+WattSnatch user and restarting a system service needs root - the before/after
+comparison does the same job and gives the issuer check for free. And it does
+not treat "I could not read `/etc/letsencrypt`" as a failure: run without
+`sudo`, and it reports that tree as *unchecked* rather than inventing a verdict
+about certificates it cannot see.
+
+### Installing the renewal job
+
+Run it from a `LaunchDaemon` (macOS) or a systemd timer/cron entry (Linux),
+twice daily. Certbot only acts inside the final 30 days of a certificate's life,
+so frequent runs are harmless and give many chances to retry before expiry.
+
+On macOS, `/Library/LaunchDaemons/com.solarcharge.certrenew.plist`:
+
+Use the **absolute path to the same `node` that runs WattSnatch itself**. A
+LaunchDaemon gets none of your shell's environment, so a bare `node` will not be
+found, and a different Node version than the app's will fail on native modules.
+Find the right one with:
+
+```bash
+ps -o command= -p "$(pgrep -f 'solarcharge/src/server.js' | head -1)"
+```
+
+```xml
+<key>ProgramArguments</key>
+<array>
+  <string>/opt/homebrew/Cellar/node@22/22.22.3/bin/node</string>
+  <string>/path/to/solarcharge/scripts/cert-renew.js</string>
+</array>
+<key>StartCalendarInterval</key>
+<array>
+  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>17</integer></dict>
+  <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>17</integer></dict>
+</array>
+<key>StandardOutPath</key>
+<string>/var/log/solarcharge-certrenew.log</string>
+<key>StandardErrorPath</key>
+<string>/var/log/solarcharge-certrenew.log</string>
+```
+
+Load it, then confirm it is actually loaded - a plist sitting in the directory
+unloaded does nothing at all, and looks identical to one that works:
+
+```bash
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.solarcharge.certrenew.plist
+sudo launchctl print system/com.solarcharge.certrenew | head -20
+```
+
+Do **not** schedule a bare `certbot renew` instead. See the trap above.
+
+### How you find out when it breaks
+
+Renewal failing silently is the whole problem, so WattSnatch treats three
+separate situations as reportable, and each appears as a banner on the dashboard
+and (if ntfy is configured in Settings) an urgent push notification:
+
+| What happened | When you are told |
+|---|---|
+| A certificate is failing to renew, or is near expiry | 21 days out, escalating at 10 days |
+| A renewal changed the issuer | Immediately - the car needs a config re-send, see below |
+| **The renewal job itself has stopped running** | After 36 hours with no run |
+
+That last row is the one that matters most. A renewal job that is not running
+looks exactly like one that is working, right up until the certificate expires.
+WattSnatch detects it by treating `cert-status.json` going stale as a fault in
+its own right.
+
+Check current health any time:
+
+```bash
+curl -s localhost:3001/api/certs/status | python3 -m json.tool
+```
+
+If ntfy is not configured, notifications are silently discarded - the dashboard
+banner is then your only warning, which is a good reason to set ntfy up
+(Settings, Notifications).
+
 ### Certificate renewal is NOT fire-and-forget
 
 An automatic `certbot renew` plus a service restart is **not enough**, and
@@ -264,6 +420,46 @@ Almost always a certificate path or permissions issue - confirm the binary can a
 
 **Port forwarding seems right but the external test in section 4 still fails**
 Double-check your WattSnatch machine's local IP hasn't changed (reserve it in your router's DHCP settings), and confirm no other local firewall (e.g. macOS's own firewall, `ufw` on Linux) is blocking inbound 443.
+
+**`certbot renew` says everything succeeded, but the telemetry certificate is still expiring**
+You are renewing the wrong tree. A bare `certbot renew` only touches
+`/etc/letsencrypt`; the telemetry certificate lives in
+`~/.solarcharge/letsencrypt`. See section 10 - this is the most common
+certificate mistake in this whole setup, and it is invisible until the day the
+certificate expires. Confirm with:
+
+```bash
+certbot certificates --config-dir ~/.solarcharge/letsencrypt
+```
+
+**Renewal fails with `NXDOMAIN looking up TXT for _acme-challenge...`**
+The DNS-01 challenge cannot create its record. Either the hostname no longer
+exists in DNS (common after decommissioning or renaming a telemetry host - the
+renewal config outlives the DNS record), or the zone is not served by the DNS
+provider your certbot plugin is configured for. Check the hostname still
+resolves, and if it has been retired, delete the stale renewal config so it
+stops failing forever and masking real problems:
+
+```bash
+certbot delete --cert-name <old-name> --config-dir <that tree's config dir>
+```
+
+**Renewal appears to hang for several minutes with no output**
+It is almost certainly certbot's built-in random delay: under
+`--non-interactive` it sleeps up to 8 minutes before renewing, to spread load
+across Let's Encrypt's servers. `scripts/cert-renew.js` passes
+`--no-random-sleep-on-renew` because it runs on its own staggered schedule.
+Confirm what is happening by tailing the tree's own log:
+
+```bash
+tail -f ~/.solarcharge/letsencrypt/logs/letsencrypt.log
+```
+
+**`fleet-telemetry` fails to read its key after a renewal**
+The certificate was renewed by root, leaving the new `privkey.pem` root-owned
+while `fleet-telemetry` runs as your normal user. Renew that tree as the
+WattSnatch user - `scripts/cert-renew.js` does this automatically by dropping
+privileges. See section 10.
 
 **`TLS handshake error ... remote error: tls: bad certificate` from your car's IP, over and over**
 The car is rejecting your certificate because it no longer chains to the `ca`

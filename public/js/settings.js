@@ -1139,11 +1139,46 @@ function showTariffMessage(type, level, text) {
   if (level === 'success') setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
+// Echo every date picker's value back in an unambiguous long form.
+//
+// A native <input type="date"> renders in the BROWSER's locale, not the page's
+// - there is no HTML, CSS or JS way to change that. So a UK/AU user whose
+// browser is set to en-US sees 1 July 2026 as "07/01/26" and cannot tell
+// whether the app understood it as January or July. Rather than replace the
+// native picker (which is accessible, keyboard-friendly and works on mobile),
+// we show what was actually selected in a form no locale can misread.
+function wireDateEchoes(root = document) {
+  for (const input of root.querySelectorAll('input[type="date"]')) {
+    if (input.dataset.echoWired) continue;
+    input.dataset.echoWired = '1';
+
+    const echo = document.createElement('div');
+    echo.className = 'date-echo';
+    input.insertAdjacentElement('afterend', echo);
+
+    const render = () => {
+      if (!input.value) { echo.textContent = ''; return; }
+      // Parsed as local, not UTC - `new Date('2026-07-01')` is UTC midnight and
+      // renders as the previous day for anyone west of Greenwich.
+      const [y, m, d] = input.value.split('-').map(Number);
+      if (!y || !m || !d) { echo.textContent = ''; return; }
+      echo.textContent = new Date(y, m - 1, d).toLocaleDateString('en-AU', {
+        day: 'numeric', month: 'long', year: 'numeric',
+      });
+    };
+
+    input.addEventListener('input', render);
+    input.addEventListener('change', render);
+    render();
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
   loadRates();
   loadTariffs();
   loadMqttStatus();
+  wireDateEchoes();
 
   document.getElementById('mqtt-out-test-btn')?.addEventListener('click', testMqttOutput);
   document.getElementById('mqtt-in-test-btn')?.addEventListener('click', testMqttInput);

@@ -533,6 +533,32 @@ pre, .code-block {
   color: var(--text-secondary);
 }
 
+/* Certificate banner. Deliberately louder than the informational banners
+   above it: every other banner describes a state that resolves itself, while
+   this one describes something that only a human can fix and that ends in
+   fleet telemetry stopping if ignored. */
+.cert-banner {
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.875rem;
+  border-radius: var(--radius-md);
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.45);
+}
+.cert-banner.cert-critical {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+.cert-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.cert-desc {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-top: 0.1rem;
+}
+
 /* ─── EV action row ─── */
 .ev-actions {
   display: flex;

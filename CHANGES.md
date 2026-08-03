@@ -2,6 +2,57 @@
 
 ---
 
+## 2026-08-03 - v1.25.0: Certificates that renew themselves, and say so when they don't
+
+Three failures found by running this on a real install, all of which share a
+shape: something stops working, and nothing anywhere says so.
+
+**`npm run update` could silently do nothing.** If a release tag had been
+re-pointed upstream, `git fetch --tags` refused to move the local tag
+("would clobber existing tag") and exited non-zero - which, under `set -e`,
+aborted the update script before `git pull` ever ran. The installed version
+never moved while the dashboard kept advertising a newer one. The fetch is now
+forced, so a stale local tag cannot stop an update. Reported in #2.
+
+**The telemetry certificate had no working renewal.** A WattSnatch host ends up
+with two separate certbot trees: the system one (`/etc/letsencrypt`, serving the
+dashboard via nginx) and a user-owned one for `fleet-telemetry`, which must be
+able to read its own private key. A plain `certbot renew` - and every guide that
+tells you to schedule one - only ever touches the first. The telemetry
+certificate then expires 90 days later with no warning, the car stops reporting,
+and the dashboard just shows stale data.
+
+`scripts/cert-renew.js` now renews both trees in one run, drops privileges so
+renewed keys stay readable by `fleet-telemetry`, and restarts nginx and the
+telemetry server only when a certificate actually changed. TELEMETRY.md section
+10 documents the whole arrangement, including why the two trees exist.
+
+**Certificate problems are now visible in the app.** Three situations raise a
+dashboard banner and an urgent notification: a certificate failing to renew or
+nearing expiry (21 days, escalating at 10), a renewal that changed the issuer
+(your car pins the old chain and needs a config re-send), and - most
+importantly - the renewal job itself having stopped running, detected after 36
+hours with no recorded run. That last one is the quiet one: everything looks
+healthy right up until the certificate expires.
+
+**A stale charge limit could silently cap charging.** Fleet Telemetry only
+pushes `ChargeLimitSoc` when it changes, and vehicle state is persisted, so a
+value that was ever wrong stayed wrong indefinitely - across restarts - while
+every other field kept updating and made telemetry look perfectly healthy. Since
+charging stops once the battery reaches that limit, a car whose real limit was
+80% could sit capped at 50% with nothing reporting a fault. The charge limit now
+carries its own freshness rule, is re-confirmed from Tesla hourly, and is never
+acted on until the car has confirmed it. The vehicle enforces its own limit
+natively, so deferring to it cannot overcharge.
+
+**Date pickers no longer read ambiguously.** A native date input renders in the
+browser's locale, not the page's, so 1 July 2026 shows as `07/01/26` for anyone
+whose browser is set to a US locale - and no page setting can change that. Every
+date field now echoes the selected date underneath in long form ("1 July 2026"),
+so what the app understood is never in doubt. Reported in #3.
+
+---
+
 ## 2026-08-02 - v1.24.3: How the car actually authenticates your telemetry server
 
 Learned the hard way, on a live install, over an afternoon: the vehicle does

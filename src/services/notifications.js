@@ -129,6 +129,26 @@ async function notifyGridFreeStreak(hours) {
   return sendNotification(title, message, 'low');
 }
 
+// Sent at 'urgent' priority because the consequence of ignoring it is losing
+// fleet telemetry entirely, and unlike every other alert here it is not
+// self-correcting: an expired certificate stays expired until a human acts.
+async function notifyCertificateProblem(status) {
+  const app = db.getSetting('app_base_url') || 'http://localhost:3001';
+  const title = status.stale
+    ? 'Certificate renewal is not running'
+    : 'Certificate problem - fleet telemetry at risk';
+
+  const lines = status.problems.map(p => `- ${p.message}`);
+  if (typeof status.daysUntilSoonestExpiry === 'number') {
+    lines.push(`Soonest expiry: ${status.daysUntilSoonestExpiry} days.`);
+  }
+  lines.push('See TELEMETRY.md section 10 for what to do.');
+
+  return sendNotification(title, lines.join('\n'), 'urgent', [
+    { label: 'Open dashboard', url: `${app}/` },
+  ]);
+}
+
 function getBatteryPct() {
   const telemetry = require('./telemetry');
   const live = telemetry.getState()?.batteryPct;
@@ -271,6 +291,7 @@ module.exports = {
   notifySolarMilestone,
   notifyTeslaFullyChargedOnSolar,
   notifyGridFreeStreak,
+  notifyCertificateProblem,
   notifyMorningBrief,
   notifyEveningSummary,
 };

@@ -89,6 +89,10 @@ class Controller {
     // charging state, amps) keeps updating normally and makes telemetry look
     // perfectly healthy. Cleared once a REST reconciliation actually succeeds.
     this._forceBootReconcile = true;
+    // When we last ASKED Tesla to confirm the charge limit (as opposed to when
+    // it last answered). Keeps a non-answering API from causing a poll storm -
+    // see the chargeLimitStale check in _loop().
+    this._lastChargeLimitCheckAt = 0;
     // BLE state-source mode (tesla_state_source === 'ble'): reachability doubles as geofencing
     // (BLE only carries a few metres, so "reachable" means "at home"). Starts false so we never
     // act on the car until a BLE read confirms it is present.
@@ -499,7 +503,12 @@ class Controller {
     const pluggedIn     = PLUGGED_IN.has(chargingState);
     const solarExcessW  = readings ? readings.solarW - readings.consumptionW : 0;
 
-    if (!pluggedIn || (batteryPct > 0 && batteryPct >= chargeLimit)) {
+    // Same rule as the solar path in _stateMachine(): never treat an
+    // unconfirmed charge limit as a reason to stop. Without this, a stale limit
+    // returns early here and scheduled charging silently never starts - the
+    // scheduled window looks like it simply did nothing.
+    const limitConfirmed = telemetry.getChargeLimitAge() !== Infinity;
+    if (!pluggedIn || (limitConfirmed && batteryPct > 0 && batteryPct >= chargeLimit)) {
       if (this.currentSessionId) this._endSession(batteryPct, !pluggedIn ? 'disconnected' : 'charge_complete');
       this._emitTelemetry(readings, chargeState, 0, 0, solarExcessW, 0);
       return;
@@ -740,10 +749,39 @@ class Controller {
       if (stateSource !== 'ble' && !telemetry.isStale()) this._carSleeping = false; // ZMQ came back → car awake
 
       const FALLBACK_INTERVAL = 2 * 60 * 1000;
+
+      // Re-confirm the charge limit from Tesla itself at least this often.
+      //
+      // Fleet Telemetry only pushes ChargeLimitSoc when it CHANGES, so a value
+      // that is wrong stays wrong indefinitely - and because vehicle state is
+      // persisted, it survives restarts too. Since the controller stops
+      // charging the moment battery >= chargeLimit, a stale low value silently
+      // caps the car below what the owner actually set. Nothing else in this
+      // loop would ever catch that, so the limit gets its own freshness rule
+      // rather than relying on telemetry being stale for the REST path to run.
+      const CHARGE_LIMIT_MAX_AGE = 60 * 60 * 1000;
+
+      // Gated on when we last ASKED, not only on how old the answer is. If
+      // Tesla returns vehicle data without charge_limit_soc, the age never
+      // resets, and keying off age alone would re-poll every FALLBACK_INTERVAL
+      // indefinitely - turning a once-an-hour check into ~720 data calls a day
+      // against the Fleet API. Asking once an hour and accepting that the
+      // answer may not come is the correct behaviour; the controller already
+      // refuses to act on an unconfirmed limit, so a missing answer is safe.
+      const chargeLimitStale =
+        telemetry.getChargeLimitAge() > CHARGE_LIMIT_MAX_AGE &&
+        (Date.now() - this._lastChargeLimitCheckAt) > CHARGE_LIMIT_MAX_AGE;
+
       const needsFallback = stateSource !== 'ble' && !this._carSleeping &&
-        (telemetry.isStale() || ts.chargingState === null || this._forceBootReconcile);
+        (telemetry.isStale() || ts.chargingState === null || this._forceBootReconcile
+         || chargeLimitStale);
       if (needsFallback && teslaToken && (Date.now() - this._lastFallbackAt) > FALLBACK_INTERVAL) {
         this._lastFallbackAt = Date.now();
+        // Record the attempt up front. Doing it here rather than after a
+        // successful parse means a failed call, an offline car, or a response
+        // missing charge_limit_soc all still count as "asked", so none of them
+        // can turn into a retry loop against the Fleet API.
+        if (chargeLimitStale) this._lastChargeLimitCheckAt = Date.now();
         try {
           this._trackApiCall('data');
           const cloudState = await getVehicleState(vin, teslaToken);
@@ -752,7 +790,21 @@ class Controller {
           if (cloudState === 'online') {
             this._trackApiCall('data');
             const { chargeState: apiCharge, driveState } = await getVehicleData(vin, teslaToken);
-            telemetry.updateFromApi({
+
+            // When this poll happened ONLY to re-confirm the charge limit -
+            // i.e. Fleet Telemetry is otherwise healthy - take the limit and
+            // nothing else. REST vehicle_data can be minutes behind the live
+            // telemetry stream, so injecting the whole snapshot would make the
+            // battery percentage and charging state jump backwards once an
+            // hour, and could feed one stale control decision into the state
+            // machine. The limit is the one field telemetry cannot refresh on
+            // its own, which is the entire reason for this poll.
+            const limitRefreshOnly = chargeLimitStale && !this._forceBootReconcile
+              && !telemetry.isStale() && ts.chargingState !== null;
+
+            telemetry.updateFromApi(limitRefreshOnly ? {
+              chargeLimit:    apiCharge?.charge_limit_soc ?? undefined,
+            } : {
               chargingState:  apiCharge?.charging_state  ?? undefined,
               batteryPct:     apiCharge?.battery_level   ?? undefined,
               chargeLimit:    apiCharge?.charge_limit_soc ?? undefined,
@@ -769,6 +821,11 @@ class Controller {
             if (this._forceBootReconcile) {
               logger.logEvent('info', `Boot reconciliation: charge_limit_soc confirmed at ${apiCharge?.charge_limit_soc}%`);
               this._forceBootReconcile = false;
+            } else if (chargeLimitStale && apiCharge?.charge_limit_soc != null) {
+              // Logged so a limit that changes underneath us is visible in
+              // history rather than silently altering charging behaviour.
+              logger.logEvent('info',
+                `Charge limit re-confirmed from Tesla: ${apiCharge.charge_limit_soc}%`);
             }
           } else {
             // Car confirmed asleep - ZMQ will wake us when it comes online, no need to poll
@@ -1172,7 +1229,21 @@ class Controller {
     // chargingState === null means unknown (car asleep/telemetry gap) - NOT the same as disconnected.
     // Only treat as disconnected when we have a definitive non-plugged-in state.
     const knownDisconnected = chargingState !== null && !pluggedIn;
-    if (knownDisconnected || (batteryPct > 0 && batteryPct >= chargeLimit)) {
+    // Only act on a charge limit the car has actually confirmed. An
+    // unconfirmed limit is either the hardcoded 80 default or a value carried
+    // over from the persisted state, and stopping a charge on that guess is
+    // how a car whose real limit is 80 ends up capped at 50. The vehicle
+    // enforces its own limit natively, so declining to act here cannot
+    // overcharge - it only defers to the car until Tesla confirms the number,
+    // which the freshness rule above makes happen within a couple of minutes.
+    const limitConfirmed = telemetry.getChargeLimitAge() !== Infinity;
+    if (!limitConfirmed && !knownDisconnected && batteryPct > 0 && batteryPct >= chargeLimit) {
+      logger.logEvent('info',
+        `Battery ${batteryPct.toFixed(0)}% is at the unconfirmed charge limit `
+        + `(${chargeLimit}%) - deferring to the car until Tesla confirms it`);
+    }
+
+    if (knownDisconnected || (limitConfirmed && batteryPct > 0 && batteryPct >= chargeLimit)) {
       if ([STATES.CHARGING, STATES.HOLDING].includes(this.state)) {
         this._endSession(batteryPct, knownDisconnected ? 'disconnected' : 'charge_complete');
       }

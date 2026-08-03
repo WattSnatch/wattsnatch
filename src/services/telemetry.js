@@ -50,6 +50,17 @@ const _state = {
   chargingState:  null,   // 'Charging'|'Stopped'|'Disconnected'|'Complete'|'NoPower'|null
   batteryPct:     0,
   chargeLimit:    80,
+  // When chargeLimit was last confirmed straight from the car, and how.
+  //
+  // This matters because Fleet Telemetry only pushes ChargeLimitSoc when it
+  // CHANGES. If a wrong value is ever latched - a bad REST read, a value from
+  // another vehicle state - the car will never spontaneously correct it, and
+  // because _state is persisted the wrong value survives restarts forever.
+  // The controller stops charging at whatever this says, so a stale 50 silently
+  // caps a car whose real limit is 80. Tracking age lets the controller insist
+  // on a fresh reading from Tesla before it acts on the limit.
+  chargeLimitAt:     null, // ms epoch, or null if never confirmed this boot
+  chargeLimitSource: 'none', // 'telemetry' | 'api' | 'persisted' | 'none'
   chargeAmps:     0,
   chargerPowerKw: 0,
   chargerVoltage: 240,
@@ -66,6 +77,11 @@ function _loadPersisted() {
     if (!raw) return;
     const saved = JSON.parse(raw);
     Object.assign(_state, saved, { source: 'persisted' }); // carried over - not confirmed since this boot
+    // A persisted charge limit is a guess until the car confirms it. Clearing
+    // the timestamp (rather than the value) keeps the dashboard populated while
+    // still forcing the controller to re-confirm before enforcing it.
+    _state.chargeLimitAt     = null;
+    _state.chargeLimitSource = 'persisted';
   } catch (_e) { /* corrupt/missing - keep defaults */ }
 }
 
@@ -98,7 +114,11 @@ function updateFromApi({ chargingState, batteryPct, chargeLimit, chargeAmps,
                          chargerPowerKw, chargerVoltage, latitude, longitude, isOnline }) {
   if (chargingState  !== undefined) _state.chargingState  = chargingState;
   if (batteryPct     !== undefined) _state.batteryPct     = batteryPct;
-  if (chargeLimit    !== undefined) _state.chargeLimit    = chargeLimit;
+  if (chargeLimit    !== undefined) {
+    _state.chargeLimit       = chargeLimit;
+    _state.chargeLimitAt     = Date.now();
+    _state.chargeLimitSource = 'api';
+  }
   if (chargeAmps     !== undefined) _state.chargeAmps     = chargeAmps;
   if (chargerPowerKw !== undefined) _state.chargerPowerKw = chargerPowerKw;
   if (chargerVoltage !== undefined) _state.chargerVoltage = chargerVoltage;
@@ -260,7 +280,13 @@ function _handleVehicleData(payload) {
       case FIELD.Soc:
         if (vf[5]) { _state.batteryPct     = _dbl(vf[5][0]); changed = true; } break;
       case FIELD.ChargeLimitSoc:
-        if (vf[5]) { _state.chargeLimit    = _dbl(vf[5][0]); changed = true; } break;
+        if (vf[5]) {
+          _state.chargeLimit       = _dbl(vf[5][0]);
+          _state.chargeLimitAt     = Date.now();
+          _state.chargeLimitSource = 'telemetry';
+          changed = true;
+        }
+        break;
       case FIELD.ChargerVoltage:
         if (vf[5]) { _state.chargerVoltage = _dbl(vf[5][0]); changed = true; } break;
       case FIELD.ACChargingPower:
@@ -301,4 +327,16 @@ function _handleConnectivity(payload) {
   _notify();
 }
 
-module.exports = { startTelemetryListener, onVehicleUpdate, getState, getAge, isStale, updateFromApi };
+/**
+ * Milliseconds since the charge limit was last confirmed by the car itself
+ * (Infinity if it has never been confirmed this boot - e.g. restored from the
+ * persisted state, which is a carried-over guess rather than a fresh reading).
+ */
+function getChargeLimitAge() {
+  return _state.chargeLimitAt ? Date.now() - _state.chargeLimitAt : Infinity;
+}
+
+module.exports = {
+  startTelemetryListener, onVehicleUpdate, getState, getAge, isStale,
+  updateFromApi, getChargeLimitAge,
+};

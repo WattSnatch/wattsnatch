@@ -18,7 +18,14 @@ node scripts/backup.js
 echo ""
 
 echo "==> Fetching latest changes..."
-git fetch --tags
+# --force matters here. A plain `git fetch --tags` REFUSES to update a tag that
+# already exists locally with different content ("would clobber existing tag")
+# and exits non-zero - which, under `set -e`, aborts this script before `git
+# pull` ever runs. The update then silently does nothing and the installed
+# version never moves, while the dashboard keeps advertising a newer release.
+# Release tags are re-pointed upstream from time to time, so treating the
+# remote as authoritative for them is both correct and necessary.
+git fetch --tags --force
 git pull
 echo ""
 

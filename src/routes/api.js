@@ -13,6 +13,7 @@ const db = require('../db');
 const controller = require('../controller');
 const billPoller = require('../services/billPoller');
 const rateTemplates = require('../services/rateTemplates');
+const certMonitor = require('../services/certMonitor');
 
 // ── Shared period-boundary helpers ──────────────────────────────────────────────
 // Used by the /api/stats/*periods* and /api/stats/solar-km routes below to extend
@@ -69,7 +70,33 @@ router.get('/api/status', (req, res) => {
   try {
     const status = controller.getStatus();
     const lastTelemetry = db.getLastTelemetry();
-    res.json({ ok: true, status, lastTelemetry });
+    // Compact summary only - the dashboard uses this to decide whether to show
+    // the certificate banner. Full detail lives at /api/certs/status.
+    const cert = certMonitor.getStatus();
+    res.json({
+      ok: true,
+      status,
+      lastTelemetry,
+      certs: {
+        ok: cert.ok,
+        severity: cert.severity,
+        daysUntilSoonestExpiry: cert.daysUntilSoonestExpiry,
+        problemCount: cert.problems.length,
+        firstProblem: cert.problems.length ? cert.problems[0].message : null,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/certs/status - full TLS certificate health.
+// Separate from /api/status so the detail (per-certificate expiry, issuer
+// changes, which renewal tree each lives in) is available without bloating the
+// high-frequency status poll.
+router.get('/api/certs/status', (req, res) => {
+  try {
+    res.json({ ok: true, ...certMonitor.getStatus() });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

@@ -82,6 +82,35 @@ const elScheduledBanner  = document.getElementById('scheduled-banner');
 const elTouPeakBanner    = document.getElementById('tou-peak-banner');
 const elDepartureBanner  = document.getElementById('departure-banner');
 const elDepartureBannerDesc = document.getElementById('departure-banner-desc');
+const elCertBanner       = document.getElementById('cert-banner');
+const elCertBannerDesc   = document.getElementById('cert-banner-desc');
+
+// Certificate health is independent of charging state, so this banner sits
+// outside the mutually-exclusive set above - a cert about to expire matters
+// whether or not the car is home, charging, or overridden.
+function updateCertBanner(certs) {
+  if (!elCertBanner) return;
+  if (!certs || certs.ok !== false) {
+    elCertBanner.classList.remove('cert-critical');
+    hide(elCertBanner);
+    return;
+  }
+
+  const days = certs.daysUntilSoonestExpiry;
+  let text = certs.firstProblem || 'A TLS certificate needs attention.';
+  if (certs.problemCount > 1) {
+    text += ` (+${certs.problemCount - 1} more)`;
+  } else if (typeof days === 'number' && !text.includes(`${days} day`)) {
+    // Only add the expiry when the problem text does not already state it -
+    // otherwise a message like "Expires in 19 days" gains a redundant
+    // "Soonest expiry: 19 days" immediately after it.
+    text += ` Soonest expiry: ${days} days.`;
+  }
+
+  if (elCertBannerDesc) elCertBannerDesc.textContent = text;
+  elCertBanner.classList.toggle('cert-critical', certs.severity === 'critical');
+  show(elCertBanner);
+}
 
 // Controls
 const elControlToggle   = document.getElementById('control-toggle');
@@ -1654,6 +1683,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!data.ok) return;
     const s  = data.status || {};
     const lt = data.lastTelemetry;
+    updateCertBanner(data.certs);
     const base = {
       controllerState: s.controllerState, holdRemaining: null,
       gatewayOk: s.gatewayOk, teslaOk: s.teslaOk,

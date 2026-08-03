@@ -199,6 +199,17 @@ h4 { font-size: 1rem; }
   margin-top: 0.25rem;
 }
 
+/* Unambiguous echo of a date picker's value. A native <input type="date">
+   renders in the browser's locale, so "07/01/26" is January to some readers
+   and July to others; this spells it out. Empty until a date is chosen, so it
+   adds no visual noise to a blank form. */
+.date-echo {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.2rem;
+  min-height: 1em;
+}
+
 /* ─── Status Pills ─── */
 .pill {
   display: inline-flex;

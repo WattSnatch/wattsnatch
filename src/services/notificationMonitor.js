@@ -10,6 +10,7 @@
 const db = require('../db');
 const notifications = require('./notifications');
 const baseline = require('./baseline');
+const certMonitor = require('./certMonitor');
 
 const ANOMALY_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const MILESTONE_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
@@ -159,6 +160,9 @@ async function checkAll() {
     await checkLoadAnomaly();
     await checkSolarMilestone();
     await checkGridFreeStreak();
+    // Self-throttles to hourly. Kept last so a certificate-reading failure can
+    // never stop the charging-related checks above from running.
+    await certMonitor.checkAndNotify();
   } catch (err) {
     console.warn('[notificationMonitor] checkAll failed:', err.message);
   }

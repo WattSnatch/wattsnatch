@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Renews every certificate WattSnatch depends on, across BOTH certbot trees.
+
+  Replaces any earlier version of this daemon that ran a bare `certbot renew`.
+  A bare renew only covers /etc/letsencrypt and silently leaves the telemetry
+  certificate in ~/.solarcharge/letsencrypt to expire - see TELEMETRY.md
+  section 10.
+
+  Edit the two paths in ProgramArguments below first, then:
+    sudo cp scripts/com.solarcharge.certrenew.plist /Library/LaunchDaemons/
+    sudo chown root:wheel /Library/LaunchDaemons/com.solarcharge.certrenew.plist
+    sudo chmod 644       /Library/LaunchDaemons/com.solarcharge.certrenew.plist
+    sudo launchctl bootout system/com.solarcharge.certrenew 2>/dev/null || true
+    sudo launchctl bootstrap system /Library/LaunchDaemons/com.solarcharge.certrenew.plist
+    sudo launchctl print system/com.solarcharge.certrenew | head -20
+
+  The node path below must be the SAME node that runs WattSnatch itself - a
+  LaunchDaemon inherits no PATH, and a different Node version breaks native
+  modules. Check it with:
+    ps -o command= -p "$(pgrep -f 'solarcharge/src/server.js' | head -1)"
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.solarcharge.certrenew</string>
+
+  <!-- Replace both paths before installing. The first must be the absolute
+       path to the SAME node that runs WattSnatch (a LaunchDaemon inherits no
+       PATH, and a different Node version breaks native modules); the second is
+       wherever you cloned WattSnatch. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/path/to/wattsnatch/scripts/cert-renew.js</string>
+  </array>
+
+  <!-- Twice daily at deliberately odd minutes. certbot only acts inside the
+       final 30 days, so frequent runs are harmless and give many chances to
+       retry before expiry. -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key><integer>3</integer>
+      <key>Minute</key><integer>17</integer>
+    </dict>
+    <dict>
+      <key>Hour</key><integer>15</integer><key>Minute</key><integer>17</integer>
+    </dict>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/solarcharge-certrenew.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/solarcharge-certrenew.log</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
