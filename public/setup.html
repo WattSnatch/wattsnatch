@@ -398,6 +398,16 @@
       <span class="text-secondary text-xs mt-1">Must match your Tesla app registration exactly, including the <code>/auth/tesla/callback</code> path. HTTPS is recommended, but <code>http://localhost:3001/auth/tesla/callback</code> works fine for a local-only install. Change the port if you're not running on 3001.</span>
     </div>
 
+    <!-- Collected here, before the hand-off to Tesla's login, because Tesla
+         refuses to authorise users for an app whose domain has not been
+         registered - and says so only as "No policy rules", which tells the
+         user nothing about what to fix. -->
+    <div class="form-group" id="tesla-domain-group">
+      <label for="tesla-key-domain">Public key domain</label>
+      <input type="text" id="tesla-key-domain" placeholder="yourname.github.io">
+      <span class="text-secondary text-xs mt-1">The domain where your public key is hosted - the same value as the <strong>Allowed Origin</strong> on your Tesla app. Enter the bare hostname with no <code>https://</code> and no path: Tesla reads the key from the domain <em>root</em>, so a project page like <code>yourname.github.io/my-keys</code> will not work.</span>
+    </div>
+
     <div id="step5-error" class="alert alert-error hidden mt-1"></div>
 
     <div class="alert alert-info mt-2" id="step5-info-alert">

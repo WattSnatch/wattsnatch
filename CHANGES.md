@@ -2,6 +2,39 @@
 
 ---
 
+## 2026-08-03 - v1.25.1: Register the domain before sending you to Tesla
+
+Setting up Fleet API mode could dead-end at the Tesla login with:
+
+> Something went wrong. Try again later. No policy rules
+
+That message is Tesla declining to authorise users for an app whose domain it
+has not registered. It says nothing about the real cause, appears on Tesla's own
+page after you have already signed in, and leaves you with nothing to act on.
+
+The wizard was registering the domain *after* that sign-in step, so a new
+install could reach Tesla's login before the registration it depends on had
+happened. Step 5 now asks for the **public key domain** alongside the client
+credentials, registers it with Tesla, and only then hands off to the login. If
+registration fails you stay on the page with an error naming your domain and the
+exact URL Tesla needs to reach - instead of being sent somewhere that cannot
+explain itself.
+
+Registration needs only the client ID and secret (no user token) and is
+idempotent, so doing it earlier costs nothing. Bluetooth LE mode is unchanged:
+it never sends you through Tesla's login, so it still registers the domain later
+at the public-key step, where it is actually needed.
+
+Also corrected guidance that was quietly steering people wrong: the domain
+prompt and the website both suggested a GitHub **project** page
+(`username.github.io/some-repo`). Tesla reads the key from
+`/.well-known/appspecific/com.tesla.3p.public-key.pem` at the **domain root**, so
+a project page can never serve it. Both now ask for a bare hostname and say why.
+
+Reported in #4.
+
+---
+
 ## 2026-08-03 - v1.25.0: Certificates that renew themselves, and say so when they don't
 
 Three failures found by running this on a real install, all of which share a

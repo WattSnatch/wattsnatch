@@ -210,7 +210,7 @@ The wizard has 12 steps. Two of them are skipped depending on choices you make, 
 2. **Connect your solar inverter** - pick your brand, then fill in its fields (see the table below). Enphase has a "Find automatically" button that discovers the gateway over your local network.
 3. **Authenticate with Enphase** - **Enphase only.** Your Enlighten email and password, plus the gateway serial number from the sticker on the unit. The password is used once to generate a local token and is never stored. Every other brand skips this step entirely.
 4. **How should WattSnatch talk to your car?** - choose **Fleet API + Fleet Telemetry** (Tesla's cloud, the default) or **Bluetooth LE** (fully cloud-free, but the machine must be in Bluetooth range of the car). This choice reshapes the remaining steps.
-5. **Tesla Developer App** - paste the Client ID and Client Secret from Step 4 above. Fleet API mode also asks for the Redirect URI and sends you through Tesla's login; Bluetooth LE mode does neither.
+5. **Tesla Developer App** - paste the Client ID and Client Secret from Step 4 above. Fleet API mode also asks for the Redirect URI and the **public key domain** (the bare hostname from Step 5 above, matching your app's Allowed Origin), registers that domain with Tesla, and then sends you through Tesla's login. Registering first is deliberate: Tesla refuses to authorise users for an app whose domain it does not know, and reports it only as "No policy rules" on its own login page, which says nothing about the actual cause. Bluetooth LE mode asks for none of this and registers the domain later, at the public-key step.
 6. **Vehicle Connected** - Fleet API confirms the car detected on your Tesla account. Bluetooth LE asks you to type the VIN, since there is no token to look it up with.
 7. **Register Public Key with Tesla** - the wizard shows your public key. Put it at `.well-known/appspecific/com.tesla.3p.public-key.pem` on the domain you gave Tesla, then click Verify.
 8. **Pair Virtual Key with Car** - required for both modes, and you must do it in person: on an **iPhone**, open Safari to the link shown, tap Add Key, and hold your key card to the console reader. Tesla requires this of every third-party app.
@@ -383,6 +383,28 @@ These are the core charging settings. Everything else is configured in the dashb
 - For local-network meters (Enphase, Fronius, SPAN, Sungrow), make sure your server is on the same LAN as the device
 - **Enphase:** try regenerating the token in Settings (you'll need your Enlighten email and password again)
 - **MQTT input:** check the broker is reachable and that readings are still arriving - the reading goes stale after the timeout you configured, which is treated as an error rather than as zero solar
+
+**"Something went wrong. Try again later. No policy rules" on Tesla's login page**
+This is Tesla saying it will not authorise users for an app whose domain it has
+not registered - the message is unrelated to what actually needs fixing. It
+means the `partner_accounts` registration has not succeeded for your domain.
+- Check your public key is reachable at the domain **root**:
+  ```bash
+  curl -sI https://YOUR_DOMAIN/.well-known/appspecific/com.tesla.3p.public-key.pem | head -1
+  ```
+  You want `200`. A `404` usually means either the repo is a project site rather
+  than a user site (`USERNAME.github.io`), or the empty `.nojekyll` file is
+  missing and GitHub Pages has dropped the `.well-known` folder.
+- Confirm the **Public key domain** you entered in wizard step 5 is a bare
+  hostname (`yourname.github.io`) and matches the **Allowed Origin** on your
+  Tesla app exactly.
+- To register by hand at any time:
+  ```bash
+  curl -s -X POST http://localhost:3001/api/setup/register-partner \
+    -H "Content-Type: application/json" \
+    -d '{"domain":"yourname.github.io"}'
+  ```
+  It needs only the Client ID/Secret already saved, and is safe to repeat.
 
 **Tesla: Error**
 - Go to Settings and click **Re-authorise Tesla**

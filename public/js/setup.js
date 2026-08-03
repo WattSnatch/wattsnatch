@@ -336,6 +336,10 @@ document.addEventListener('DOMContentLoaded', () => {
 function initStep5DevApp() {
   const isBle = selectedVehicleMode === 'ble';
   document.getElementById('tesla-redirect-uri-group')?.classList.toggle('hidden', isBle);
+  // Bluetooth LE never sends the user through Tesla's login, so there is no
+  // authorisation for an unregistered domain to block. That mode registers the
+  // domain later, at the public-key step, where it is genuinely needed.
+  document.getElementById('tesla-domain-group')?.classList.toggle('hidden', isBle);
   const desc = document.getElementById('step5-desc');
   if (desc) {
     desc.innerHTML = isBle
@@ -371,12 +375,45 @@ async function saveTeslaCredsAndRedirect() {
   }
 
   const redirectUri = document.getElementById('tesla-redirect-uri')?.value?.trim();
-  if (!clientId || !clientSecret || !redirectUri) {
+  const keyDomain = document.getElementById('tesla-key-domain')?.value?.trim();
+  if (!clientId || !clientSecret || !redirectUri || !keyDomain) {
     showStepError('step5', 'All fields required');
     return;
   }
 
   await api('/api/settings', { method: 'POST', body: { tesla_client_id: clientId, tesla_client_secret: clientSecret, tesla_redirect_uri: redirectUri } });
+
+  // Register the domain with Tesla BEFORE handing off to their login.
+  //
+  // Tesla will not authorise users for an app whose domain is not registered,
+  // and the only thing it tells them is "Something went wrong. Try again
+  // later. No policy rules" - on Tesla's own page, after they have signed in,
+  // with nothing pointing back at the real cause. Registering first turns that
+  // dead end into an error we can explain.
+  //
+  // Registration needs only the client credentials just saved (no OAuth token)
+  // and is idempotent, so running it on every pass through this step is safe.
+  const btn = document.getElementById('tesla-auth-btn');
+  const originalLabel = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Registering domain with Tesla…'; }
+
+  try {
+    const reg = await api('/api/setup/register-partner', { method: 'POST', body: { domain: keyDomain } });
+    if (!reg.ok) {
+      showStepError('step5',
+        `Tesla rejected the domain registration: ${reg.error || 'unknown error'}. `
+        + `Check that "${keyDomain}" matches the Allowed Origin on your Tesla app, `
+        + `and that your public key is reachable at `
+        + `https://${keyDomain}/.well-known/appspecific/com.tesla.3p.public-key.pem`);
+      return;
+    }
+  } catch (err) {
+    showStepError('step5', `Could not register the domain with Tesla: ${err.message}`);
+    return;
+  } finally {
+    if (btn) { btn.disabled = false; if (originalLabel) btn.textContent = originalLabel; }
+  }
+
   window.location.href = '/auth/tesla/start';
 }
 
@@ -431,8 +468,8 @@ function showPartnerRegistration(el) {
       <strong>One more step required.</strong> Tesla requires you to register your app domain with their servers before API access works. This is a one-time step.
     </div>
     <label style="display:block;margin-bottom:0.5rem;color:var(--text-secondary);font-size:0.85rem">Your app domain (where your public key will be hosted)</label>
-    <input id="partner-domain-input" class="input" type="text" placeholder="https://yourname.github.io/wattsnatch-key" style="margin-bottom:0.75rem;width:100%">
-    <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem">Use the GitHub Pages URL from the next step, e.g. <code>https://yourname.github.io/wattsnatch-key</code></p>
+    <input id="partner-domain-input" class="input" type="text" placeholder="yourname.github.io" style="margin-bottom:0.75rem;width:100%">
+    <p style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem">A bare hostname, e.g. <code>yourname.github.io</code> - no <code>https://</code> and no path. Tesla reads the key from the domain <strong>root</strong>, so a project page such as <code>yourname.github.io/my-keys</code> cannot serve it.</p>
     <button class="btn btn-primary" onclick="registerPartnerFromVehicleStep()">Register domain with Tesla</button>
     <span id="partner-reg-status" style="margin-left:0.75rem;font-size:0.85rem"></span>`;
 }
