@@ -415,6 +415,32 @@ These are the core charging settings. Everything else is configured in the dashb
 - **Enphase:** try regenerating the token in Settings (you'll need your Enlighten email and password again)
 - **MQTT input:** check the broker is reachable and that readings are still arriving - the reading goes stale after the timeout you configured, which is treated as an error rather than as zero solar
 
+**`npm run update` runs but the version never changes**
+Look for lines like `! [rejected] v1.21.1 -> v1.21.1 (would clobber existing tag)`.
+Git refuses to move a tag that already exists locally pointing at different
+content, and exits non-zero - which aborts the update script before it pulls
+anything. The installed version stays put while the dashboard keeps advertising
+a newer one. Fixed from v1.25.0 onward, but if you are updating *from* an
+earlier version you need to break the deadlock by hand once:
+```bash
+git fetch --tags --force
+git pull
+npm install
+```
+After that, `npm run update` works normally.
+
+**Fleet Telemetry stops after about 90 days**
+Your telemetry certificate expired. A plain `certbot renew` only covers
+`/etc/letsencrypt`; the certificate `fleet-telemetry` serves lives in a
+user-owned tree and needs renewing separately. Run both, and see everything the
+certificate needs, with:
+```bash
+npm run cert-renew -- --dry-run
+```
+[TELEMETRY.md](TELEMETRY.md) section 10 covers the whole arrangement - the two
+certbot trees, scheduling the renewal job, and the alerts WattSnatch raises when
+a renewal fails or the job stops running.
+
 **"Something went wrong. Try again later. No policy rules" on Tesla's login page**
 This is Tesla saying it will not authorise users for an app whose domain it has
 not registered - the message is unrelated to what actually needs fixing. It

@@ -51,7 +51,7 @@ Tesla commands are throttled to every **other** tick, while the solar meter is s
 - **Hold timer** (default 3 min) - when solar drops, steps the car down to minimum amps immediately but doesn't stop the session until the hold period expires, protecting against stop/start cycling.
 - **Home/away geofencing** - Haversine distance check against a configured home lat/lon + radius; charging control is suspended entirely while the car is away (e.g. parked at a Supercharger).
 - **External-charge interception** - if the car starts charging on its own (from the touchscreen or a Tesla-scheduled charge) outside of WattSnatch's control, it's stopped or re-targeted so the app stays the single source of truth.
-- **Charge-limit enforcement** - if the battery is at or above the configured charge limit but still drawing power, WattSnatch stops it.
+- **Charge-limit enforcement** - if the battery is at or above the configured charge limit but still drawing power, WattSnatch stops it. It only acts on a limit the car has actually confirmed: Fleet Telemetry pushes `ChargeLimitSoc` solely when it *changes*, and vehicle state is persisted, so a value that was ever wrong would otherwise stay wrong across restarts and silently cap charging below what you set. The limit is re-confirmed from the vehicle hourly, and until it is confirmed WattSnatch defers to the car - which enforces its own limit natively, so this cannot overcharge.
 - **Sleeping-car wake logic** - if the car reports no charge state and hasn't been seen recently, WattSnatch sends a Fleet API wake command (throttled to once per 3 minutes) rather than assuming it's unplugged.
 - **REST API fallback** - Fleet Telemetry (ZMQ) is the primary data source; if it goes stale for 5+ minutes or hasn't delivered a charging state since restart, the controller falls back to polling the Tesla REST API directly, then goes back to pure telemetry once ZMQ resumes.
 
@@ -170,6 +170,7 @@ Mitsubishi Electric runs two genuinely separate cloud platforms that both get ca
 ### Flat or time-of-use electricity billing
 - A Settings toggle switches the whole app between a flat rate (with dated rate-history, unchanged from before) and time-of-use billing: named windows (e.g. Peak/Shoulder) with their own days-of-week + time range + rate, plus a default (off-peak) rate for everything else.
 - Like flat rates, a new TOU rate card is versioned by an effective-from date, so past periods keep costing at whatever card was active at the time even after you update your rates.
+- Every "Effective from" date picker echoes your selection underneath it in long form ("1 July 2026"). A browser's native date control renders in *its own* locale rather than the page's, and no page setting can change that - so `07/01/26` means January to some readers and July to others. The echo removes the ambiguity without replacing the native picker.
 - One canonical rate resolver backs every dollar figure in the app - the Data page, session costs, the FBT log, financial ledger, trip-cost estimates, and retailer comparison - so nothing is computed against today's rate for historical energy under either mode. Real-time (EV/telemetry) usage is costed per-interval; hot-water usage is costed per-day (the finest granularity the Eddi's own counters support).
 
 ### US utility rate plan templates (`src/services/rateTemplates/`)

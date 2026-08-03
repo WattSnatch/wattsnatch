@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-08-03 - v1.25.3: Documentation catches up with v1.25.0
+
+An audit of the README against what actually shipped in v1.25.0 found five
+changes documented nowhere a user would look. The code was right; the docs
+were not, and one of them had become actively wrong.
+
+- **`FEATURES.md` described charge-limit enforcement inaccurately.** It still
+  said WattSnatch stops charging whenever the battery reaches the configured
+  limit. Since v1.25.0 it only acts on a limit the car has confirmed, and
+  defers to the vehicle until then. Corrected, with the reason: Fleet Telemetry
+  pushes `ChargeLimitSoc` only when it changes, so a wrong value would
+  otherwise persist across restarts and silently cap charging.
+- **Nothing told you what to do when `npm run update` stops working.** The
+  "would clobber existing tag" failure is now in the README's troubleshooting,
+  with the one-time manual fetch needed to escape it when updating from a
+  version before v1.25.0.
+- **Certificate renewal had no entry point from the README.** Fleet Telemetry
+  silently dying after ~90 days now appears in troubleshooting, pointing at
+  `npm run cert-renew` and TELEMETRY.md section 10.
+- **The date-picker echo** added in v1.25.0 is described in `FEATURES.md`
+  rather than only in this changelog.
+
+No code changes.
+
+---
+
 ## 2026-08-03 - v1.25.2: Fleet API region, and honest Sungrow hardware notes
 
 **The Tesla Fleet API base URL was hardcoded to one region.** Tesla serves the
