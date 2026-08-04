@@ -5,7 +5,7 @@
 ## 2026-08-03 - v1.25.5: Stop the live-rates refresh looping forever
 
 A Tasmanian install reported `api_error` lines repeating every thirty seconds,
-indefinitely. Three separate problems, reported in issue #7.
+indefinitely. Three separate problems, reported in issue #5.
 
 **The refresh retried on every controller tick instead of daily.** The daily
 guard read `retailer_live_rates_fetched_at`, which is only written on success.
