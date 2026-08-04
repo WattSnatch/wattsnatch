@@ -233,7 +233,9 @@ The wizard has 12 steps. Two of them are skipped depending on choices you make, 
 11. **Install Background Service** - macOS (launchd) and Linux (systemd). Starts WattSnatch automatically on boot, and in Fleet API mode installs the `tesla-proxy` service too. On Windows, use PM2 instead (see below).
 12. **Done.**
 
-**What each solar brand asks for in step 2:**
+#### Solar meters: what each brand asks for
+
+In step 2 of the wizard:
 
 | Brand | Fields | Needs a cloud account? |
 |---|---|---|
