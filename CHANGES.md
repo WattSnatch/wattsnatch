@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-08-03 - v1.25.6: Correct the Solcast signup link
+
+The Settings page offered to send you somewhere to "get a free API key" and
+then linked to `solcast.com.au`, which redirects to Solcast's commercial site.
+That is not where a home user signs up, and there is no obvious route from
+there to the free tier. Reported in issue #7.
+
+Free rooftop accounts live at `toolkit.solcast.com.au`, which is also where the
+Resource ID comes from. That matches what WattSnatch actually calls: the
+forecast requests go to `api.solcast.com.au/rooftop_sites/...`, and rooftop
+sites are a Toolkit concept.
+
+Corrected in Settings, INSTALL.md and on the website, each of which had the
+same wrong destination. The Settings text now also says why the toolkit
+subdomain matters, so nobody follows the old path again from memory.
+
+---
+
 ## 2026-08-03 - v1.25.5: Stop the live-rates refresh looping forever
 
 A Tasmanian install reported `api_error` lines repeating every thirty seconds,

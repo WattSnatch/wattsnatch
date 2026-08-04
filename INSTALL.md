@@ -412,7 +412,7 @@ By default, trip planning geocodes calendar event locations via OpenStreetMap No
 If no key is set, or a Google call fails for any reason, WattSnatch automatically falls back to the free Nominatim/straight-line path - this is a pure upgrade, never a requirement. Every trip distance also gets rounded **up** to the nearest whole km before it's used for energy planning, as a small deliberate safety buffer against undercharging.
 
 ### Solar forecasting - Solcast
-**Needs:** a free [Solcast](https://solcast.com) hobbyist account, giving you an API key and a Resource ID for your specific rooftop site (set up on their site using your panel array's location/tilt/azimuth).
+**Needs:** a free hobbyist account at [toolkit.solcast.com.au](https://toolkit.solcast.com.au/), giving you an API key and a Resource ID for your specific rooftop site (set up there using your panel array's location, tilt and azimuth). Note the toolkit subdomain: the main solcast.com site is the commercial product and does not lead to the free home-user signup.
 Free tier allows 10 API calls/day, which is what WattSnatch is tuned to stay within.
 
 ### Electricity bill parsing
