@@ -441,6 +441,17 @@ npm run cert-renew -- --dry-run
 certbot trees, scheduling the renewal job, and the alerts WattSnatch raises when
 a renewal fails or the job stops running.
 
+**Setup fails at domain registration with `invalid_audience`**
+Tesla is rejecting the partner token request. This is currently affecting newly
+created Tesla developer applications and is not something you have
+misconfigured. There is no workaround yet. See
+[issue #6](https://github.com/WattSnatch/wattsnatch/issues/6) for the current
+status, how to confirm you are affected, and what has been ruled out.
+
+Applications created before this started are unaffected, so existing installs
+keep working. Bluetooth LE mode does not use partner tokens and is also
+unaffected.
+
 **"Something went wrong. Try again later. No policy rules" on Tesla's login page**
 This is Tesla saying it will not authorise users for an app whose domain it has
 not registered - the message is unrelated to what actually needs fixing. It

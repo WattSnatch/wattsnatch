@@ -409,6 +409,17 @@ individually reversible.
 
 ## 11. Troubleshooting
 
+**`invalid_audience` when registering your domain with Tesla**
+Tesla is rejecting the partner token request itself, before any domain
+registration happens. This is currently affecting newly created Tesla developer
+applications, and there is no workaround on the WattSnatch side. See
+[issue #6](https://github.com/WattSnatch/wattsnatch/issues/6).
+
+Note that the same error has a second, unrelated cause worth ruling out first:
+Tesla matches the `audience` value against an exact list, so a trailing slash or
+a missing `https://` is rejected. WattSnatch sends the correct form, but if you
+are testing by hand with a URL copied from elsewhere, check for a stray slash.
+
 **"hostname domain does not match with partner account"**
 Your telemetry hostname isn't under a domain your Tesla developer app has registered - see section 6.
 

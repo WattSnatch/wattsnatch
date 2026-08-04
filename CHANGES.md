@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-08-03 - v1.25.4: Document the Tesla partner registration failure
+
+New Tesla developer applications are currently unable to obtain a partner
+token. Tesla returns `invalid_audience`, and setup cannot get past the domain
+registration step. There is nothing to change in WattSnatch to work around it.
+
+Tested against a freshly created application and one created several months
+earlier on the same account, in the same region. Sixteen combinations of auth
+host, audience format, region and scope were rejected on the new application.
+The same request bytes succeed on the older one. Reproduced on three new
+applications across two developer accounts.
+
+Applications created before this started are unaffected, so existing installs
+keep working. Bluetooth LE mode does not use partner tokens and is unaffected.
+
+Tracked in issue #6, and raised with Tesla developer support. Documented in the
+README, TELEMETRY.md and on the website so anyone hitting it can confirm the
+cause rather than assuming they have misconfigured something.
+
+Also worth recording, because it produces the same error for a completely
+different reason: Tesla matches the `audience` value against an exact list. A
+trailing slash or a missing scheme is rejected even on a working application.
+WattSnatch sends the correct form.
+
+No code changes.
+
+---
+
 ## 2026-08-03 - v1.25.3: Documentation catches up with v1.25.0
 
 An audit of the README against what actually shipped in v1.25.0 found five
