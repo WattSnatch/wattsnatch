@@ -449,6 +449,10 @@ function initDb() {
     powerwall_email:             '',
     powerwall_password:          '',
     retailer_network_distributor: 'Energex',
+    // When we last ATTEMPTED a live-rates refresh, successful or not. Gating
+    // the daily refresh on this rather than on the last success stops an
+    // unservable distributor retrying on every controller tick.
+    retailer_live_rates_attempted_at: '0',
     retailer_live_rates_json:       '',
     retailer_live_rates_fetched_at: '0',
     retailer_live_rates_distributor: '',

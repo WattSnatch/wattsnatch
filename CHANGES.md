@@ -2,6 +2,50 @@
 
 ---
 
+## 2026-08-03 - v1.25.5: Stop the live-rates refresh looping forever
+
+A Tasmanian install reported `api_error` lines repeating every thirty seconds,
+indefinitely. Three separate problems, reported in issue #7.
+
+**The refresh retried on every controller tick instead of daily.** The daily
+guard read `retailer_live_rates_fetched_at`, which is only written on success.
+A refresh that found no plans returned without touching it, so the guard never
+tripped and the next tick tried again. For anyone whose distributor cannot be
+served this never resolved, and it meant hammering a free government API every
+thirty seconds forever. The guard now reads the last *attempt*, recorded before
+any work happens, so a failure costs one attempt per day rather than thousands.
+
+This also covers a case nobody had hit yet: the distributor field is free text,
+so a typo produced exactly the same endless loop.
+
+**Tasmania could never work.** The known-retailer list held seven mainland
+retailers and not Aurora Energy, which is effectively the only residential
+electricity retailer in Tasmania. Aurora is now included. Verified against the
+live Consumer Data Right register: Aurora publishes twenty residential plans,
+all of them for `TasNetworks`.
+
+**Simply Energy was removed.** It is not published in the ACCC register at all,
+so every refresh logged a "not found" for it. Removed rather than left to
+generate noise.
+
+**Zero plans is no longer logged as an error.** A distributor none of the known
+retailers serve is a coverage gap, not a fault, and it does not resolve by
+retrying. Western Australia and the Northern Territory are now recognised
+explicitly: they are outside the National Electricity Market and publish nothing
+through the Consumer Data Right, so WattSnatch says so once instead of failing
+the same way every day.
+
+**Brand matching now prefers exact names.** Several registered brands contain
+another as a substring: `ActewAGL` contains `AGL`, and `Ergon Energy Retail`
+contains `Ergon`. Matching was substring-only and resolved to whichever appeared
+first in the register, which gave the right answer for AGL purely because the
+register happens to list it first. Exact matches now win.
+
+None of this affected charging. Live rate comparison is a pricing feature, and
+the previous cache and configured rates were used throughout.
+
+---
+
 ## 2026-08-03 - v1.25.4: Document the Tesla partner registration failure
 
 New Tesla developer applications are currently unable to obtain a partner

@@ -49,8 +49,28 @@ const KNOWN_RETAILERS = [
   { id: 'energy_aus',   name: 'Energy Australia',brandMatch: ['energyaustralia', 'energy australia'] },
   { id: 'red_energy',   name: 'Red Energy',      brandMatch: ['red energy'] },
   { id: 'alinta',       name: 'Alinta Energy',   brandMatch: ['alinta'] },
-  { id: 'simply',       name: 'Simply Energy',   brandMatch: ['simply energy'] },
-  { id: 'ergon',        name: 'Ergon Energy',    brandMatch: ['ergon'] },
+  { id: 'ergon',        name: 'Ergon Energy',    brandMatch: ['ergon energy retail', 'ergon'] },
+  // Tasmania's only residential electricity retailer. Without this, a
+  // TasNetworks customer matches nothing and every refresh comes back empty.
+  { id: 'aurora',       name: 'Aurora Energy',   brandMatch: ['aurora energy'] },
+];
+
+// Simply Energy was previously listed here but is not published in the ACCC
+// register, so every refresh logged a "not found" for it. Removed rather than
+// left to generate noise; add it back if it reappears.
+
+// Distributors we know the retailers above cannot serve, so we can say so once
+// instead of failing the same way every refresh forever.
+//
+// Western Australia and the Northern Territory are not part of the National
+// Electricity Market, and their retailers (Synergy, Horizon Power, Jacana) do
+// not publish plans through the Consumer Data Right at all. No amount of
+// retrying will find anything for these.
+const UNSUPPORTED_DISTRIBUTORS = [
+  'western power',
+  'horizon power',
+  'power and water',
+  'powerwater',
 ];
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
@@ -99,10 +119,18 @@ async function getBrandRegistry() {
   return brands;
 }
 
+// Exact brand-name matches win over substring ones. Several registered brands
+// contain another as a substring - "ActewAGL" contains "AGL", "Ergon Energy
+// Retail" contains "Ergon" - so a pure substring search resolves to whichever
+// happens to appear first in the register. That currently gives the right
+// answer for AGL only because the register lists it before ActewAGL, which is
+// not something we should be relying on.
 function resolveProductBaseUri(brands, brandMatchers) {
   const lower = brandMatchers.map((m) => m.toLowerCase());
-  const hit = brands.find((b) => lower.some((m) => b.brandName.toLowerCase().includes(m)));
-  return hit ? hit.productBaseUri : null;
+  const exact = brands.find((b) => lower.includes(b.brandName.toLowerCase()));
+  if (exact) return exact.productBaseUri;
+  const partial = brands.find((b) => lower.some((m) => b.brandName.toLowerCase().includes(m)));
+  return partial ? partial.productBaseUri : null;
 }
 
 /** Page through Get Generic Plans, filtering client-side to the given distributor. */
@@ -267,6 +295,22 @@ function costPlan(plan, slots, numDays, fallbackFitAud) {
  */
 async function refreshLiveRates() {
   const distributor = db.getSetting('retailer_network_distributor') || 'Energex';
+
+  // Record that we tried, before doing any work. refreshIfDue() gates on this
+  // rather than on the last SUCCESS, because a refresh that finds nothing is
+  // not a transient failure worth retrying on the next tick: a distributor the
+  // known retailers do not serve, or a typo in the free-text distributor field,
+  // will fail identically forever. Gating on success alone turned that into a
+  // refresh every controller tick, hammering a free government API indefinitely.
+  db.setSetting('retailer_live_rates_attempted_at', String(Date.now()));
+
+  if (UNSUPPORTED_DISTRIBUTORS.some((d) => distributor.toLowerCase().includes(d))) {
+    logger.logEvent('info',
+      `Retailer live rates: ${distributor} is outside the National Electricity Market, `
+      + `so no retailer publishes plans for it through the Consumer Data Right. `
+      + `Live rate comparison is unavailable here; your configured rates are unaffected.`);
+    return;
+  }
   const slots = db.getHalfHourlyEnergyData(90);
   const fallbackFitAud = parseFloat(db.getSetting('feed_in_tariff_aud') || '0.05');
   const uniqueDays = new Set(slots.map((s) => Math.floor(s.slotMs / 86400000)));
@@ -321,7 +365,13 @@ async function refreshLiveRates() {
   }
 
   if (results.length === 0) {
-    logger.logEvent('api_error', 'Retailer live rates: refresh produced zero usable plans, keeping previous cache');
+    // Not an api_error. The usual cause is a distributor none of the known
+    // retailers serve, which is a coverage gap rather than a fault, and it
+    // will not resolve by trying again. Say what it means and what it costs.
+    logger.logEvent('info',
+      `Retailer live rates: no retailer published a residential plan for ${distributor}. `
+      + `Live rate comparison is unavailable for this network area; charging and your `
+      + `configured rates are unaffected. Next attempt in 24 hours.`);
     return;
   }
 
@@ -343,10 +393,19 @@ function getLiveRates() {
   } catch (_e) { return null; }
 }
 
-/** Called from the controller's daily tick; refreshes at most once per day. */
+/**
+ * Called from the controller's daily tick; attempts at most once per day.
+ *
+ * Gated on the last ATTEMPT, not the last success. A refresh that finds no
+ * plans leaves the success timestamp untouched by design (the previous cache
+ * stays valid), so gating on success meant an unservable distributor retried on
+ * every tick, forever.
+ */
 async function refreshIfDue() {
+  const lastAttemptAt = parseInt(db.getSetting('retailer_live_rates_attempted_at') || '0', 10);
   const lastFetchedAt = parseInt(db.getSetting('retailer_live_rates_fetched_at') || '0', 10);
-  if (Date.now() - lastFetchedAt < REFRESH_INTERVAL_MS) return;
+  const lastActivity = Math.max(lastAttemptAt, lastFetchedAt);
+  if (Date.now() - lastActivity < REFRESH_INTERVAL_MS) return;
   await refreshLiveRates();
 }
 
