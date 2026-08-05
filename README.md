@@ -138,7 +138,7 @@ sudo apt install golang-go git   # Debian/Ubuntu; adjust for your distro
 git clone https://github.com/teslamotors/vehicle-command.git
 cd vehicle-command
 go build ./cmd/tesla-http-proxy
-sudo cp tesla-http-proxy /usr/local/bin/tesla-proxy
+cp tesla-http-proxy /path/to/wattsnatch/tesla-proxy
 cd ..
 ```
 
@@ -346,7 +346,7 @@ After=network.target
 Type=simple
 User=YOUR_USERNAME
 WorkingDirectory=/path/to/wattsnatch
-ExecStart=/usr/local/bin/tesla-proxy -cert keys/proxy-tls-cert.pem -tls-key keys/proxy-tls-key.pem -key-file keys/private.pem -port 4443
+ExecStart=/path/to/wattsnatch/tesla-proxy -cert keys/proxy-tls-cert.pem -tls-key keys/proxy-tls-key.pem -key-file keys/private.pem -port 4443
 Restart=always
 
 [Install]

@@ -1,6 +1,6 @@
 {
   "name": "wattsnatch",
-  "version": "1.25.6",
+  "version": "1.25.7",
   "description": "Solar EV charging controller for Enphase + Tesla",
   "license": "PolyForm-Noncommercial-1.0.0",
   "main": "src/server.js",

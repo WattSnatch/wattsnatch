@@ -38,9 +38,44 @@ WantedBy=multi-user.target
 `;
 }
 
+// Where the tesla-http-proxy binary might actually be.
+//
+// Everything in this project puts it in the app directory: INSTALL.md,
+// AGENTS.md, DEPLOY_TO_SERVER.md, scripts/setup-pi.sh, and the macOS launchd
+// generator. README.md's Linux section used to say /usr/local/bin instead, so
+// anyone who followed that ended up with a working binary in a place the
+// generated unit did not look, and systemd failed with nothing more useful than
+// "No such file or directory".
+//
+// The docs now agree, but checking both costs nothing and means an install done
+// against the older instructions keeps working instead of needing the binary
+// moved.
+const PROXY_BINARY_NAME = 'tesla-proxy';
+
+function resolveProxyBinary(appDir) {
+  const candidates = [
+    path.join(appDir, PROXY_BINARY_NAME),
+    `/usr/local/bin/${PROXY_BINARY_NAME}`,
+    `/usr/bin/${PROXY_BINARY_NAME}`,
+  ];
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_err) { /* try the next one */ }
+  }
+  // Last resort: anywhere on PATH.
+  try {
+    const found = execSync(`command -v ${PROXY_BINARY_NAME} 2>/dev/null || true`, { encoding: 'utf8' }).trim();
+    if (found) return found;
+  } catch (_err) { /* fall through */ }
+  return null;
+}
+
 function generateProxyUnit(appDir, username) {
   const keyPath = path.join(appDir, 'keys', 'private.pem');
   const logDir = path.join(appDir, 'data');
+  const proxyBin = resolveProxyBinary(appDir) || path.join(appDir, PROXY_BINARY_NAME);
   return `[Unit]
 Description=WattSnatch Tesla command proxy
 After=network-online.target
@@ -50,7 +85,7 @@ Wants=network-online.target
 Type=simple
 User=${username}
 WorkingDirectory=${appDir}
-ExecStart=${appDir}/tesla-proxy -cert ${path.join(appDir, 'keys', 'proxy-tls-cert.pem')} -tls-key ${path.join(appDir, 'keys', 'proxy-tls-key.pem')} -key-file ${keyPath} -port 4443
+ExecStart=${proxyBin} -cert ${path.join(appDir, 'keys', 'proxy-tls-cert.pem')} -tls-key ${path.join(appDir, 'keys', 'proxy-tls-key.pem')} -key-file ${keyPath} -port 4443
 Restart=always
 RestartSec=5
 StandardOutput=append:${logDir}/proxy-stdout.log
@@ -87,6 +122,18 @@ function installUnits(appDir, username, installTeslaProxy = true) {
     return { appUnitPath, proxyUnitPath: null };
   }
 
+  // Fail here, with something the user can act on, rather than writing a unit
+  // that systemd will reject at exec time with only "No such file or directory"
+  // and no indication of what it was looking for or where.
+  if (!resolveProxyBinary(appDir)) {
+    throw new Error(
+      `Tesla command proxy binary not found. Looked for "${PROXY_BINARY_NAME}" in `
+      + `${appDir}, /usr/local/bin, /usr/bin and on PATH. Build it first (see INSTALL.md `
+      + `step 3), then run this step again. If you have already built it, copy it to `
+      + `${path.join(appDir, PROXY_BINARY_NAME)} and make sure it is executable.`
+    );
+  }
+
   const proxyUnitPath = path.join(UNIT_DIR, 'wattsnatch-proxy.service');
   const tmpProxyUnit = path.join(dataDir, '.wattsnatch-proxy.service.tmp');
   fs.writeFileSync(tmpProxyUnit, generateProxyUnit(appDir, username), 'utf8');
@@ -121,4 +168,7 @@ function getServiceStatus() {
   };
 }
 
-module.exports = { generateAppUnit, generateProxyUnit, installUnits, getServiceStatus };
+module.exports = {
+  generateAppUnit, generateProxyUnit, installUnits, getServiceStatus,
+  resolveProxyBinary,
+};

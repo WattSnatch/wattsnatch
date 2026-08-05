@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-08-05 - v1.25.7: Find the Tesla proxy binary wherever it was installed
+
+A Linux install failed to start with `wattsnatch-proxy.service: Failed at step
+EXEC spawning /home/user/wattsnatch/tesla-proxy: No such file or directory`.
+Reported in issue #9.
+
+The cause was two sets of instructions that disagreed. README.md's Linux steps
+put the binary in `/usr/local/bin/tesla-proxy`, while INSTALL.md, AGENTS.md,
+DEPLOY_TO_SERVER.md, `scripts/setup-pi.sh` and both service generators all use
+the application directory. Each document was self-consistent, so neither looked
+wrong on its own, but following the README and then using the wizard's "Install
+Background Service" step produced a unit pointing at a path that had nothing in
+it.
+
+The service generator now looks for the binary in the application directory,
+then `/usr/local/bin`, then `/usr/bin`, then anywhere on PATH, and writes
+whichever it finds. Anyone who installed against the older README keeps working
+without moving anything.
+
+If the binary is genuinely missing, installing the service now fails with a
+message naming every location that was checked, rather than writing a unit that
+systemd rejects at exec time with no indication of what it was looking for.
+
+README.md's Linux steps now match every other source.
+
+---
+
 ## 2026-08-03 - v1.25.6: Correct the Solcast signup link
 
 The Settings page offered to send you somewhere to "get a free API key" and
