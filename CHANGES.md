@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-08-05 - v1.25.9: Make ElectricityMaps reachable outside the United States
+
+ElectricityMaps was listed as a US-only grid carbon intensity provider. It is
+not: it is global, it covers Australia, and the backend provider has never had
+any country restriction. Only the settings UI assumed otherwise.
+
+The effect was that an Australian outside Queensland had no accurate option at
+all. AEMO reports Queensland's grid regardless of your region, and the one
+provider that would have been correct was filtered out of the dropdown before
+they could see it. The zone and API key inputs were hidden too, so even
+selecting it by other means would not have helped.
+
+Australian installs now offer AEMO and ElectricityMaps. WattTime remains listed
+for the United States only, which matches its coverage.
+
+Which credential and zone inputs appear is now driven by the provider selected
+rather than by the country, so anyone choosing ElectricityMaps gets the fields
+it needs, and choosing AEMO hides all of them since it needs none.
+
+The AEMO option is now labelled "AEMO (Queensland only)". It infers renewable
+share and carbon intensity from AEMO's NEM summary, which carries no fuel mix,
+and that inference only holds for Queensland. Presenting it as a general
+Australian option was misleading, and it silently misreported four of the five
+NEM regions.
+
+Related to issue #8. That issue is not closed by this: AEMO itself is still
+Queensland-only, and covering every region properly needs a data source with
+real fuel mix.
+
+---
+
 ## 2026-08-05 - v1.25.8: Check for the proxy binary before installing anything
 
 Follow-up to v1.25.7. The check that the Tesla proxy binary exists ran after

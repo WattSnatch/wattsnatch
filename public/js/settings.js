@@ -47,14 +47,51 @@ const FUEL_FIELD_CONFIG = {
 };
 
 const GRID_INTENSITY_PROVIDER_LABELS = {
-  aemo: 'AEMO (Australia)',
+  // AEMO derives everything from AEMO's NEM summary, which carries no fuel mix.
+  // Its model only holds for Queensland, so the label says so rather than
+  // presenting it as a general Australian option.
+  aemo: 'AEMO (Queensland only)',
   watttime: 'WattTime',
   electricitymaps: 'ElectricityMaps',
 };
+// ElectricityMaps is global, so it belongs in both lists. Restricting it to the
+// US previously left non-Queensland Australians with no accurate option at all:
+// AEMO reports Queensland's grid whatever their region, and the one provider
+// that would have been correct was hidden from them.
+//
+// WattTime stays US-only, which reflects where its coverage actually is.
 const GRID_INTENSITY_PROVIDERS_BY_COUNTRY = {
-  AU: ['aemo'],
+  AU: ['aemo', 'electricitymaps'],
   US: ['watttime', 'electricitymaps'],
 };
+
+// Which extra inputs each provider needs. AEMO needs none: it is a public
+// endpoint with no key and no zone.
+const GRID_INTENSITY_PROVIDER_FIELDS = {
+  aemo:            { region: false, watttime: false, electricitymaps: false },
+  watttime:        { region: true,  watttime: true,  electricitymaps: false },
+  electricitymaps: { region: true,  watttime: false, electricitymaps: true  },
+};
+
+/** Show only the credential/zone inputs the selected provider actually uses. */
+function applyGridIntensityProviderUI() {
+  const select = document.getElementById('setting_grid_intensity_provider');
+  const wrap = document.getElementById('grid-intensity-provider-fields');
+  if (!select || !wrap) return;
+
+  const spec = GRID_INTENSITY_PROVIDER_FIELDS[select.value] || GRID_INTENSITY_PROVIDER_FIELDS.aemo;
+  const anyVisible = spec.region || spec.watttime || spec.electricitymaps;
+  wrap.style.display = anyVisible ? '' : 'none';
+
+  const regionField = document.getElementById('gi-field-region');
+  if (regionField) regionField.style.display = spec.region ? '' : 'none';
+  for (const el of document.querySelectorAll('.gi-field-watttime')) {
+    el.style.display = spec.watttime ? '' : 'none';
+  }
+  for (const el of document.querySelectorAll('.gi-field-electricitymaps')) {
+    el.style.display = spec.electricitymaps ? '' : 'none';
+  }
+}
 
 function applyCountryUI(country) {
   const c = country === 'US' ? 'US' : 'AU';
@@ -104,10 +141,12 @@ function applyCountryUI(country) {
   }
   const noteAu = document.getElementById('grid-intensity-note-au');
   const noteUs = document.getElementById('grid-intensity-note-us');
-  const usFields = document.getElementById('grid-intensity-us-fields');
   if (noteAu) noteAu.style.display = c === 'AU' ? '' : 'none';
   if (noteUs) noteUs.style.display = c === 'US' ? '' : 'none';
-  if (usFields) usFields.style.display = c === 'US' ? '' : 'none';
+  // Which inputs to show depends on the provider, not the country. An
+  // Australian selecting ElectricityMaps needs the zone and key fields just as
+  // much as an American does.
+  applyGridIntensityProviderUI();
 }
 
 // ─── Window row builder ───
@@ -1184,6 +1223,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('mqtt-in-test-btn')?.addEventListener('click', testMqttInput);
   document.getElementById('ble-test-btn')?.addEventListener('click', testBleProxy);
   document.getElementById('setting_grid_retailer_domain')?.addEventListener('input', updateGridRetailerIconPreview);
+  // Reveal the zone and credential inputs as soon as the provider changes,
+  // rather than only on page load.
+  document.getElementById('setting_grid_intensity_provider')?.addEventListener('change', applyGridIntensityProviderUI);
 
   const form = document.getElementById('settings-form');
   if (form) form.addEventListener('submit', saveSettings);

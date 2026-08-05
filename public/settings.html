@@ -265,20 +265,24 @@
             <option value="electricitymaps">ElectricityMaps</option>
           </select>
         </div>
-        <div id="grid-intensity-us-fields" class="grid-2" style="display:none">
-          <div class="form-group">
+        <!-- Shown according to the provider selected above, not the country.
+             ElectricityMaps is global and covers Australia, so gating these on
+             country previously made it unreachable for every Australian user. -->
+        <div id="grid-intensity-provider-fields" class="grid-2" style="display:none">
+          <div class="form-group" id="gi-field-region">
             <label for="setting_grid_intensity_region">Region / Zone</label>
-            <input type="text" id="setting_grid_intensity_region" placeholder="e.g. US-CAL-CISO (ElectricityMaps) or CAISO_NORTH (WattTime)">
+            <input type="text" id="setting_grid_intensity_region" placeholder="e.g. AU-TAS, AU-QLD, US-CAL-CISO (ElectricityMaps) or CAISO_NORTH (WattTime)">
+            <span class="text-secondary text-xs mt-1">The zone identifier used by your chosen provider. Check your provider's documentation for the exact string, as they differ between services.</span>
           </div>
-          <div class="form-group">
+          <div class="form-group gi-field-watttime">
             <label for="setting_watttime_username">WattTime Username</label>
             <input type="text" id="setting_watttime_username" autocomplete="off">
           </div>
-          <div class="form-group">
+          <div class="form-group gi-field-watttime">
             <label for="setting_watttime_password">WattTime Password</label>
             <input type="password" id="setting_watttime_password" autocomplete="new-password">
           </div>
-          <div class="form-group">
+          <div class="form-group gi-field-electricitymaps">
             <label for="setting_electricitymaps_api_key">ElectricityMaps API Key</label>
             <input type="password" id="setting_electricitymaps_api_key" autocomplete="new-password">
           </div>
