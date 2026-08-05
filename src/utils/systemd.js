@@ -104,6 +104,18 @@ WantedBy=multi-user.target
 // usually hasn't been built, so installing a unit pointing at a missing binary would just
 // fail to start for no reason.
 function installUnits(appDir, username, installTeslaProxy = true) {
+  // Checked before anything is installed. Doing it later would leave the main
+  // service enabled and running and then throw, which is a confusing half-done
+  // state to hand back to someone in the middle of a setup wizard.
+  if (installTeslaProxy && !resolveProxyBinary(appDir)) {
+    throw new Error(
+      `Tesla command proxy binary not found. Looked for "${PROXY_BINARY_NAME}" in `
+      + `${appDir}, /usr/local/bin, /usr/bin and on PATH. Build it first (see INSTALL.md `
+      + `step 3), then run this step again. If you have already built it, copy it to `
+      + `${path.join(appDir, PROXY_BINARY_NAME)} and make sure it is executable.`
+    );
+  }
+
   const dataDir = path.join(appDir, 'data');
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -120,18 +132,6 @@ function installUnits(appDir, username, installTeslaProxy = true) {
 
   if (!installTeslaProxy) {
     return { appUnitPath, proxyUnitPath: null };
-  }
-
-  // Fail here, with something the user can act on, rather than writing a unit
-  // that systemd will reject at exec time with only "No such file or directory"
-  // and no indication of what it was looking for or where.
-  if (!resolveProxyBinary(appDir)) {
-    throw new Error(
-      `Tesla command proxy binary not found. Looked for "${PROXY_BINARY_NAME}" in `
-      + `${appDir}, /usr/local/bin, /usr/bin and on PATH. Build it first (see INSTALL.md `
-      + `step 3), then run this step again. If you have already built it, copy it to `
-      + `${path.join(appDir, PROXY_BINARY_NAME)} and make sure it is executable.`
-    );
   }
 
   const proxyUnitPath = path.join(UNIT_DIR, 'wattsnatch-proxy.service');

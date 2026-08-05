@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-08-05 - v1.25.8: Check for the proxy binary before installing anything
+
+Follow-up to v1.25.7. The check that the Tesla proxy binary exists ran after
+the main WattSnatch service had already been installed and started, so a
+missing binary left the app service enabled and running and then threw. That is
+a confusing half-finished state to hand back to someone midway through the
+setup wizard.
+
+The check now runs before anything is written or enabled, so either the whole
+step succeeds or nothing on the system has changed.
+
+No change to how the binary is located. Installs that were working after
+v1.25.7 are unaffected.
+
+---
+
 ## 2026-08-05 - v1.25.7: Find the Tesla proxy binary wherever it was installed
 
 A Linux install failed to start with `wattsnatch-proxy.service: Failed at step
