@@ -2,6 +2,32 @@
 
 ---
 
+## 2026-08-05 - v1.25.10: Explain the grid carbon intensity options properly
+
+Follow-up to v1.25.9, which made ElectricityMaps selectable outside the US but
+left people with a bare "Region / Zone" box and no way to know what to put in
+it. The zone identifiers are not guessable from a state name.
+
+The Australian note under Grid Carbon Intensity previously read "AEMO covers
+Australia and needs no setup - nothing to configure here". That was the claim
+that misled everyone, so it has been replaced with an explanation of what AEMO
+can and cannot tell you, including the specific reason Tasmania comes out wrong:
+its scheduled generation is hydro, and AEMO's model assumes scheduled generation
+is thermal.
+
+The Region / Zone field now carries guidance that changes with the selected
+provider. Australians choosing ElectricityMaps see every Australian zone listed
+(`AU-NSW`, `AU-NT`, `AU-QLD`, `AU-SA`, `AU-TAS`, `AU-VIC`, `AU-WA`), with
+Tasmania called out, plus links to the full public zone list and to where a free
+API key comes from. WattTime users get WattTime guidance instead. AEMO shows
+nothing, because it needs nothing.
+
+The zone identifiers were taken from ElectricityMaps' public zone list at
+`https://api.electricitymap.org/v3/zones`, which needs no API key to read, so
+they are confirmed rather than assumed.
+
+---
+
 ## 2026-08-05 - v1.25.9: Make ElectricityMaps reachable outside the United States
 
 ElectricityMaps was listed as a US-only grid carbon intensity provider. It is

@@ -252,8 +252,10 @@
           <div class="card-label">Grid Carbon Intensity Source</div>
         </div>
         <p id="grid-intensity-note-au" style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
-          AEMO covers Australia and needs no setup - nothing to configure here.
-        </p>
+            <strong>AEMO is accurate for Queensland only.</strong> It works out renewable share and carbon intensity from AEMO's public NEM summary, which does not publish fuel mix, so it has to assume scheduled generation is thermal. That holds in Queensland but not elsewhere: Tasmania's scheduled generation is hydro, so AEMO would report it as almost entirely fossil-fuelled when it is in fact close to fully renewable. It needs no API key and nothing configured.
+            <br><br>
+            <strong>Outside Queensland, use ElectricityMaps.</strong> It publishes real per-state figures based on actual fuel mix and covers every Australian state. It needs a free API key and your zone, both entered below.
+          </p>
         <p id="grid-intensity-note-us" style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem;display:none">
           WattTime and ElectricityMaps are optional, best-effort providers - implemented from their public API docs without a live account to verify against.
         </p>
@@ -271,8 +273,8 @@
         <div id="grid-intensity-provider-fields" class="grid-2" style="display:none">
           <div class="form-group" id="gi-field-region">
             <label for="setting_grid_intensity_region">Region / Zone</label>
-            <input type="text" id="setting_grid_intensity_region" placeholder="e.g. AU-TAS, AU-QLD, US-CAL-CISO (ElectricityMaps) or CAISO_NORTH (WattTime)">
-            <span class="text-secondary text-xs mt-1">The zone identifier used by your chosen provider. Check your provider's documentation for the exact string, as they differ between services.</span>
+            <input type="text" id="setting_grid_intensity_region" placeholder="e.g. AU-TAS">
+            <span class="text-secondary text-xs mt-1" id="gi-region-help"></span>
           </div>
           <div class="form-group gi-field-watttime">
             <label for="setting_watttime_username">WattTime Username</label>

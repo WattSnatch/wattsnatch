@@ -73,6 +73,44 @@ const GRID_INTENSITY_PROVIDER_FIELDS = {
   electricitymaps: { region: true,  watttime: false, electricitymaps: true  },
 };
 
+// Australian ElectricityMaps zones, taken from their public zone list at
+// https://api.electricitymap.org/v3/zones (no API key needed to read it).
+// Listed here because "Region / Zone" on its own tells an Australian user
+// nothing, and the identifiers are not guessable from the state name alone.
+const ELECTRICITYMAPS_AU_ZONES = [
+  ['AU-NSW', 'New South Wales'],
+  ['AU-NT',  'Northern Territory'],
+  ['AU-QLD', 'Queensland'],
+  ['AU-SA',  'South Australia'],
+  ['AU-TAS', 'Tasmania'],
+  ['AU-VIC', 'Victoria'],
+  ['AU-WA',  'Western Australia'],
+];
+
+// Provider-specific guidance under the Region / Zone field. Kept as a function
+// because the sensible examples differ per provider and per country, and a
+// single static string ends up useless to everybody.
+function gridIntensityRegionHelp(provider, country) {
+  if (provider === 'electricitymaps') {
+    const auList = ELECTRICITYMAPS_AU_ZONES.map(([id]) => id).join(', ');
+    const examples = country === 'AU'
+      ? `Australian zones: ${auList}. Tasmania is <code>AU-TAS</code>.`
+      : 'For example <code>US-CAL-CISO</code>, <code>GB</code>, or <code>DE</code>.';
+    return `${examples} The full list of every zone is at `
+      + `<a href="https://api.electricitymap.org/v3/zones" target="_blank" rel="noopener">api.electricitymap.org/v3/zones</a>, `
+      + `which needs no API key to view. Get a free key at `
+      + `<a href="https://portal.electricitymaps.com" target="_blank" rel="noopener">portal.electricitymaps.com</a>. `
+      + `Both this and the API key must be set before it will be used.`;
+  }
+  if (provider === 'watttime') {
+    return 'The WattTime balancing-authority abbreviation, for example '
+      + '<code>CAISO_NORTH</code>. See '
+      + '<a href="https://docs.watttime.org" target="_blank" rel="noopener">docs.watttime.org</a>. '
+      + 'Username, password and region must all be set before it will be used.';
+  }
+  return '';
+}
+
 /** Show only the credential/zone inputs the selected provider actually uses. */
 function applyGridIntensityProviderUI() {
   const select = document.getElementById('setting_grid_intensity_provider');
@@ -85,6 +123,12 @@ function applyGridIntensityProviderUI() {
 
   const regionField = document.getElementById('gi-field-region');
   if (regionField) regionField.style.display = spec.region ? '' : 'none';
+
+  const help = document.getElementById('gi-region-help');
+  if (help) {
+    const country = document.getElementById('setting_country')?.value === 'US' ? 'US' : 'AU';
+    help.innerHTML = gridIntensityRegionHelp(select.value, country);
+  }
   for (const el of document.querySelectorAll('.gi-field-watttime')) {
     el.style.display = spec.watttime ? '' : 'none';
   }
