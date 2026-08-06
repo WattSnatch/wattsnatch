@@ -8,3 +8,4 @@ data/
 tmp-github-upload/
 *.backup-phase*
 .claude/
+.DS_Store

@@ -22,6 +22,11 @@ const { decrypt } = require('./utils/crypto');
 const logger = require('./utils/logger');
 const mqttPublisher = require('./services/mqttPublisher');
 
+// How stale a charge limit may be before we re-read it from Tesla rather than
+// stop charging on it. Short, because this only triggers at the moment we are
+// about to stop, which is rare and is exactly when being wrong is costly.
+const VERIFY_LIMIT_BEFORE_STOP_MS = 2 * 60 * 1000;
+
 const STATES = {
   IDLE:       'IDLE',       // No car, or car disconnected
   WAITING:    'WAITING',    // Car plugged in, no solar yet - we stopped any grid charge
@@ -1236,11 +1241,47 @@ class Controller {
     // enforces its own limit natively, so declining to act here cannot
     // overcharge - it only defers to the car until Tesla confirms the number,
     // which the freshness rule above makes happen within a couple of minutes.
-    const limitConfirmed = telemetry.getChargeLimitAge() !== Infinity;
+    let limitConfirmed = telemetry.getChargeLimitAge() !== Infinity;
     if (!limitConfirmed && !knownDisconnected && batteryPct > 0 && batteryPct >= chargeLimit) {
       logger.logEvent('info',
         `Battery ${batteryPct.toFixed(0)}% is at the unconfirmed charge limit `
         + `(${chargeLimit}%) - deferring to the car until Tesla confirms it`);
+    }
+
+    // About to stop charging because we believe the battery has reached the
+    // limit? Re-read the limit from Tesla first, unless we only just did.
+    //
+    // Stopping is the one irreversible-feeling thing a wrong cached limit can
+    // do: the car quietly stops well short of where the owner set it, and
+    // nothing looks broken. A cached value has been observed disagreeing with
+    // what Tesla reports (a cached 50 against Tesla's 80), cause not yet
+    // established - so rather than trust the cache at the moment it matters
+    // most, confirm it. This costs one API call, only when we are about to
+    // stop, and only if the value is older than a couple of minutes.
+    if (!knownDisconnected && limitConfirmed && batteryPct > 0 && batteryPct >= chargeLimit
+        && vin && teslaToken && telemetry.getChargeLimitAge() > VERIFY_LIMIT_BEFORE_STOP_MS) {
+      try {
+        this._trackApiCall('data');
+        const { chargeState: fresh } = await getVehicleData(vin, teslaToken);
+        const freshLimit = fresh?.charge_limit_soc;
+        if (typeof freshLimit === 'number' && Number.isFinite(freshLimit)) {
+          if (freshLimit !== chargeLimit) {
+            logger.logEvent('api_error',
+              `Charge limit mismatch caught before stopping: cached ${chargeLimit}%, `
+              + `Tesla reports ${freshLimit}%. Using Tesla's value. `
+              + `charge_state snapshot: limit=${fresh.charge_limit_soc} `
+              + `min=${fresh.charge_limit_soc_min} std=${fresh.charge_limit_soc_std} `
+              + `battery=${fresh.battery_level} state=${fresh.charging_state}`);
+          }
+          telemetry.updateFromApi({ chargeLimit: freshLimit });
+          chargeLimit = freshLimit;
+          limitConfirmed = true;
+        }
+      } catch (err) {
+        // Could not reach Tesla. Fall through and use what we have rather than
+        // leaving the car charging unsupervised.
+        logger.logEvent('api_error', `Charge limit re-verify before stop failed: ${err.message}`);
+      }
     }
 
     if (knownDisconnected || (limitConfirmed && batteryPct > 0 && batteryPct >= chargeLimit)) {

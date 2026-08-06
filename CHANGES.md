@@ -2,6 +2,39 @@
 
 ---
 
+## 2026-08-06 - v1.25.11: A wrong charge limit can no longer stop your charging
+
+Two problems, one of them fully understood and one not.
+
+**Setting the charge limit from the dashboard did not update the app's own
+copy of it.** The command was sent to Tesla, Tesla accepted it, and the
+endpoint returned success, but the cached value was left untouched. So the
+dashboard carried on showing the old number and the controller carried on
+enforcing it until the next refresh. The practical effect was that a wrong
+cached limit could not be corrected from inside the app at all: you could set
+it correctly as many times as you liked and watch nothing change. The cache is
+now updated as soon as Tesla accepts the new value.
+
+**Separately, a cached limit was observed disagreeing with the car.** An
+install had 50% cached while Tesla reported 80% consistently across repeated
+polls, with the battery sitting above 50% so charging kept being stopped early.
+The cause has not been established. Every code path reads `charge_limit_soc`,
+nothing reads `charge_limit_soc_min`, and the disagreement could not be
+reproduced on demand.
+
+Rather than guess at a cause, the consequence has been removed. Before the
+controller stops charging because the battery has reached the limit, it now
+re-reads the limit from Tesla if the cached value is more than two minutes old,
+and uses the car's answer. That costs one API call, only at the moment a stop
+is about to happen, which is both rare and exactly when being wrong is
+expensive. If the cached and live values disagree, the full `charge_state`
+snapshot is logged so the next occurrence produces evidence rather than another
+investigation.
+
+Also adds `.DS_Store` to `.gitignore`.
+
+---
+
 ## 2026-08-05 - v1.25.10: Explain the grid carbon intensity options properly
 
 Follow-up to v1.25.9, which made ElectricityMaps selectable outside the US but

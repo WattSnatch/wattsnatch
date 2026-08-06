@@ -336,7 +336,24 @@ function getChargeLimitAge() {
   return _state.chargeLimitAt ? Date.now() - _state.chargeLimitAt : Infinity;
 }
 
+/**
+ * Overwrite the cached charge limit after WE have just changed it on the car.
+ *
+ * Without this, setting the limit through the dashboard sent the command to
+ * Tesla and returned success while the cached value stayed stale, so the UI
+ * kept showing the old number and the controller kept enforcing it. That made
+ * a wrong cached limit impossible to correct from inside the app - the user
+ * could set 80 repeatedly and watch it keep behaving as 50.
+ */
+function setChargeLimitLocal(limit, source = 'command') {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return;
+  _state.chargeLimit       = limit;
+  _state.chargeLimitAt     = Date.now();
+  _state.chargeLimitSource = source;
+  _persist();
+}
+
 module.exports = {
   startTelemetryListener, onVehicleUpdate, getState, getAge, isStale,
-  updateFromApi, getChargeLimitAge,
+  updateFromApi, getChargeLimitAge, setChargeLimitLocal,
 };

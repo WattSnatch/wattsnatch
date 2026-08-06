@@ -167,6 +167,13 @@ router.post('/api/charge/limit', async (req, res) => {
     if (!tokenRow) return res.json({ ok: false, error: 'Tesla not authenticated' });
     const token = JSON.parse(decrypt(tokenRow.token_data));
     await setChargeLimit(vin, limit, token.access_token);
+    // Update our own cache immediately. Tesla has accepted the new value, so
+    // continuing to report and enforce the old one is simply wrong - and it
+    // left a bad cached limit impossible to correct from the dashboard: the
+    // command succeeded every time while the app carried on behaving as though
+    // nothing had changed.
+    require('../services/telemetry').setChargeLimitLocal(limit, 'command');
+    require('../utils/logger').logEvent('command', `Charge limit set to ${limit}% from the dashboard`);
     res.json({ ok: true, limit });
   } catch (err) {
     res.json({ ok: false, error: err.message });
