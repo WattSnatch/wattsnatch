@@ -34,6 +34,7 @@ const https = require('https');
 let keytar = null;
 try { keytar = require('keytar'); } catch (_e) {}
 const db = require('../db');
+const { encrypt, decrypt } = require('../utils/crypto');
 const logger = require('../utils/logger');
 
 const SERVICE_NAME = 'WattSnatch';
@@ -51,24 +52,43 @@ let _interval = null;
 let _authCookie = null;
 
 async function getCredentials() {
+  // Encrypted in the database - works on headless Linux, where keytar's D-Bus
+  // backend is unavailable and throws.
+  const encEmail = db.getSetting('melview_email_enc');
+  const encPass  = db.getSetting('melview_password_enc');
+  if (encEmail && encPass) {
+    try {
+      return { email: decrypt(encEmail), password: decrypt(encPass) };
+    } catch (err) {
+      logger.logEvent('warn', `[melview] stored credentials could not be decrypted: ${err.message}`);
+      return { email: null, password: null };
+    }
+  }
+
+  // Legacy: written by an older version via keytar. Read once and migrate.
+  if (!keytar) return { email: null, password: null };
   try {
     const email = await keytar.getPassword(SERVICE_NAME, 'melview_email');
     const password = await keytar.getPassword(SERVICE_NAME, 'melview_password');
+    if (email && password) {
+      try {
+        db.setSetting('melview_email_enc', encrypt(email));
+        db.setSetting('melview_password_enc', encrypt(password));
+        logger.logEvent('info', '[melview] migrated credentials from the system keychain into the encrypted database');
+      } catch (migrateErr) {
+        logger.logEvent('warn', `[melview] credential migration failed: ${migrateErr.message}`);
+      }
+    }
     return { email, password };
   } catch (err) {
-    logger.logEvent('warn', `keytar read failed for melview: ${err.message}`);
+    logger.logEvent('warn', `[melview] keychain read unavailable: ${err.message}`);
     return { email: null, password: null };
   }
 }
 
 async function setCredentials(email, password) {
-  try {
-    if (email)    await keytar.setPassword(SERVICE_NAME, 'melview_email', email);
-    if (password) await keytar.setPassword(SERVICE_NAME, 'melview_password', password);
-  } catch (err) {
-    logger.logEvent('warn', `keytar write failed for melview: ${err.message}`);
-    throw err;
-  }
+  if (email)    db.setSetting('melview_email_enc', encrypt(email));
+  if (password) db.setSetting('melview_password_enc', encrypt(password));
 }
 
 function _request(path, body) {

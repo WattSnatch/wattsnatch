@@ -2,6 +2,57 @@
 
 ---
 
+## 2026-08-08 - v1.26.0: Fix at-rest encryption on Linux and Windows, and calendar setup on headless servers
+
+**If you run WattSnatch on anything other than macOS, please update.** Your
+stored secrets were not meaningfully encrypted, and this release fixes that and
+re-encrypts them on first start.
+
+### The encryption key was a hardcoded string on every non-Mac install
+
+At-rest encryption for OAuth tokens and API keys derived its key from the Mac's
+hardware UUID by running `system_profiler`. That command does not exist on Linux
+or Windows, so those installs silently fell through to a hardcoded fallback
+string that is committed to this repository. Anyone reading the source could
+decrypt the database of any Linux or Windows install: the Tesla access and
+refresh tokens, the Enphase token, and any other secret stored the same way.
+macOS installs were unaffected, since the hardware UUID path worked there.
+
+The key is now 32 random bytes, generated once and stored in the database, which
+is the approach already used for the session secret. It behaves identically on
+every platform and depends on no external command.
+
+Existing data is not orphaned. The old keys are still tried when decrypting, and
+a migration on startup re-encrypts anything still held under one. It is
+idempotent and isolated per item, so a single failure cannot cascade, and it
+reports what it moved.
+
+### Calendar setup failed on headless servers
+
+Connecting an iCloud calendar on a server with no desktop session failed with
+`Cannot autolaunch D-Bus without X11 $DISPLAY`. Credentials were stored through
+keytar, whose Linux backend needs a desktop secret service over D-Bus, and the
+error was not caught, so the raw message reached the user with nothing
+actionable in it. Reported in issue #11.
+
+The same unguarded pattern was present in the MELCloud and MELview
+integrations, so all three could fail the same way.
+
+All three now store credentials encrypted in the database, the same way the
+Google and Outlook calendar providers already did. keytar is still read, never
+written, so credentials saved by an earlier version are picked up and migrated
+on first read rather than being lost.
+
+### Nothing changed about how charging works
+
+The calendar provider contract is unchanged: `fetchEvents`, `isConfigured` and
+every export keep the same shape and behaviour, and the trip-planning service
+reaches credentials through the provider registry rather than touching keytar
+itself. Verified against a live calendar after migrating: trips, locations and
+departure times all resolve as before.
+
+---
+
 ## 2026-08-06 - v1.25.11: A wrong charge limit can no longer stop your charging
 
 Two problems, one of them fully understood and one not.

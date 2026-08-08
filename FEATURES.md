@@ -4,7 +4,7 @@ WattSnatch is a self-hosted Node.js home energy orchestration system built aroun
 
 It runs as a single Express server (`src/server.js`) with a SQLite database, polling local hardware (Enphase gateway, myenergi Eddi, MELCloud) and cloud APIs (Tesla Fleet API, Solcast, Open-Meteo, AEMO, Google Gemini/OpenRouter), pushing live updates to a browser dashboard over Server-Sent Events.
 
-**Stack:** Node.js / Express, `better-sqlite3`, vanilla JS frontend, ZeroMQ (Tesla Fleet Telemetry), MQTT (Home Assistant), `keytar` (macOS Keychain), AES-256-GCM token encryption.
+**Stack:** Node.js / Express, `better-sqlite3`, vanilla JS frontend, ZeroMQ (Tesla Fleet Telemetry), MQTT (Home Assistant), AES-256-GCM token encryption.
 
 ---
 
@@ -303,7 +303,7 @@ Full configuration UI for every integration and threshold in this document, plus
 - **12-step guided setup wizard** (two steps are conditional: the Enphase login is skipped for other meter brands, and the Bluetooth LE proxy step is skipped in Fleet API mode) - solar meter selection and connection testing, Enphase gateway discovery & pairing, Tesla developer app registration walkthrough, EC keypair generation for Tesla's vehicle-command signing requirement, Tesla OAuth flow, charging preference defaults, and (macOS) background-service installation.
 - **Tesla local command proxy** - commands are signed locally via Tesla's official `tesla-http-proxy` using an EC P-256 keypair, per Tesla's vehicle-command security model; WattSnatch itself never holds unsigned command authority.
 - **Token lifecycle management** (`tokens.js`) - hourly check that renews the Tesla access token automatically (via refresh token) when within 10 minutes of expiry, and warns ahead of Enphase JWT expiry (which requires re-entering the Enlighten password once, never stored).
-- **Encrypted credential storage** - OAuth tokens are AES-256-GCM encrypted at rest in SQLite; sensitive service credentials (MELCloud, myenergi) are stored in the OS Keychain via `keytar`.
+- **Encrypted credential storage** - every stored secret (OAuth tokens, API keys, and the MELCloud, MelView and iCloud calendar credentials) is AES-256-GCM encrypted at rest in SQLite, under a random 32-byte key generated once per install and held in the database. Before v1.26.0 the key was derived from the Mac's hardware UUID, falling back to a hardcoded constant on Linux and Windows; those installs were effectively unencrypted and are re-encrypted automatically on upgrade.
 - **Session-based auth** with bcrypt password hashing gates the dashboard itself; a small set of endpoints (car-location for Home Assistant, embed views) use separate shared-secret auth so external tools don't need a full login session.
 - **Brute-force login lockout** - failed logins escalate through 30-second, 5-minute, then 30-minute lockout tiers (global, not per-IP, since the app has one shared password rather than per-user accounts). A successful login fully resets the counter.
 - **Password recovery** - `npm run reset-password -- <new-password>` (or `--clear` to remove the password entirely) for when you're locked out or have forgotten it; also clears any active lockout.

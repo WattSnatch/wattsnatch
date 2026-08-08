@@ -15,6 +15,7 @@
 let keytar = null;
 try { keytar = require('keytar'); } catch (_e) {}
 const db = require('../db');
+const { encrypt, decrypt } = require('../utils/crypto');
 const logger = require('../utils/logger');
 
 const SERVICE_NAME = 'WattSnatch';
@@ -35,31 +36,46 @@ let _client = null;
  * Falls back to empty if not set.
  */
 async function getCredentials() {
+  // Encrypted in the database - works on headless Linux, where keytar's D-Bus
+  // backend is unavailable and throws.
+  const encEmail = db.getSetting('melcloud_email_enc');
+  const encPass  = db.getSetting('melcloud_password_enc');
+  if (encEmail && encPass) {
+    try {
+      return { email: decrypt(encEmail), password: decrypt(encPass) };
+    } catch (err) {
+      logger.logEvent('warn', `[melcloud] stored credentials could not be decrypted: ${err.message}`);
+      return { email: null, password: null };
+    }
+  }
+
+  // Legacy: written by an older version via keytar. Read once and migrate.
+  if (!keytar) return { email: null, password: null };
   try {
     const email = await keytar.getPassword(SERVICE_NAME, 'melcloud_email');
     const password = await keytar.getPassword(SERVICE_NAME, 'melcloud_password');
+    if (email && password) {
+      try {
+        db.setSetting('melcloud_email_enc', encrypt(email));
+        db.setSetting('melcloud_password_enc', encrypt(password));
+        logger.logEvent('info', '[melcloud] migrated credentials from the system keychain into the encrypted database');
+      } catch (migrateErr) {
+        logger.logEvent('warn', `[melcloud] credential migration failed: ${migrateErr.message}`);
+      }
+    }
     return { email, password };
   } catch (err) {
-    logger.logEvent('warn', `keytar read failed for melcloud: ${err.message}`);
+    logger.logEvent('warn', `[melcloud] keychain read unavailable: ${err.message}`);
     return { email: null, password: null };
   }
 }
 
 /**
- * Store MELCloud credentials to Keychain.
+ * Store MELCloud credentials, encrypted, in the database.
  */
 async function setCredentials(email, password) {
-  try {
-    if (email) {
-      await keytar.setPassword(SERVICE_NAME, 'melcloud_email', email);
-    }
-    if (password) {
-      await keytar.setPassword(SERVICE_NAME, 'melcloud_password', password);
-    }
-  } catch (err) {
-    logger.logEvent('warn', `keytar write failed for melcloud: ${err.message}`);
-    throw err;
-  }
+  if (email)    db.setSetting('melcloud_email_enc', encrypt(email));
+  if (password) db.setSetting('melcloud_password_enc', encrypt(password));
 }
 
 /**

@@ -57,7 +57,7 @@ The database is the part that grows. Telemetry is kept for 5 years, because the 
 | CPU | 1 core, any 64-bit CPU | 2+ cores - a Raspberry Pi 4, old laptop, NUC, or Mac mini is plenty |
 | RAM | 1 GB free | 2 GB+ free |
 | Disk | 5 GB free (app + dependencies ≈ 120 MB; database grows ~600 MB/year) | 20 GB+ if you want years of history |
-| OS | macOS, Windows, or Linux | macOS or Linux for an always-on install (macOS additionally gets the one-click background-service installer and Keychain credential storage) |
+| OS | macOS, Windows, or Linux | macOS or Linux for an always-on install (macOS additionally gets the one-click background-service installer) |
 | Node.js | **v20 or later** (`better-sqlite3` does not support v18; Debian 12's apt ships v18, see below) | Latest LTS |
 | Build tools | A C/C++ compiler toolchain - two dependencies (`better-sqlite3`, `zeromq`) compile native code during `npm install` if no prebuilt binary exists for your platform | - |
 | Network | Same LAN as your solar meter if it's a local-network device (Enphase, Fronius, SPAN, Sungrow) - a cloud VPS can't reach those. SolarEdge and MQTT input have no LAN requirement. Outbound internet is needed either way for the Tesla Fleet API. | Wired Ethernet on an always-on machine |
@@ -384,7 +384,7 @@ Enter both in **Settings → myenergi**. Polls every 30 seconds once configured.
 Mitsubishi Electric actually runs **two separate cloud platforms** for air-con monitoring, not one - MELCloud globally, and a distinct AU/NZ-only platform called MelView (used by the "Wi-Fi Control" branded app in Australia and New Zealand). They are different accounts with different logins; MELCloud credentials will not work on MelView and vice versa, even though both are made by Mitsubishi and both apps look similar.
 
 **Needs:** the email + password for whichever one your account is actually on.
-Enter in **Settings → Air Conditioning**, pick MELCloud or MelView from the dropdown, and click Test Connection - it validates the login before saving. If you're not sure which one you have, try MELCloud first; if it's rejected, try MelView. Credentials are stored in your OS's secure credential store (macOS Keychain, etc. via `keytar`), not the database.
+Enter in **Settings → Air Conditioning**, pick MELCloud or MelView from the dropdown, and click Test Connection - it validates the login before saving. If you're not sure which one you have, try MELCloud first; if it's rejected, try MelView. Credentials are stored encrypted in the database, so this works on a headless server with no keyring.
 
 **MelView does not report power or energy use at all** - only on/off state, mode, and temperature. If you're on MelView, the dashboard's air-con wattage figure will never show a value; this is a limitation of Mitsubishi's own API, not a WattSnatch bug.
 
@@ -601,7 +601,7 @@ Then restart the service (`pm2 restart wattsnatch` on Windows, `launchctl kickst
 
 **Backing up first matters.** A bad update is a 10-second recovery if you have a recent backup, and a much bigger problem if you don't. `npm run backup` (or the Download Backup button in Settings → Backup & Restore) writes a zip of your database and `keys/` folder to `~/.solarcharge/backups/`.
 
-**Treat that zip as highly sensitive.** It contains your Tesla command signing key, and the database inside it holds most of your credentials in readable form: API keys and tokens for Solcast, SolarEdge, SPAN, myenergi, Google Maps, MQTT, and your Tesla client secret, among others. The only credentials *not* in a backup are the three kept in your operating system's credential store (MELCloud, MelView, and iCloud passwords), which never leave this machine. Encrypt any backup that's going to leave the machine, as described below.
+**Treat that zip as highly sensitive.** It contains your Tesla command signing key, and the database inside it holds most of your credentials in readable form: API keys and tokens for Solcast, SolarEdge, SPAN, myenergi, Google Maps, MQTT, and your Tesla client secret, among others. From v1.26.0 this includes the MELCloud, MelView and iCloud calendar credentials, which used to be held outside the database in your OS keychain and therefore were not captured in a backup. They are encrypted rather than readable, but the encryption key lives in the same database, so treat the zip as containing them. Encrypt any backup that's going to leave the machine, as described below.
 
 WattSnatch also **backs itself up automatically once a day** (on by default - see Settings → Backup & Restore), so `npm run update`'s pre-update backup is a belt-and-braces extra, not your only line of defence. Automatic backups live in `~/.solarcharge/backups/auto/` with daily snapshots for a week, thinning to one per week for ~3 months before being pruned - no manual cleanup needed.
 
@@ -653,7 +653,7 @@ rm -rf ~/.solarcharge
 ```
 That directory holds the SQLite database, all automatic and manual backups, and your encrypted Tesla/Enphase tokens. Keep it instead of deleting if you might reinstall later, or take a backup out of `~/.solarcharge/backups/` first.
 
-**4. Credentials in your OS keychain.** MELCloud, MelView and iCloud passwords are stored in your operating system's credential store, outside both locations above. Remove them from Keychain Access on macOS, or your keyring manager on Linux, searching for the service name `WattSnatch`. Every other credential lives in the database and is removed with step 3.
+**4. Credentials from older versions in your OS keychain.** From v1.26.0 every credential, including MELCloud, MelView and iCloud, is stored encrypted in the database and is removed with step 3. If you ever ran an earlier version on macOS, a copy may remain in Keychain Access under the service name `WattSnatch`; those entries are no longer read after migration and can be deleted.
 
 **5. Revoke WattSnatch's access** at [tesla.com/teslaaccount/security](https://tesla.com/teslaaccount/security) under Third-Party Apps, if you're not reinstalling.
 
@@ -665,10 +665,10 @@ That directory holds the SQLite database, all automatic and manual backups, and 
 Missing build tools - see [System requirements](#2-system-requirements) above, then `npm install` again.
 
 **App crashes on startup with a `NODE_MODULE_VERSION` mismatch, or "Could not locate the bindings file"**
-`better-sqlite3`, `zeromq`, and `keytar` are all native modules compiled against a specific Node.js version - this happens if the app was installed under one Node version and is now being run under another (e.g. after `nvm use` switched versions, or a Node upgrade). Fix: `npm rebuild` from the project folder, then restart.
+`better-sqlite3` and `zeromq` are native modules compiled against a specific Node.js version (`keytar` is too, but from v1.26.0 nothing depends on it working) - this happens if the app was installed under one Node version and is now being run under another (e.g. after `nvm use` switched versions, or a Node upgrade). Fix: `npm rebuild` from the project folder, then restart.
 
-**Linux: MELCloud/MelView/iCloud Calendar fail with a `keytar` error, or the app won't start at all on a headless box**
-These three integrations store credentials via `keytar`, which needs `libsecret` and a running keyring service (e.g. `gnome-keyring`) to work - neither exists by default on a headless Linux install like Raspberry Pi OS Lite. Install `libsecret-1-0` (`sudo apt install libsecret-1-0`), or skip these three integrations if you don't need them - everything else works fine without a keyring.
+**Linux: MELCloud/MelView/iCloud Calendar fail with a keyring or D-Bus error (e.g. `Cannot autolaunch D-Bus without X11 $DISPLAY`)**
+Fixed in v1.26.0 - update and this goes away. These three integrations used to store credentials via `keytar`, which on Linux needs `libsecret` and a running keyring service, neither of which exists on a headless install like Raspberry Pi OS Lite. They now store credentials encrypted in the database instead, so no keyring is needed. Credentials saved by an earlier version are migrated automatically the first time they are read.
 
 **"Find automatically" can't find the Enphase gateway**
 This relies on mDNS (Bonjour/Avahi) resolving `envoy.local`, which isn't installed by default on minimal Linux distros and won't work across VLANs/subnets. Install `avahi-daemon` (`sudo apt install avahi-daemon`), or just enter the gateway's IP address directly - find it from your router's connected-devices list.

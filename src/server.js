@@ -48,6 +48,23 @@ async function main() {
   // Clean old data on startup
   dbModule.cleanOldData();
 
+  // Re-encrypt any secret still stored under the previous key scheme, which
+  // derived the key from the Mac's hardware UUID and fell back to a hardcoded
+  // string everywhere else. Idempotent and per-item isolated, so it is safe to
+  // run on every boot and a single failure cannot cascade.
+  try {
+    const { migrateLegacySecrets } = require('./utils/crypto');
+    const { migrated, failed } = migrateLegacySecrets();
+    if (migrated.length) {
+      logger.logEvent('info', `Re-encrypted ${migrated.length} secret(s) under the current key: ${migrated.join(', ')}`);
+    }
+    for (const f of failed) {
+      logger.logEvent('warn', `Could not re-encrypt ${f.item}: ${f.error}`);
+    }
+  } catch (err) {
+    logger.logEvent('warn', `Secret re-encryption pass failed: ${err.message}`);
+  }
+
   const app = express();
 
   // Security headers. CSP is deliberately left off: the app relies heavily on

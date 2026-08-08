@@ -9,6 +9,19 @@
 
 const db = require('../../db');
 const logger = require('../../utils/logger');
+const { encrypt, decrypt } = require('../../utils/crypto');
+
+// Credentials are stored encrypted in the database, the same way the Google and
+// Outlook calendar providers store their tokens.
+//
+// They used to go through keytar, which on Linux talks to a desktop secret
+// service over D-Bus. On a headless server there is no D-Bus session, so
+// keytar throws "Cannot autolaunch D-Bus without X11 $DISPLAY" - and because
+// setCredentials() did not catch it, that raw native error surfaced to the user
+// as a failed calendar connection with no clue what to do about it.
+//
+// keytar is still read (never written) so existing macOS installs that already
+// stored credentials there keep working and are migrated on first read.
 
 let keytar = null;
 try { keytar = require('keytar'); } catch (_) {}
@@ -17,6 +30,9 @@ const KEYTAR_SERVICE = 'WattSnatch';
 const KEYTAR_ACCOUNT_USER = 'ical_username';
 const KEYTAR_ACCOUNT_PASS = 'ical_password';
 
+const SETTING_USER_ENC = 'ical_username_enc';
+const SETTING_PASS_ENC = 'ical_password_enc';
+
 // ── Credential management ─────────────────────────────────────────────────────
 
 function isConfigured() {
@@ -24,22 +40,47 @@ function isConfigured() {
 }
 
 async function setCredentials(username, password) {
-  if (!keytar) throw new Error('keytar not available - cannot store iCloud credentials securely');
-  await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_USER, username);
-  await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_PASS, password);
+  db.setSetting(SETTING_USER_ENC, encrypt(username));
+  db.setSetting(SETTING_PASS_ENC, encrypt(password));
+  // Kept in the clear deliberately: the UI shows which account is connected,
+  // and an email address is not the secret here. The app-specific password is.
   db.setSetting('ical_username', username);
   db.setSetting('ical_configured', '1');
 }
 
 async function getCredentials() {
+  // Preferred path: encrypted in the database, works on every platform.
+  const encUser = db.getSetting(SETTING_USER_ENC);
+  const encPass = db.getSetting(SETTING_PASS_ENC);
+  if (encUser && encPass) {
+    try {
+      return { username: decrypt(encUser), password: decrypt(encPass) };
+    } catch (err) {
+      logger.logEvent('warn', `[calendar/icloud] stored credentials could not be decrypted: ${err.message}`);
+      return null;
+    }
+  }
+
+  // Legacy path: credentials written by an older version via keytar. Read them
+  // once, move them into the database, and carry on. Wrapped because this is
+  // exactly the call that throws on headless Linux.
   if (!keytar) return null;
   try {
     const username = await keytar.getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_USER);
     const password = await keytar.getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_PASS);
     if (!username || !password) return null;
+    try {
+      db.setSetting(SETTING_USER_ENC, encrypt(username));
+      db.setSetting(SETTING_PASS_ENC, encrypt(password));
+      logger.logEvent('info', '[calendar/icloud] migrated credentials from the system keychain into the encrypted database');
+    } catch (migrateErr) {
+      // Migration is best-effort: if it fails we still return working
+      // credentials rather than breaking a calendar that was fine before.
+      logger.logEvent('warn', `[calendar/icloud] credential migration failed: ${migrateErr.message}`);
+    }
     return { username, password };
   } catch (err) {
-    logger.logEvent('warn', `[calendar/icloud] keytar read failed: ${err.message}`);
+    logger.logEvent('warn', `[calendar/icloud] keychain read unavailable: ${err.message}`);
     return null;
   }
 }

@@ -511,6 +511,13 @@ function getToken(provider) {
   return db.prepare('SELECT * FROM auth_tokens WHERE provider = ?').get(provider);
 }
 
+// Every provider that currently has a stored token. Used by the encryption
+// key migration, which needs to walk all of them without hardcoding a list
+// that would silently miss any provider added later.
+function getAllTokenProviders() {
+  return db.prepare('SELECT provider FROM auth_tokens').all().map((r) => r.provider);
+}
+
 function setToken(provider, tokenData, expiresAt, accountInfo) {
   db.prepare(`
     INSERT INTO auth_tokens (provider, token_data, expires_at, account_info, created_at) VALUES (?, ?, ?, ?, ?)
@@ -2376,6 +2383,7 @@ module.exports = {
   getToken,
   setToken,
   deleteToken,
+  getAllTokenProviders,
   logEvent,
   logTelemetry,
   startSession,
