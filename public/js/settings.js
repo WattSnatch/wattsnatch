@@ -135,6 +135,108 @@ function applyGridIntensityProviderUI() {
   for (const el of document.querySelectorAll('.gi-field-electricitymaps')) {
     el.style.display = spec.electricitymaps ? '' : 'none';
   }
+
+  // AEMO needs no credentials, so there is nothing to test for it.
+  const testRow = document.getElementById('grid-intensity-test-row');
+  if (testRow) testRow.style.display = (spec.watttime || spec.electricitymaps) ? '' : 'none';
+}
+
+/**
+ * Lists the free power windows WattSnatch has actually matched in the calendar.
+ *
+ * Shown because the matching is keyword-based and silent: without this, a
+ * mistyped event title or an all-day entry (deliberately ignored) looks
+ * identical to a working setup right up until the car does not charge.
+ */
+async function loadFreePowerWindows() {
+  const el = document.getElementById('free-power-upcoming');
+  if (!el) return;
+  try {
+    const data = await api('/api/calendar/free-power');
+    if (!data.ok) { el.textContent = ''; return; }
+
+    if (!data.enabled) {
+      el.innerHTML = '<span style="opacity:0.7">Turn on to start matching calendar events.</span>';
+      return;
+    }
+    if (!data.windows.length) {
+      el.innerHTML = '<span style="opacity:0.7">No matching events found in the next 7 days. '
+        + 'Calendar is checked hourly.</span>';
+      return;
+    }
+
+    const fmt = (ms) => new Date(ms).toLocaleString(undefined, {
+      weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+    });
+    const rows = data.windows.map((w) => {
+      const live = data.activeWindow && data.activeWindow.startMs === w.startMs;
+      const mins = Math.round((w.endMs - w.startMs) / 60000);
+      const dur = mins >= 60 ? `${(mins / 60).toFixed(mins % 60 ? 1 : 0)}h` : `${mins}m`;
+      return `<div style="margin-top:0.25rem">`
+        + (live ? '<strong style="color:var(--accent-solar)">● now</strong> ' : '• ')
+        + `${fmt(w.startMs)} <span style="opacity:0.7">(${dur})</span>`
+        + ` <span style="opacity:0.7">- ${w.summary}</span></div>`;
+    }).join('');
+    el.innerHTML = `<div style="font-weight:600;margin-bottom:0.15rem">`
+      + `${data.windows.length} upcoming window${data.windows.length === 1 ? '' : 's'}:</div>${rows}`;
+  } catch (_e) {
+    el.textContent = '';
+  }
+}
+
+/**
+ * Saves the grid-intensity fields, then asks the server to actually fetch from
+ * the configured source and reports what came back.
+ *
+ * Saving first mirrors the TeslaMate test button, and matters here: testing
+ * whatever is still stored rather than what is on screen would tell someone
+ * their brand-new key works when it was never saved (or vice versa). A blank
+ * secret field means "leave the stored one alone", which the server already
+ * handles, so retesting without retyping the key works as expected.
+ */
+async function testGridIntensity() {
+  const btn = document.getElementById('grid-intensity-test-btn');
+  const msg = document.getElementById('grid-intensity-test-message');
+  if (!btn || !msg) return;
+
+  const show = (type, text) => {
+    msg.className = `alert alert-${type} mt-1`;
+    msg.textContent = text;
+    msg.classList.remove('hidden');
+  };
+
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = 'Testing…';
+  try {
+    const provider = document.getElementById('setting_grid_intensity_provider')?.value;
+    const body = {
+      grid_intensity_provider: provider,
+      grid_intensity_region: document.getElementById('setting_grid_intensity_region')?.value.trim() || '',
+    };
+    // Only send credentials the user actually typed - an untouched field is
+    // blank on purpose and must not overwrite what is stored.
+    for (const key of ['watttime_username', 'watttime_password', 'electricitymaps_api_key']) {
+      const v = document.getElementById('setting_' + key)?.value.trim();
+      if (v) body[key] = v;
+    }
+    await api('/api/settings', { method: 'POST', body });
+
+    const data = await api('/api/grid-intensity/test', { method: 'POST' });
+    if (data.ok) {
+      const bits = [];
+      if (data.zone) bits.push(`zone ${data.zone}`);
+      if (typeof data.carbonIntensityG === 'number') bits.push(`${data.carbonIntensityG} gCO₂/kWh`);
+      if (data.tier) bits.push(`${data.tier} tier`);
+      show('success', `✓ Connected${bits.length ? ' - ' + bits.join(', ') : ''}`);
+    } else {
+      show('error', data.error || 'Test failed');
+    }
+  } catch (err) {
+    show('error', 'Error: ' + err.message);
+  }
+  btn.disabled = false;
+  btn.textContent = originalLabel;
 }
 
 function applyCountryUI(country) {
@@ -296,6 +398,7 @@ const FIELD_IDS = [
   'google_calendar_client_id', 'google_calendar_client_secret', 'google_calendar_redirect_uri',
   'outlook_calendar_client_id', 'outlook_calendar_client_secret', 'outlook_calendar_tenant_id',
   'outlook_calendar_redirect_uri',
+  'free_power_keywords',
   'grid_intensity_provider', 'grid_intensity_region', 'watttime_username', 'watttime_password', 'electricitymaps_api_key',
   'ercot_api_username', 'ercot_api_password', 'ercot_settlement_point',
   'battery_brand', 'battery_priority',
@@ -465,6 +568,17 @@ async function loadSettings() {
         el.value = data.settings[key];
       }
     }
+
+    // Secrets are deliberately never sent back, so their inputs load empty.
+    // Say so in the placeholder, otherwise an empty box reads as "my save was
+    // lost" - which is how it was reported in issue #8. Leaving the field
+    // untouched keeps the stored value; typing replaces it.
+    for (const [key, stored] of Object.entries(data.secretsSet || {})) {
+      const el = document.getElementById('setting_' + key);
+      if (!el) continue;
+      el.placeholder = stored ? '•••••••••  saved - type to replace' : '';
+    }
+
     updateGridRetailerIconPreview();
     const vinDisplay = document.getElementById('tesla-vin-display');
     if (vinDisplay && data.settings.tesla_display_name) {
@@ -510,6 +624,11 @@ async function loadSettings() {
 
     const autoTripToggle = document.getElementById('auto_trip_charging_enabled_toggle');
     if (autoTripToggle) autoTripToggle.checked = data.settings.auto_trip_charging_enabled !== 'false';
+
+    // Opt-in, so anything other than an explicit 'true' is off.
+    const freePowerToggle = document.getElementById('free_power_enabled_toggle');
+    if (freePowerToggle) freePowerToggle.checked = data.settings.free_power_enabled === 'true';
+    loadFreePowerWindows();
   } catch (err) {
     showMessage('error', 'Failed to load settings: ' + err.message);
   }
@@ -520,7 +639,14 @@ async function saveSettings(e) {
   const body = {};
   for (const key of FIELD_IDS) {
     const el = document.getElementById('setting_' + key);
-    if (el) body[key] = el.value;
+    // Trimmed because these are overwhelmingly pasted values - API keys, IDs,
+    // hostnames - and copying one out of a web portal very easily brings a
+    // trailing space or newline with it. Stored verbatim, that whitespace goes
+    // straight into an auth header and the request fails with something
+    // unhelpful like a 401, pointing suspicion at a key that is actually
+    // correct. Nothing in FIELD_IDS is a value where surrounding whitespace
+    // could be meaningful.
+    if (el) body[key] = typeof el.value === 'string' ? el.value.trim() : el.value;
   }
   // Schedule + TOU
   const schedToggle = document.getElementById('schedule_enabled');
@@ -545,6 +671,9 @@ async function saveSettings(e) {
 
   const autoTripToggle = document.getElementById('auto_trip_charging_enabled_toggle');
   if (autoTripToggle) body.auto_trip_charging_enabled = autoTripToggle.checked ? 'true' : 'false';
+
+  const freePowerToggle = document.getElementById('free_power_enabled_toggle');
+  if (freePowerToggle) body.free_power_enabled = freePowerToggle.checked ? 'true' : 'false';
 
   try {
     const data = await api('/api/settings', { method: 'POST', body });
@@ -1270,6 +1399,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Reveal the zone and credential inputs as soon as the provider changes,
   // rather than only on page load.
   document.getElementById('setting_grid_intensity_provider')?.addEventListener('change', applyGridIntensityProviderUI);
+  document.getElementById('grid-intensity-test-btn')?.addEventListener('click', testGridIntensity);
 
   const form = document.getElementById('settings-form');
   if (form) form.addEventListener('submit', saveSettings);
@@ -1563,6 +1693,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function showTmMessage(type, text) {
     if (!tmMessage) return;
     tmMessage.className = `alert alert-${type}`;
+    // Connection failures now come back as several lines, including an indented
+    // docker-compose snippet - without this they collapse into one run-on
+    // paragraph and the snippet becomes unreadable.
+    tmMessage.style.whiteSpace = 'pre-line';
     tmMessage.textContent = text;
     tmMessage.classList.remove('hidden');
     if (type === 'success') setTimeout(() => tmMessage.classList.add('hidden'), 5000);

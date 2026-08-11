@@ -427,6 +427,10 @@ function initDb() {
     watttime_username:          '',
     watttime_password:          '',
     electricitymaps_api_key:    '',
+    // Which ElectricityMaps host this key authenticated against ('free' or
+    // 'commercial'). Learned automatically on first successful fetch, not
+    // user-editable - see services/gridIntensity/electricitymaps.js.
+    electricitymaps_api_tier:   '',
     ercot_pricing_enabled:      'false',
     ercot_api_username:         '',
     ercot_api_password:         '',
@@ -435,6 +439,11 @@ function initDb() {
     span_access_token:          '',
     span_solar_circuit_id:      '',
     auto_trip_charging_enabled: 'true',
+    // Free power windows read from the connected calendar. Off by default:
+    // this is the one feature that will deliberately pull from the grid at
+    // full rate, so it only ever runs because somebody switched it on.
+    free_power_enabled:         'false',
+    free_power_keywords:        'free power',
     battery_brand:               'none',
     battery_priority:            'battery_first',
     sigenergy_host:              '',
@@ -1287,6 +1296,593 @@ function getGridSummaryForPeriod(startMs, endMs) {
     kwh_exported:   Math.round(kwhExported  * 100) / 100,
     import_cost:    Math.round(importCost   * 100) / 100,
     export_credit:  Math.round(exportCredit * 100) / 100,
+  };
+}
+
+/**
+ * The loads we attribute energy to, in the order they get first call on solar.
+ *
+ * The order is a statement of intent, not physics - electrons are fungible and
+ * nothing can measure which load "used" a given watt of sunshine. The house is
+ * a passive load that runs whether or not the sun is out, so it has first
+ * claim. Hot water and the car are both deferrable (WattSnatch decides when
+ * they run) and the Eddi diverts on smaller amounts of excess than the car can
+ * usefully take, so hot water sits ahead of the car.
+ *
+ * `column` is null for the house because the house is the residual: whatever
+ * the whole-home meter saw that no submeter claimed. That also makes it the
+ * bucket that absorbs unmetered load, which is the honest place to put it.
+ *
+ * To add a load, add an entry here. The waterfall, the reconciliation and the
+ * API shape are all derived from this list, so nothing else needs to change. A
+ * category that drew nothing over the period is dropped from the response, so
+ * an entry costs nothing until the hardware is actually wired up.
+ */
+const ENERGY_CATEGORIES = [
+  { key: 'house',     label: 'House',     column: null },
+  { key: 'hot_water', label: 'Hot water', column: 'eddi_w' },
+  { key: 'car',       label: 'Car',       column: 'ev_w' },
+  // telemetry_log.washer_w carried real readings for nine days in June 2026 and
+  // has defaulted to 0 since; nothing reads or writes it now. Whether those
+  // readings were a subset of consumption_w or an independent circuit was never
+  // established, and breaking out a load that is already inside consumption_w
+  // would silently understate the house residual. Left off until that is
+  // confirmed against the hardware.
+  // { key: 'washer', label: 'Washer', column: 'washer_w' },
+];
+
+/**
+ * Round to cents/hundredths such that the parts still add up to `target`.
+ *
+ * Without this the breakdown can be individually correct and still look broken,
+ * because three numbers that each round down leave a column that visibly does
+ * not match the total printed beside it. Largest-remainder: floor everything,
+ * then hand the leftover hundredths to whichever values came closest to
+ * rounding up.
+ */
+function _roundPreservingSum(values, target) {
+  const scaled = values.map((v) => v * 100);
+  const floors = scaled.map((v) => Math.floor(v));
+  const leftover = Math.round(target * 100) - floors.reduce((a, b) => a + b, 0);
+
+  const out = floors.slice();
+  if (leftover !== 0 && out.length > 0) {
+    const step = leftover > 0 ? 1 : -1;
+    const order = scaled
+      .map((v, i) => ({ i, frac: v - floors[i] }))
+      // Positive leftover goes to the closest-to-rounding-up first; a negative
+      // one is taken back from the closest-to-rounding-down first.
+      .sort((a, b) => (step > 0 ? b.frac - a.frac : a.frac - b.frac));
+    for (let n = 0; n < Math.abs(leftover); n++) {
+      out[order[n % order.length].i] += step;
+    }
+  }
+  return out.map((v) => v / 100);
+}
+
+/**
+ * Per-category energy and cost for a period, reconciled to the grid meter.
+ *
+ * This is the single source of truth for "what did the period cost, and where
+ * did the energy go". It replaces three separate models - one each for the
+ * house, the Eddi and the car - that each estimated their own grid share using
+ * incompatible assumptions and were then summed. Because the house model took a
+ * proportional share of solar while the car model gave the house first refusal,
+ * the same watt could be charged to two categories: over July 2026 those three
+ * models summed to 287.02 kWh of grid import against a metered 268.78.
+ *
+ * How this avoids that:
+ *
+ *  - Totals come from `grid_w`, the measured whole-home flow. Nothing about the
+ *    import, export, cost or credit figures is modelled. On this install
+ *    `grid_w` tracks `consumption_w - solar_w` to within 0.9W on average, so
+ *    the meter and the submeters genuinely agree; the meter simply wins.
+ *
+ *  - The solar-versus-grid split is computed ONCE, as a single waterfall across
+ *    all categories, instead of each category estimating its own share in
+ *    ignorance of the others. A watt can therefore only be spent once.
+ *
+ *  - The waterfall allocates the *measured* import in reverse solar priority -
+ *    whatever is last in line for sunshine is first in line for the grid -
+ *    rather than deriving each category's grid draw from its own load minus its
+ *    own solar share. That is the part that makes the arithmetic close: the
+ *    parts sum to the meter on every single interval, not merely on average, so
+ *    no after-the-fact scaling is needed and per-interval TOU pricing stays
+ *    exact. (Allocating grid from the back is equivalent to allocating solar
+ *    from the front, so the intent encoded in ENERGY_CATEGORIES is preserved.)
+ *
+ * The per-category split remains an attribution and should be presented as one.
+ * The totals are meter readings and can be presented as fact.
+ *
+ * @param {number} startMs inclusive, ms since epoch
+ * @param {number} [endMs] exclusive, defaults to now
+ */
+function _getEnergyBreakdownUncached(startMs, endMs) {
+  const now = endMs || Date.now();
+  const resolveRate       = createRateResolver();
+  const resolveExportRate = createExportRateResolver();
+
+  const submeters = ENERGY_CATEGORIES.filter((c) => c.column);
+  const submeterCols = submeters
+    .map((c) => `MAX(0.0, COALESCE(${c.column}, 0)) AS load_${c.key}`)
+    .join(',\n        ');
+
+  const rows = db.prepare(`
+    SELECT recorded_at, grid_w,
+      MAX(0.0, consumption_w) AS consumption_w${submeters.length ? ',' : ''}
+      ${submeterCols},
+      MIN(
+        COALESCE(LEAD(recorded_at) OVER (ORDER BY recorded_at) - recorded_at, 5000),
+        120000
+      ) / 3600000.0 AS interval_h
+    FROM telemetry_log
+    WHERE recorded_at >= ? AND recorded_at < ?
+  `).all(startMs, now);
+
+  // Matches getGridSummaryForPeriod so the two functions cannot disagree. Flow
+  // under 50W in either direction is meter noise around zero, not real trade.
+  const DEADBAND_W = 50;
+
+  const agg = new Map(
+    ENERGY_CATEGORIES.map((c) => [c.key, { load: 0, solar: 0, grid: 0, gridCost: 0, saving: 0 }])
+  );
+  // Reverse solar priority. See the note above on why the measured import is
+  // what gets allocated.
+  const gridOrder = [...ENERGY_CATEGORIES].reverse();
+
+  let kwhImported = 0, kwhExported = 0, importCost = 0, exportCredit = 0;
+  let unexplainedKwh = 0;
+  let coveredHours = 0;
+  const daysSeen = new Set();
+
+  for (const r of rows) {
+    const h = r.interval_h;
+    coveredHours += h;
+    // UTC day bucket, matching the UTC-ms window this is called with.
+    daysSeen.add(Math.floor(r.recorded_at / 86400000));
+
+    const gridW = r.grid_w || 0;
+    const rate  = resolveRate(r.recorded_at);
+
+    if (gridW < -DEADBAND_W) {
+      const kwh = -gridW * h / 1000.0;
+      kwhExported  += kwh;
+      exportCredit += kwh * resolveExportRate(r.recorded_at);
+    }
+
+    let submeterW = 0;
+    const load = new Map();
+    for (const c of submeters) {
+      const w = Math.max(0, r[`load_${c.key}`] || 0);
+      load.set(c.key, w);
+      submeterW += w;
+    }
+
+    const importW = gridW > DEADBAND_W ? gridW : 0;
+
+    // Import the meter saw that no measured load accounts for. This is real
+    // consumption we cannot see, so it goes to the residual rather than being
+    // dropped - dropping it is what would let the totals drift from the bill.
+    let houseW = Math.max(0, r.consumption_w - submeterW);
+    const unexplainedW = Math.max(0, importW - (houseW + submeterW));
+    houseW += unexplainedW;
+    unexplainedKwh += unexplainedW * h / 1000.0;
+    load.set('house', houseW);
+
+    // Because the residual above absorbed any shortfall, total load is now
+    // always >= importW, so this consumes the measured import exactly.
+    let remaining = importW;
+    for (const c of gridOrder) {
+      const catLoad = load.get(c.key) || 0;
+      const catGrid = Math.min(catLoad, remaining);
+      remaining -= catGrid;
+
+      const a = agg.get(c.key);
+      const loadKwh  = catLoad * h / 1000.0;
+      const gridKwh  = catGrid * h / 1000.0;
+      const solarKwh = loadKwh - gridKwh;
+      a.load     += loadKwh;
+      a.grid     += gridKwh;
+      a.solar    += solarKwh;
+      a.gridCost += gridKwh  * rate;
+      a.saving   += solarKwh * rate;
+    }
+
+    if (importW > 0) {
+      const kwh = importW * h / 1000.0;
+      kwhImported += kwh;
+      importCost  += kwh * rate;
+    }
+  }
+
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  // Drop categories that drew nothing, but always keep the house: a period with
+  // no house load at all is not a real period, and hiding it would be confusing.
+  const active = ENERGY_CATEGORIES.filter(
+    (c) => c.key === 'house' || agg.get(c.key).load > 0.005
+  );
+
+  // Round the two reconciled columns so the displayed parts add up to the
+  // displayed totals, not just the unrounded ones.
+  const gridKwhRounded = _roundPreservingSum(
+    active.map((c) => agg.get(c.key).grid), kwhImported
+  );
+  const gridCostRounded = _roundPreservingSum(
+    active.map((c) => agg.get(c.key).gridCost), importCost
+  );
+
+  const categories = active.map((c, i) => {
+    const a = agg.get(c.key);
+    const loadKwh = round2(a.load);
+    const gridKwh = gridKwhRounded[i];
+    return {
+      key:             c.key,
+      label:           c.label,
+      load_kwh:        loadKwh,
+      // Derived from the two rounded figures rather than rounded separately, so
+      // a row always reads load = solar + grid. Rounding all three
+      // independently leaves them a cent apart often enough to look like a bug.
+      solar_kwh:       round2(loadKwh - gridKwh),
+      grid_kwh:        gridKwh,
+      self_pct:        loadKwh > 0 ? Math.round(((loadKwh - gridKwh) / loadKwh) * 100) : 0,
+      grid_cost_aud:   gridCostRounded[i],
+      est_savings_aud: round2(a.saving),
+    };
+  });
+
+  const supplyCharge = getSupplyChargeForPeriod(startMs, now);
+
+  // Coverage is measured from when this install started recording, not from the
+  // raw start of the period. "This year" begins on 1 January, but a system
+  // commissioned in May was not failing to record in February - it did not
+  // exist. Comparing against the whole calendar year reported 34.9% coverage and
+  // warned that the totals read low, which is alarming and wrong.
+  //
+  // Only the pre-install stretch is excluded. Using the first reading of the
+  // whole database rather than the first one inside the window keeps a genuine
+  // outage at the start of a period visible instead of quietly forgiving it.
+  const firstEver = db.prepare('SELECT MIN(recorded_at) AS t FROM telemetry_log').get();
+  const effectiveStart = Math.max(startMs, firstEver && firstEver.t ? firstEver.t : startMs);
+  const periodHours = Math.max(0, (now - effectiveStart) / 3600000);
+  // Summed from the rounded per-category figures for the same reason: the
+  // totals have to agree with the column printed above them.
+  const totalLoad   = round2(categories.reduce((s, c) => s + c.load_kwh,  0));
+  const totalSolar  = round2(categories.reduce((s, c) => s + c.solar_kwh, 0));
+  const totalSaving = active.reduce((s, c) => s + agg.get(c.key).saving,  0);
+
+  return {
+    days_recorded: daysSeen.size,
+
+    // Measured, not modelled. These are the figures a bill is built from.
+    grid: {
+      kwh_imported:  round2(kwhImported),
+      kwh_exported:  round2(kwhExported),
+      import_cost:   round2(importCost),
+      export_credit: round2(exportCredit),
+    },
+    supply_charge_aud: round2(supplyCharge),
+    net_cost_aud:      round2(importCost + supplyCharge - exportCredit),
+
+    // Attribution. Sums to the measured totals above by construction.
+    categories,
+    total_load_kwh:    totalLoad,
+    total_solar_kwh:   totalSolar,
+    est_savings_aud:   round2(totalSaving),
+    self_pct:          totalLoad > 0 ? Math.round((totalSolar / totalLoad) * 100) : 0,
+
+    // How much of the metered import no submeter could explain. Normally a
+    // rounding-level number; a large value means a submeter is missing or
+    // misreporting, and it is worth surfacing rather than burying.
+    unexplained_kwh: round2(unexplainedKwh),
+
+    // What fraction of the period was actually observed.
+    //
+    // Every figure above is an integral over the rows that exist, and each row's
+    // contribution is capped at 2 minutes, so an hour with no telemetry
+    // contributes almost nothing rather than being interpolated. That is the
+    // right default - inventing energy nobody measured would be worse - but it
+    // means a period with gaps silently reads low, in both directions at once
+    // (less import AND less export), which is exactly what makes it hard to
+    // spot by eye.
+    //
+    // On this install, July 2026 was missing 51.8 hours across 36 gaps and came
+    // in $4.60 under the bill; scaling the shortfall at the configured rates
+    // accounts for the entire difference. Worth showing, not hiding: without it
+    // a coverage problem looks like a pricing problem.
+    coverage_pct:     periodHours > 0 ? Math.round((coveredHours / periodHours) * 1000) / 10 : 0,
+    unrecorded_hours: periodHours > 0 ? Math.max(0, round2(periodHours - coveredHours)) : 0,
+  };
+}
+
+const getEnergyBreakdownForPeriod = _memoizeShortTtl(_getEnergyBreakdownUncached, 'breakdown');
+
+/**
+ * A Date as a local YYYY-MM-DD key, matching SQLite's
+ * date(..., 'localtime') output.
+ *
+ * Not toISOString().slice(0, 10): that converts to UTC first, so local midnight
+ * in any timezone ahead of UTC comes back as the previous day. In AEST every
+ * key would be off by one, which silently shifts streaks and day lookups by a
+ * day without ever looking obviously wrong.
+ */
+function _localDayKey(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Day-by-day rollup for a period, bucketed by LOCAL calendar day.
+ *
+ * Deliberately reads telemetry_log rather than financial_ledger. The ledger is
+ * built incrementally once a day and has permanent holes on days the job never
+ * ran for - on this install it holds 65 of 85 days, missing everything before
+ * 6 June plus the current day. A "best day" list sourced from it would silently
+ * exclude three weeks of history and nobody would be able to tell.
+ *
+ * Grouping uses local days because that is the unit a person actually means by
+ * "my best day", and it matches how supply charges and bills are cut.
+ */
+function getDailyRollupForPeriod(startMs, endMs) {
+  const now = endMs || Date.now();
+  const { sql: rateSql, params: rateParams } = buildRateCaseSql();
+
+  // The rate goes in its own CTE, applied after the window, so the bound
+  // parameters stay in the order they are passed: window first, rates second.
+  // Inlining (${rateSql}) alongside the WHERE puts its placeholders earlier in
+  // the statement than the window's, and binding them the other way round
+  // silently compares recorded_at against a tariff and returns no rows at all.
+  return db.prepare(`
+    WITH base AS (
+      SELECT
+        recorded_at,
+        date(recorded_at / 1000, 'unixepoch', 'localtime')   AS day,
+        MAX(0.0, solar_w)                                    AS solar_w,
+        MAX(0.0, consumption_w)                              AS load_w,
+        grid_w,
+        MAX(0.0, COALESCE(ev_w, 0))                          AS ev_w,
+        MAX(0.0, COALESCE(eddi_w, 0))                        AS hw_w,
+        MIN(
+          COALESCE(LEAD(recorded_at) OVER (ORDER BY recorded_at) - recorded_at, 5000),
+          120000
+        ) / 3600000.0                                        AS h
+      FROM telemetry_log
+      WHERE recorded_at >= ? AND recorded_at < ?
+    ),
+    priced AS (
+      SELECT *,
+        (${rateSql})                                    AS rate,
+        CASE WHEN grid_w > 50 THEN grid_w ELSE 0.0 END  AS imp_w
+      FROM base
+    ),
+    -- Per-interval waterfall, matching getEnergyBreakdownForPeriod: the measured
+    -- import is allocated in reverse solar priority, so the car draws from the
+    -- grid first and the house last. Repeated here rather than reusing that
+    -- function per day, which would mean one full scan per day of history.
+    split AS (
+      SELECT *,
+        MIN(ev_w, imp_w)                                    AS ev_grid_w,
+        MIN(hw_w, MAX(0.0, imp_w - MIN(ev_w, imp_w)))       AS hw_grid_w
+      FROM priced
+    )
+    SELECT
+      day,
+      ROUND(SUM(solar_w * h) / 1000.0, 3)                                    AS solar_kwh,
+      ROUND(SUM(load_w  * h) / 1000.0, 3)                                    AS load_kwh,
+      ROUND(SUM(ev_w    * h) / 1000.0, 3)                                    AS ev_kwh,
+      ROUND(SUM(hw_w    * h) / 1000.0, 3)                                    AS hw_kwh,
+      ROUND(SUM(ev_grid_w * h) / 1000.0, 3)                                  AS ev_grid_kwh,
+      ROUND(SUM(hw_grid_w * h) / 1000.0, 3)                                  AS hw_grid_kwh,
+      ROUND(SUM(imp_w * h) / 1000.0, 3)                                      AS import_kwh,
+      ROUND(SUM(CASE WHEN grid_w < -50 THEN -grid_w * h ELSE 0 END) / 1000.0, 3) AS export_kwh,
+      ROUND(SUM(imp_w * h * rate) / 1000.0, 4)                               AS import_cost,
+      ROUND(SUM(h), 3)                                                       AS hours_recorded
+    FROM split
+    GROUP BY day
+    ORDER BY day
+  `).all(startMs, now, ...rateParams);
+}
+
+/**
+ * A narrative summary of a period: the headline numbers plus the standout days,
+ * streaks and rankings behind them.
+ *
+ * The totals come from getEnergyBreakdownForPeriod so this can never contradict
+ * the rest of the page - the point of a summary is that it agrees with the
+ * detail it summarises. Everything else is derived from the same telemetry.
+ *
+ * Days with almost no telemetry are excluded from superlatives. A day with two
+ * hours of readings will never be the "sunniest" on generation, but it can
+ * trivially win a ratio like self-sufficiency, so an unfiltered "best day" ends
+ * up rewarding outages instead of sunshine.
+ *
+ * @param {number} startMs inclusive
+ * @param {number} [endMs] exclusive, defaults to now
+ */
+function getWrappedForPeriod(startMs, endMs) {
+  const now = endMs || Date.now();
+  const breakdown = getEnergyBreakdownForPeriod(startMs, now);
+  const days      = getDailyRollupForPeriod(startMs, now);
+
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  // A day needs most of its readings present before its numbers mean anything.
+  // 18h of 24 is lenient enough to keep ordinary days (a restart, a brief
+  // dropout) while excluding the ones that are mostly hole.
+  const MIN_HOURS_FOR_SUPERLATIVE = 18;
+  const solid = days.filter((d) => d.hours_recorded >= MIN_HOURS_FOR_SUPERLATIVE);
+
+  // Ratios per day, computed once.
+  for (const d of days) {
+    d.self_pct = d.load_kwh > 0
+      ? Math.round(Math.min(100, ((d.load_kwh - d.import_kwh) / d.load_kwh) * 100))
+      : 0;
+  }
+
+  const bestBy = (rows, key) => rows.reduce(
+    (best, d) => (best === null || d[key] > best[key] ? d : best), null
+  );
+  const pick = (d, extra) => (d ? Object.assign({
+    day:        d.day,
+    solar_kwh:  round2(d.solar_kwh),
+    import_kwh: round2(d.import_kwh),
+    export_kwh: round2(d.export_kwh),
+    load_kwh:   round2(d.load_kwh),
+    self_pct:   d.self_pct,
+    cost_aud:   round2(d.import_cost),
+  }, extra || {}) : null);
+
+  // Days when a managed load ran purely on sunshine.
+  //
+  // Whole-home "grid free" days were the obvious thing to count here, and they
+  // are useless: with no battery the house imports every night, so the figure is
+  // zero for every period on this install and would be zero for most others.
+  // What WattSnatch actually controls is when the car and the hot water run, so
+  // that is what is worth measuring - and those days genuinely happen.
+  //
+  // Requires a real amount of load before a day counts: a day the car never
+  // charged at all is not a day it "ran on solar".
+  //
+  // Two thresholds, because one alone tells the story badly. A literal zero-grid
+  // day is the purest claim but it is rare - the Eddi trickles a little most
+  // nights, so hot water scores zero such days across three months despite being
+  // 88% solar overall. Counting days at or above 95% solar gives a figure that
+  // reflects how the system actually behaves, and the streak is built on that so
+  // it does not collapse to 1 on a single cloudy afternoon. Both are reported
+  // rather than picking the flattering one.
+  const MIN_LOAD_KWH   = 1.0;
+  const PURE_GRID_KWH  = 0.05;
+  const HIGH_SHARE_PCT = 95;
+
+  const solarOnly = (loadKey, gridKey) => {
+    const qualifying = solid.filter((d) => d[loadKey] >= MIN_LOAD_KWH);
+    const sharePct = (d) => ((d[loadKey] - d[gridKey]) / d[loadKey]) * 100;
+
+    const pure  = qualifying.filter((d) => d[gridKey] < PURE_GRID_KWH);
+    const clean = qualifying.filter((d) => sharePct(d) >= HIGH_SHARE_PCT);
+    const cleanSet = new Set(clean.map((d) => d.day));
+    const qualSet  = new Set(qualifying.map((d) => d.day));
+
+    // Walks the calendar rather than the array so a gap in the data breaks the
+    // run instead of being skipped over, which would otherwise splice two
+    // separate runs into one that never happened.
+    let longest = 0, current = 0, longestEnd = null;
+    if (days.length > 0) {
+      const cursor = new Date(days[0].day + 'T00:00:00');
+      const last   = new Date(days[days.length - 1].day + 'T00:00:00');
+      while (cursor <= last) {
+        const key = _localDayKey(cursor);
+        if (cleanSet.has(key)) {
+          current += 1;
+          if (current > longest) { longest = current; longestEnd = key; }
+        } else if (qualSet.has(key)) {
+          current = 0;
+        }
+        // A day the load did not run, or with too little telemetry, neither
+        // extends nor breaks the run - we do not know what happened, and
+        // guessing either way is worse than leaving the streak alone.
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+    return {
+      pure_days:      pure.length,   // no grid at all
+      high_days:      clean.length,  // at or above HIGH_SHARE_PCT solar
+      of_days:        qualifying.length,
+      threshold_pct:  HIGH_SHARE_PCT,
+      longest_streak: longest,
+      streak_ended:   longestEnd,
+    };
+  };
+
+  // Which load made the best use of the roof, and which leaned on the grid most.
+  const ranked = breakdown.categories
+    .filter((c) => c.load_kwh > 0.05)
+    .map((c) => ({
+      key: c.key, label: c.label,
+      solar_kwh: c.solar_kwh, grid_kwh: c.grid_kwh,
+      load_kwh: c.load_kwh, self_pct: c.self_pct,
+      grid_cost_aud: c.grid_cost_aud, est_savings_aud: c.est_savings_aud,
+    }));
+  const sunniestLoad = [...ranked].sort((a, b) => b.self_pct - a.self_pct)[0] || null;
+  const greediestLoad = [...ranked].sort((a, b) => b.grid_kwh - a.grid_kwh)[0] || null;
+  const biggestSaver  = [...ranked].sort((a, b) => b.est_savings_aud - a.est_savings_aud)[0] || null;
+
+  // Car charging sessions in the window.
+  const sessions = db.prepare(`
+    SELECT COUNT(*) AS n,
+      COALESCE(SUM(kwh_solar), 0)       AS kwh_solar,
+      COALESCE(SUM(kwh_from_grid), 0)   AS kwh_grid,
+      COALESCE(SUM(est_savings_aud), 0) AS savings,
+      COALESCE(MAX(kwh_solar), 0)       AS best_session_kwh
+    FROM charge_sessions
+    WHERE started_at >= ? AND started_at < ?
+  `).get(startMs, now);
+
+  return {
+    period: {
+      start_ms:      startMs,
+      end_ms:        now,
+      days_in_data:  days.length,
+      days_complete: solid.length,
+      coverage_pct:  breakdown.coverage_pct,
+    },
+
+    // Headline figures, identical to the rest of the page by construction.
+    totals: {
+      solar_kwh:         round2(days.reduce((s, d) => s + d.solar_kwh, 0)),
+      load_kwh:          breakdown.total_load_kwh,
+      solar_used_kwh:    breakdown.total_solar_kwh,
+      self_pct:          breakdown.self_pct,
+      kwh_imported:      breakdown.grid.kwh_imported,
+      kwh_exported:      breakdown.grid.kwh_exported,
+      import_cost_aud:   breakdown.grid.import_cost,
+      export_credit_aud: breakdown.grid.export_credit,
+      supply_charge_aud: breakdown.supply_charge_aud,
+      net_cost_aud:      breakdown.net_cost_aud,
+      est_savings_aud:   breakdown.est_savings_aud,
+    },
+
+    standout_days: {
+      sunniest:        pick(bestBy(solid, 'solar_kwh')),
+      most_self_suff:  pick(bestBy(solid, 'self_pct')),
+      biggest_export:  pick(bestBy(solid, 'export_kwh')),
+      most_imported:   pick(bestBy(solid, 'import_kwh')),
+      priciest:        pick(bestBy(solid, 'import_cost')),
+      cheapest:        pick(solid.length
+        ? solid.reduce((min, d) => (d.import_cost < min.import_cost ? d : min), solid[0])
+        : null),
+    },
+
+    // Days a managed load ran with no grid at all, and the best run of them.
+    solar_only: {
+      car:       solarOnly('ev_kwh', 'ev_grid_kwh'),
+      hot_water: solarOnly('hw_kwh', 'hw_grid_kwh'),
+    },
+
+    loads: {
+      ranked,
+      sunniest:  sunniestLoad,
+      greediest: greediestLoad,
+      top_saver: biggestSaver,
+    },
+
+    car: {
+      sessions:         sessions.n || 0,
+      solar_kwh:        round2(sessions.kwh_solar || 0),
+      grid_kwh:         round2(sessions.kwh_grid  || 0),
+      savings_aud:      round2(sessions.savings   || 0),
+      best_session_kwh: round2(sessions.best_session_kwh || 0),
+    },
+
+    daily: days.map((d) => ({
+      day:        d.day,
+      solar_kwh:  round2(d.solar_kwh),
+      import_kwh: round2(d.import_kwh),
+      export_kwh: round2(d.export_kwh),
+      load_kwh:   round2(d.load_kwh),
+      self_pct:   d.self_pct,
+      complete:   d.hours_recorded >= MIN_HOURS_FOR_SUPERLATIVE,
+    })),
   };
 }
 
@@ -2416,6 +3012,10 @@ module.exports = {
   getTariffAtDate,
   getSupplyChargeForPeriod,
   getGridSummaryForPeriod,
+  getEnergyBreakdownForPeriod,
+  getDailyRollupForPeriod,
+  getWrappedForPeriod,
+  ENERGY_CATEGORIES,
   addTariff,
   deleteTariff,
   getApiCostStats,

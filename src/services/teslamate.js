@@ -316,8 +316,65 @@ async function getRecentDrivesNearHome(homeLat, homeLng, radiusKm = 0.5) {
 }
 
 // Test the connection
+/**
+ * Turns a raw node-postgres failure into something that says what to actually do.
+ *
+ * These connections nearly always fail for the same handful of reasons, and the
+ * driver's own message describes the symptom rather than the cause. "connect
+ * ECONNREFUSED 192.168.1.50:5432" is correct and completely unactionable if you
+ * do not already know that TeslaMate's stock docker-compose.yml never publishes
+ * the Postgres port - the database is reachable only from inside its own Docker
+ * network, so anything outside it is refused. That was issue #12, where the
+ * reporter had to work the fix out themselves.
+ */
+function explainConnectionError(err, parsed) {
+  const code = err && err.code;
+  const where = parsed ? `${parsed.host}:${parsed.port}` : 'the address given';
+
+  if (code === 'ECONNREFUSED') {
+    return `Nothing is accepting connections at ${where}. TeslaMate's default `
+      + `docker-compose.yml does not publish the Postgres port outside its own Docker `
+      + `network, so this is expected until you expose it. In TeslaMate's `
+      + `docker-compose.yml, under the "database" service, add:\n\n`
+      + `    ports:\n      - "5432:5432"\n\n`
+      + `then run "docker compose up -d". If you have already done that, check the `
+      + `host and port are right and that a firewall is not blocking them.`;
+  }
+  if (code === 'ENOTFOUND') {
+    return `The hostname in the connection URL could not be resolved. If you used a `
+      + `Docker service name such as "database" or "teslamate-db", that only resolves `
+      + `inside Docker - use the IP address or hostname of the machine running `
+      + `TeslaMate instead.`;
+  }
+  if (code === 'ETIMEDOUT' || code === 'EHOSTUNREACH') {
+    return `Timed out connecting to ${where}. The port is most likely blocked by a `
+      + `firewall, or the address is not reachable from this machine.`;
+  }
+  if (code === '28P01') {
+    return 'Postgres rejected the username or password in the connection URL.';
+  }
+  if (code === '3D000') {
+    return 'That database does not exist on the server. TeslaMate\'s database is '
+      + 'normally named "teslamate".';
+  }
+  if (code === '28000' || /pg_hba\.conf/i.test(err?.message || '')) {
+    return `Postgres is reachable but refused the connection for this client. Its `
+      + `pg_hba.conf does not allow connections from this machine's IP address - `
+      + `publishing the port is not on its own enough if Postgres is configured to `
+      + `accept only local connections.`;
+  }
+  if (code === '42P01') {
+    return 'Connected, but this database has no "drives" table - it does not look '
+      + 'like a TeslaMate database.';
+  }
+  return err && err.message ? err.message : 'Unknown error';
+}
+
 async function testConnection() {
+  let parsed = null;
   try {
+    const url = db.getSetting('teslamate_database_url');
+    parsed = url ? parseDbUrl(url) : null;
     const pool = getPool();
     if (!pool) return { ok: false, error: 'No TeslaMate database URL configured' };
     const client = await pool.connect();
@@ -325,7 +382,7 @@ async function testConnection() {
     client.release();
     return { ok: true, drive_count: parseInt(result.rows[0].count, 10) };
   } catch (err) {
-    return { ok: false, error: err.message };
+    return { ok: false, error: explainConnectionError(err, parsed), code: err && err.code };
   }
 }
 

@@ -407,6 +407,12 @@ set PORT=8085 && npm start
 
 These are the core charging settings. Everything else is configured in the dashboard's Settings page - solar meter brand, home battery, air conditioning, time-of-use rates, calendar, notifications, and Home Assistant. See [FEATURES.md](FEATURES.md) for what each one does.
 
+### Free power windows
+
+If your retailer gives away electricity for set periods (Solar Sharer and similar), add each one to the calendar you connected for trip planning as an event titled **Free Power**, and WattSnatch will charge the car at full rate for exactly that window - ignoring solar, because the grid costs nothing at the time.
+
+Turn it on in **Settings → Calendar → Free power windows**. It is off by default, since it is the only feature that deliberately imports from the grid. The match keywords are configurable, matching is on the event title only, and all-day events are ignored - a window has to state its hours. Settings lists the windows it has matched, so a mistyped title shows up immediately.
+
 ---
 
 ## Troubleshooting

@@ -40,8 +40,10 @@ async function main() {
 
   console.log('\n── What WattSnatch currently believes ──');
   const persisted = db.getSetting('telemetry_last_state');
+  let believed = null;
   if (persisted) {
     const p = JSON.parse(persisted);
+    believed = p.chargeLimit;
     console.log(`  persisted chargeLimit : ${p.chargeLimit}`);
     console.log(`  persisted batteryPct  : ${Number(p.batteryPct).toFixed(1)}`);
     console.log(`  persisted source      : ${p.source}`);
@@ -72,12 +74,26 @@ async function main() {
   }
 
   console.log('\n── Verdict ──');
-  const real = chargeState.charge_limit_soc;
-  const believed = live.chargeLimit;
-  if (real === believed) {
+  const real     = chargeState.charge_limit_soc;
+  const min      = chargeState.charge_limit_soc_min;
+  const std      = chargeState.charge_limit_soc_std;
+  const plugged  = chargeState.charging_state && chargeState.charging_state !== 'Disconnected';
+
+  // Tesla reports charge_limit_soc as charge_limit_soc_min (typically 50) while
+  // the car is unplugged, and the true limit only once it is plugged in. So a
+  // reading of exactly `min` on an unplugged car is not evidence of anything -
+  // say so, rather than presenting it as a disagreement to chase.
+  if (!plugged && real === min && std !== min) {
+    console.log(`  UNRELIABLE READING. The car is unplugged (charging_state=${chargeState.charging_state}),`);
+    console.log(`  and Tesla is reporting charge_limit_soc=${real}, which is exactly`);
+    console.log(`  charge_limit_soc_min. The real limit is almost certainly ${std} (the _std value).`);
+    console.log('  Plug the car in and re-run to see the true limit. A charge-limit');
+    console.log('  reading taken while unplugged should not be trusted or cached.');
+  } else if (real === believed) {
     console.log(`  Agree: both say ${real}%.`);
   } else {
     console.log(`  DISAGREE: Tesla says ${real}%, WattSnatch believes ${believed}%.`);
+    console.log(`  (min=${min}, std=${std}, plugged in=${plugged ? 'yes' : 'no'})`);
     console.log('  The app will correct itself within an hour (or immediately on');
     console.log('  restart) now that the charge limit has its own freshness rule.');
   }

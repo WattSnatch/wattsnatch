@@ -17,7 +17,16 @@ const calendarProviders = require('./calendar/index.js');
 const POLL_INTERVAL_MS = 60 * 60 * 1000;
 const FILTER_KEYWORDS = ['zoom', 'teams', 'online', 'call', 'phone', 'meet', 'webex', 'virtual', 'hangout', 'facetime', 'skype'];
 
+// Free power windows are read from the same calendar as trips. Several
+// Australian retailers give away electricity for set periods (Solar Sharer and
+// similar), and some let the customer pick the slots a fortnight at a time,
+// which means there is no tariff schedule to configure against - the times are
+// whatever you opted into. Putting them in a calendar is the natural way to
+// express that, and the calendar is already connected for trip planning.
+const DEFAULT_FREE_POWER_KEYWORDS = 'free power';
+
 let _trips = [];
+let _freePowerWindows = [];
 let _lastFetched = null;
 let _pollTimer = null;
 let _started = false;
@@ -42,6 +51,63 @@ async function getCredentials() {
 
 function getState() {
   return { trips: [..._trips], lastFetched: _lastFetched };
+}
+
+// ── Free power windows ────────────────────────────────────────────────────────
+
+/** Configured match keywords, lowercased. Blank entries are dropped. */
+function _freePowerKeywords() {
+  const raw = db.getSetting('free_power_keywords');
+  const value = (raw === null || raw === undefined || raw === '') ? DEFAULT_FREE_POWER_KEYWORDS : raw;
+  return String(value)
+    .split(',')
+    .map((k) => k.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isFreePowerEnabled() {
+  return db.getSetting('free_power_enabled') === 'true';
+}
+
+/**
+ * Whether a calendar event names a free power window.
+ *
+ * Matches on the event title only, never the location. Somebody driving to a
+ * place called "Free Power Cafe" should not have their car start charging, and
+ * more practically the title is the field a person actually controls when they
+ * create the event.
+ */
+function isFreePowerEvent(event) {
+  if (!event || !event.startDate) return false;
+  const summary = (event.summary || '').toLowerCase();
+  if (!summary) return false;
+  return _freePowerKeywords().some((kw) => summary.includes(kw));
+}
+
+/**
+ * Upcoming and currently-active free power windows, soonest first.
+ *
+ * All-day events are deliberately excluded. An all-day "Free Power" entry would
+ * charge at full rate from the grid for twenty-four hours, which is exactly the
+ * bill shock this feature is supposed to avoid if the retailer's window was
+ * really only a few hours. A window has to state its hours to be acted on.
+ */
+function getFreePowerWindows() {
+  return _freePowerWindows.map((w) => ({ ...w }));
+}
+
+/** True if a free power window covers `atMs` (defaults to now). */
+function isFreePowerActive(atMs) {
+  if (!isFreePowerEnabled()) return false;
+  const t = atMs || Date.now();
+  return _freePowerWindows.some((w) => t >= w.startMs && t < w.endMs);
+}
+
+/** The window covering `atMs`, or null. Used for logging and the UI banner. */
+function getActiveFreePowerWindow(atMs) {
+  if (!isFreePowerEnabled()) return null;
+  const t = atMs || Date.now();
+  return _freePowerWindows.find((w) => t >= w.startMs && t < w.endMs) || null;
 }
 
 // ── Geocoding + distance ──────────────────────────────────────────────────────
@@ -312,8 +378,25 @@ async function poll() {
   const nowMs = now.getTime();
   const cutoff = cutoffDate.getTime();
   const trips = [];
+  const freePowerWindows = [];
 
   for (const event of rawEvents) {
+    // Checked before the trip filter so a free power event can never also be
+    // treated as a trip - someone may well put a location on the event, and
+    // "charge the car now" and "plan a drive to here" are different intents.
+    if (isFreePowerEvent(event)) {
+      // An all-day entry has no meaningful hours; see getFreePowerWindows().
+      if (event.isAllDay || !event.endDate || event.endDate <= event.startDate) continue;
+      const endMs = event.endDate.getTime();
+      if (endMs <= nowMs) continue; // already finished
+      freePowerWindows.push({
+        summary: event.summary || 'Free power',
+        startMs: event.startDate.getTime(),
+        endMs,
+      });
+      continue;
+    }
+
     if (!isDrivingEvent(event)) continue;
     const ts = event.startDate.getTime();
     if (ts < nowMs || ts > cutoff) continue;
@@ -344,9 +427,14 @@ async function poll() {
   }
 
   trips.sort((a, b) => a.departureTime - b.departureTime);
+  freePowerWindows.sort((a, b) => a.startMs - b.startMs);
   _trips = trips;
+  _freePowerWindows = freePowerWindows;
   _lastFetched = nowMs;
   console.log(`[calendar] ${trips.length} upcoming driving trip(s) in next 7 days`);
+  if (freePowerWindows.length > 0) {
+    console.log(`[calendar] ${freePowerWindows.length} free power window(s) in next 7 days`);
+  }
 }
 
 function start() {
@@ -373,4 +461,6 @@ module.exports = {
   start, stop, restart,
   isConfigured, setCredentials, getCredentials, getState,
   poll, resolveDestination, haversineKm,
+  isFreePowerEnabled, isFreePowerEvent, getFreePowerWindows,
+  isFreePowerActive, getActiveFreePowerWindow,
 };

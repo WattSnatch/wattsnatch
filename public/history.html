@@ -122,14 +122,18 @@
     .savings-period-btn:hover  { border-color: var(--accent-solar); color: var(--accent-solar); }
     .savings-period-btn.active { background: rgba(245,166,35,0.15); border-color: var(--accent-solar); color: var(--accent-solar); }
 
+    /* Deliberately in normal flow rather than absolutely positioned. While it
+       was absolute, .savings-hero-header collapsed to the height of its title
+       and the totals row underneath slid up behind the period buttons and date
+       inputs. The parent header is already flex with space-between, so static
+       puts this on the right anyway - and the header now reserves the panel's
+       real height, whatever that turns out to be, instead of relying on an
+       offset that has to be kept in step with the number of button rows. */
     .savings-period-panel {
       display: flex;
       flex-direction: column;
       align-items: flex-end;
       gap: 0.4rem;
-      position: absolute;
-      top: 0;
-      right: 0;
     }
     .savings-period-grid {
       display: grid;
@@ -204,6 +208,20 @@
       display: flex;
       flex-direction: column;
       padding-bottom: 0.35rem;
+    }
+    /* Says where these numbers come from: the totals are meter readings, the
+       per-category split below them is an attribution. Also where a coverage
+       warning appears, since a telemetry gap quietly lowers every figure. */
+    .savings-source-note {
+      font-size: 0.62rem;
+      line-height: 1.5;
+      color: var(--text-secondary);
+      margin-top: 0.85rem;
+      padding-top: 0.7rem;
+      border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+    }
+    .savings-source-note .ssn-warn {
+      color: #fbbf24;
     }
     .savings-total-spent-label {
       font-size: 0.6rem;
@@ -310,6 +328,300 @@
     .energy-score-container { display: none; }
 
     /* ─── Hero Stat Grid ─── */
+    /* ── Story of the period ─────────────────────────────────────────────────
+       Two pieces: a teaser card inline on the Data page, and a full-screen
+       story sequence (one insight per slide) that opens from it. */
+
+    /* Holds zero to four teaser cards - one per cadence (month/quarter/half/
+       year) that closed within the reveal window. Wraps to one column on
+       narrow viewports; hidden entirely (via inline style) when empty. */
+    .wrapped-teasers-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .wrapped-teasers-row .wrapped-teaser { flex: 1 1 280px; }
+
+    /* Teaser. Deliberately NOT the flat grey grid-of-boxes this used to be -
+       its only job is to earn the tap that opens the real thing. */
+    .wrapped-teaser {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--radius-lg, 12px);
+      padding: 1.5rem 1.75rem;
+      background:
+        radial-gradient(120% 140% at 15% 20%, rgba(245, 166, 35, 0.35), transparent 55%),
+        radial-gradient(120% 140% at 85% 100%, rgba(124, 58, 237, 0.35), transparent 55%),
+        linear-gradient(135deg, #1a1530 0%, #2b1e4a 45%, #3f2354 100%);
+      cursor: pointer;
+      isolation: isolate;
+    }
+    .wrapped-teaser::before {
+      /* A slow-drifting warm glow, purely decorative. Respects reduced-motion
+         below rather than being force-fed to everyone. */
+      content: '';
+      position: absolute;
+      inset: -40%;
+      background: radial-gradient(circle, rgba(255, 200, 120, 0.25), transparent 60%);
+      animation: wrappedDrift 14s ease-in-out infinite;
+      z-index: 0;
+      pointer-events: none;
+    }
+    @keyframes wrappedDrift {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50%      { transform: translate(8%, -6%) scale(1.15); }
+    }
+    .wrapped-teaser-inner { position: relative; z-index: 1; }
+    .wrapped-teaser-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: #f5c97a;
+      margin-bottom: 0.6rem;
+    }
+    .wrapped-teaser-headline {
+      font-size: 1.2rem;
+      line-height: 1.5;
+      color: #fdf6ec;
+      margin-bottom: 1.1rem;
+      max-width: 46rem;
+    }
+    .wrapped-teaser-headline b {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      color: #ffcf7a;
+    }
+    .wrapped-teaser-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      color: #fff;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.55rem 1.1rem;
+      border-radius: 999px;
+      backdrop-filter: blur(4px);
+      transition: background 0.15s, transform 0.15s;
+    }
+    .wrapped-teaser:hover .wrapped-teaser-cta {
+      background: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+    }
+
+    /* ── Full-screen story ──────────────────────────────────────────────── */
+    .wrapped-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(5, 4, 10, 0.78);
+      backdrop-filter: blur(6px);
+    }
+    .wrapped-modal.open { display: flex; }
+
+    .wrapped-nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 2.6rem;
+      height: 2.6rem;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 1.2rem;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+    .wrapped-nav-btn:hover { background: rgba(255, 255, 255, 0.18); }
+    .wrapped-nav-prev { left: max(2vw, 1rem); }
+    .wrapped-nav-next { right: max(2vw, 1rem); }
+    @media (min-width: 640px) {
+      .wrapped-nav-btn { display: flex; }
+    }
+
+    .wrapped-story {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      max-width: 440px;
+      max-height: 780px;
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+      user-select: none;
+      touch-action: manipulation;
+    }
+    @media (max-width: 640px) {
+      .wrapped-story { max-width: 100%; max-height: 100%; border-radius: 0; }
+    }
+
+    .wrapped-progress-row {
+      position: absolute;
+      top: 0.6rem;
+      left: 0.6rem;
+      right: 0.6rem;
+      z-index: 5;
+      display: flex;
+      gap: 0.3rem;
+    }
+    .wrapped-progress-seg {
+      flex: 1;
+      height: 3px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.28);
+      overflow: hidden;
+    }
+    .wrapped-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #fff;
+      border-radius: 3px;
+      transform-origin: left;
+    }
+    .wrapped-progress-fill.done   { width: 100%; }
+    .wrapped-progress-fill.filling {
+      animation: wrappedFill linear forwards;
+      animation-duration: var(--dur, 5s);
+    }
+    .wrapped-progress-fill.paused { animation-play-state: paused; }
+    @keyframes wrappedFill { from { width: 0%; } to { width: 100%; } }
+
+    .wrapped-close {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.6rem;
+      z-index: 6;
+      width: 2rem;
+      height: 2rem;
+      border: none;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 1.3rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .wrapped-slide {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 3.2rem 1.75rem 3rem;
+      color: #fff;
+      opacity: 0;
+      transform: scale(0.97);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+      pointer-events: none;
+    }
+    .wrapped-slide.active {
+      opacity: 1;
+      transform: scale(1);
+      pointer-events: auto;
+    }
+    .wrapped-slide::before {
+      /* Per-slide drifting glow, colour set inline per slide via --glow. */
+      content: '';
+      position: absolute;
+      inset: -30%;
+      background: radial-gradient(circle at 30% 30%, var(--glow, rgba(255,255,255,0.18)), transparent 60%);
+      animation: wrappedDrift 9s ease-in-out infinite;
+      z-index: 0;
+    }
+    .wrapped-slide > * { position: relative; z-index: 1; }
+
+    .wrapped-slide-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.35));
+    }
+    .wrapped-slide-kicker {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.75);
+      margin-bottom: 0.9rem;
+    }
+    .wrapped-slide-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      font-size: 3.4rem;
+      line-height: 1.05;
+      margin-bottom: 0.7rem;
+      letter-spacing: -0.01em;
+    }
+    .wrapped-slide-value.small { font-size: 2.3rem; font-family: inherit; letter-spacing: normal; }
+    .wrapped-slide-ring { display: block; }
+
+    /* Shared fade-in for whatever the current slide's "reveal" beat is - the
+       count-up value, the ring, or the intro's title line. Applied as a
+       second class alongside the element's own styling class, and toggled by
+       activateWrappedSlide() when a slide becomes active. */
+    .wrapped-fade {
+      opacity: 0;
+      transform: translateY(6px) scale(0.97);
+      transition: opacity 0.45s ease, transform 0.45s ease;
+    }
+    .wrapped-fade.shown { opacity: 1; transform: translateY(0) scale(1); }
+    .wrapped-slide-detail {
+      font-size: 0.98rem;
+      line-height: 1.55;
+      color: rgba(255, 255, 255, 0.9);
+      max-width: 24rem;
+    }
+    .wrapped-slide-ring {
+      width: 148px;
+      height: 148px;
+      margin-bottom: 1.2rem;
+    }
+    .wrapped-slide-done {
+      margin-top: 1.6rem;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 0.6rem 1.6rem;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+
+    .wrapped-spark {
+      position: absolute;
+      font-size: 1.1rem;
+      opacity: 0;
+      animation: wrappedSpark 2.6s ease-in infinite;
+      z-index: 1;
+    }
+    @keyframes wrappedSpark {
+      0%   { opacity: 0; transform: translateY(0) scale(0.6) rotate(0deg); }
+      15%  { opacity: 1; }
+      100% { opacity: 0; transform: translateY(-90px) scale(1.1) rotate(30deg); }
+    }
+
+    /* Auto-advance itself is disabled in JS under reduced-motion (a story that
+       flips itself every few seconds is exactly the kind of motion that
+       setting exists to opt out of) - this only mutes the decorative parts. */
+    @media (prefers-reduced-motion: reduce) {
+      .wrapped-teaser::before, .wrapped-slide::before, .wrapped-spark { animation: none !important; }
+      .wrapped-slide { transition: opacity 0.01s linear; }
+    }
+
     .km-origins-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
@@ -1349,11 +1661,16 @@
             <div class="savings-total-spent-label">Supply Charge</div>
             <div class="savings-total-spent-value" id="sh-supply-charge">-</div>
           </div>
+          <div class="savings-total-spent" id="sh-export-credit-cell" style="display:none">
+            <div class="savings-total-spent-label">- Export Credit</div>
+            <div class="savings-total-spent-value" id="sh-export-credit" style="color:#4ade80">-</div>
+          </div>
           <div class="savings-total-spent">
             <div class="savings-total-spent-label">= Total Spent</div>
             <div class="savings-total-spent-value" id="sh-total-all-spent" style="color:var(--accent-import);font-size:1.75rem">-</div>
           </div>
         </div>
+        <div class="savings-source-note" id="sh-source-note"></div>
         <div class="savings-breakdown">
           <div class="savings-breakdown-item">
             <div class="sbd-label">🚗 EV Charging</div>
@@ -1372,6 +1689,25 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Story of the period: standout days, streaks and rankings, opened as a
+         full-screen sequence. Independent of the savings panel's period
+         picker - a card appears here only when a month/quarter/half/year has
+         just closed, for a short window, the way the feature is meant to
+         arrive rather than being something you can dial up for any period at
+         will. Zero to four cards, one per cadence that just closed;
+         renderWrappedTeasers() builds them in. -->
+    <div class="wrapped-teasers-row" id="wrapped-teasers" style="display:none"></div>
+
+    <div class="wrapped-modal" id="wrapped-modal" aria-hidden="true">
+      <button class="wrapped-nav-btn wrapped-nav-prev" id="wrapped-prev" aria-label="Previous">‹</button>
+      <div class="wrapped-story" id="wrapped-story">
+        <div class="wrapped-progress-row" id="wrapped-progress-row"></div>
+        <button class="wrapped-close" id="wrapped-close" aria-label="Close">✕</button>
+        <div id="wrapped-slides"></div>
+      </div>
+      <button class="wrapped-nav-btn wrapped-nav-next" id="wrapped-next" aria-label="Next">›</button>
     </div>
 
     <!-- kWh Stat Cards (period-aware) -->

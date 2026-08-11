@@ -13,9 +13,10 @@
 // upgrade - only a user who explicitly switches provider (and configures the
 // relevant API key) leaves AEMO's behavior.
 //
-// watttime/electricitymaps are best-effort - implemented from public API
-// docs without a live account to test against. See their own files for the
-// specific caveats.
+// watttime/electricitymaps are implemented from public API docs rather than
+// against a live account. electricitymaps now handles both the free-tier and
+// commercial hosts after a free-tier key was rejected by the commercial one
+// (issue #8); watttime carries the original caveat. See their own files.
 
 const db = require('../../db');
 

@@ -2,6 +2,144 @@
 
 ---
 
+## 2026-08-11 - v2.0.0: Accurate energy attribution, Wrapped, and free power windows
+
+**Your numbers will change when you update, including for months you have
+already looked at.** Nothing broke - the previous figures were overstated, and
+this release corrects them. That is the reason for the major version bump: it is
+worth knowing before you notice a past month reading differently.
+
+### Grid import, cost and savings were over-counted
+
+The Data page worked out solar-versus-grid three separate times - once for the
+house, once for hot water, once for the car - and added the results together.
+Each used a different rule. The house took a proportional share of whatever the
+roof was producing, while the car assumed the house got first call on it. Both
+cannot be true at once, so the same watt could be charged to two categories.
+
+Over July on the development install, those three models summed to 287.02 kWh of
+grid import against 268.78 kWh the meter actually recorded.
+
+Totals now come from `grid_w`, the measured whole-home flow, and are not
+modelled at all. The solar-versus-grid split is worked out once, as a single
+waterfall across every category, so a watt can only be spent once. The split is
+applied to the *measured* import in reverse priority - whatever is last in line
+for sunshine is first in line for the grid - which means the per-category
+figures add up to the meter on every interval rather than merely on average, and
+time-of-use pricing stays exact.
+
+The per-category breakdown you had before is unchanged in spirit and is still
+there. It is now the only split, rather than one of three that disagreed.
+
+Two things are now shown that were not before:
+
+- **Export credit**, on the Data page. "Total Spent" was a gross figure being
+  compared against a bill that nets the feed-in credit off.
+- **Telemetry coverage.** Energy is only counted from readings that exist, and
+  each reading counts for at most two minutes, so an hour with no telemetry
+  contributes almost nothing rather than being guessed at. That understates
+  import and export together, which is hard to spot and looks exactly like a
+  tariff being set wrong. The Data page and the Bills tab now say what share of
+  a period was actually recorded.
+
+The Bills tab also read energy over UTC days while pricing the supply charge
+over local days, so its two halves described spans ten hours apart and neither
+matched the Data page. Both now use local midnights, and its coverage figure is
+measured in hours of telemetry rather than "days containing at least one
+reading" - which previously reported a complete month while 50 hours were
+missing.
+
+The **Bill Estimate** card was reading a different source again: `financial_ledger`,
+a table built incrementally once a night that has permanent holes on any day its
+job did not run, and which allocates solar proportionally - the older method this
+release replaces. It sat on the same screen as the savings panel, describing the
+same month, disagreeing with it. It now uses the same reconciled figures as
+everything else on the page.
+
+### Wrapped
+
+A full-screen story summarising a period: what the roof made, how much of what
+you used came from it, your sunniest and least grid-reliant days, how many days
+the car and hot water ran on sunshine and the best run of them, which load saved
+the most and which leaned on the grid hardest.
+
+It appears on the Data page when a month, quarter, half-year or year has just
+finished, for ten days after it closes, rather than being something you can call
+up for any period at any time. More than one can be waiting at once - on 1
+January, the month, quarter, half and year have all just ended.
+
+Every figure comes from the same reconciled breakdown as the rest of the page,
+so the summary cannot contradict the detail it is summarising.
+
+### Free power windows (issue #10)
+
+Some retailers give away electricity for set periods, and some let you pick the
+slots yourself a fortnight at a time - which means there is no fixed tariff
+schedule to configure against.
+
+Put each one in the calendar you have already connected for trip planning, as an
+event titled **Free Power**, and WattSnatch will charge the car at full rate for
+exactly that window, ignoring solar, because the grid costs nothing at the time.
+The keywords are configurable, and Settings lists the windows it has matched so a
+mistyped title is visible immediately.
+
+Off by default. This is the one feature that deliberately imports from the grid,
+so it only ever runs because you switched it on. All-day events are ignored - a
+window has to state its hours, or a single mistake would mean twenty-four hours
+of full-rate charging. Matching is on the event title only, never its location,
+so driving somewhere that happens to be called "Free Power Cafe" does nothing.
+
+### Grid carbon intensity failed for every free-tier ElectricityMaps key (issue #8)
+
+ElectricityMaps serves the same endpoint from two hosts, and which one your key
+works against depends on the product you signed up for. WattSnatch only knew
+about the commercial host, so a free-tier key - which is what a self-hosted
+install will almost always have - was rejected with
+`auth failed (401) - check electricitymaps_api_key`, pointing suspicion at a key
+that was correct all along.
+
+Both hosts are now tried and the one that answers is remembered.
+
+Alongside it, three things that made this harder to diagnose than it should have
+been:
+
+- Settings saved field values without trimming them, so an API key pasted with a
+  trailing space or newline was stored corrupted and failed authentication with
+  no error at the point of saving.
+- Stored secrets are never sent back to the browser, so their fields loaded
+  empty and looked like a save that had not worked. They now show that a value
+  is stored.
+- There was no way to check a grid intensity source except to save, open the
+  dashboard, notice nothing had changed, and go looking in the server log. There
+  is now a **Test Connection** button that reports the real error where you
+  configured it.
+
+### The charge limit kept reverting to 50%
+
+Tesla reports `charge_limit_soc` as `charge_limit_soc_min` - 50 on most cars -
+while the vehicle is unplugged, and the owner's real limit only once it is
+plugged in. An hourly refresh landing during an unplugged window latched that 50
+as a fresh, trusted reading, and Fleet Telemetry never corrected it because it
+only pushes the field when it *changes*, which from the car's point of view it
+never did. The stale value persisted across restarts, and charging then stopped
+at 50% on a car set to 80%.
+
+Readings taken while the car is unplugged and sitting exactly on the floor value
+are now rejected rather than cached. A limit the owner genuinely set to 50% is
+still honoured, because a plugged-in reading confirms it normally.
+
+### TeslaMate connection errors now explain themselves (issue #12)
+
+TeslaMate's stock `docker-compose.yml` does not publish the Postgres port, so
+connecting from outside its Docker network fails with `ECONNREFUSED`. That is
+expected, entirely predictable, and the error said nothing about it. It now
+names the cause and gives the compose snippet, and the common neighbouring
+failures - a Docker service name that only resolves inside Docker, a firewall,
+a `pg_hba.conf` that still refuses the connection after the port is published -
+are called out individually. INSTALL.md covers the same ground.
+
+---
+
 ## 2026-08-08 - v1.26.0: Fix at-rest encryption on Linux and Windows, and calendar setup on headless servers
 
 **If you run WattSnatch on anything other than macOS, please update.** Your

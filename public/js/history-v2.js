@@ -164,6 +164,541 @@ function updateSelfSuffRing(pct) {
   }
 }
 
+/**
+ * Explains where the figures above it came from, and flags the one thing that
+ * can quietly make them all wrong.
+ *
+ * The distinction is worth stating plainly on the page: the import, export and
+ * cost totals are read off the grid meter, while the per-category split beneath
+ * them is an attribution. Nothing can measure which load consumed a given watt
+ * of sunshine, so the split answers "which load would have been importing if the
+ * sun weren't out", house first. It adds up to the meter, but it is a model.
+ *
+ * The coverage warning matters more than it looks. Energy is integrated over the
+ * telemetry rows that exist, and each row counts for at most two minutes, so an
+ * hour with no telemetry contributes almost nothing rather than being
+ * interpolated. That understates import and export at the same time, which is
+ * hard to spot by eye and looks exactly like a tariff being set wrong.
+ */
+function renderSourceNote(node, master) {
+  if (!node) return;
+  if (!master || master.coverage_pct == null) { node.innerHTML = ''; return; }
+
+  const parts = [
+    'Import, export and cost totals are read from your grid meter. '
+    + 'The per-category split is an estimate of which load would have drawn from '
+    + 'the grid without solar, house first, and adds up to the metered total.',
+  ];
+
+  // 98% is roughly a restart or two in a month, which is normal and not worth
+  // nagging about. Below that, the numbers are meaningfully low and the user
+  // should know before they blame their tariff settings.
+  if (master.coverage_pct < 98 && master.unrecorded_hours > 0) {
+    parts.push(
+      `<span class="ssn-warn">Based on ${master.coverage_pct}% of this period `
+      + `(${master.unrecorded_hours.toFixed(1)} hours had no readings), so the real `
+      + `figures are a little higher.</span>`
+    );
+  }
+
+  if (master.unexplained_kwh > 1) {
+    parts.push(
+      `${master.unexplained_kwh.toFixed(1)} kWh of import could not be matched to a `
+      + `monitored circuit and is counted under House.`
+    );
+  }
+
+  node.innerHTML = parts.join(' ');
+}
+
+// ─── Story of the period ──────────────────────────────────────────────────────
+
+/** "2026-07-26" -> "26 Jul". Parsed as local, not UTC, so the day never shifts. */
+function wrappedDay(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+const WRAPPED_REDUCED_MOTION = window.matchMedia
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// How long after a period closes its Wrapped stays available. This is a
+// deliberate window, not "whenever you feel like it": Wrapped is meant to be
+// a moment that arrives when a month/quarter/half/year finishes, the way the
+// Spotify original does at year-end, not a report you can pull up for any
+// period at will from the ordinary period picker. Ten days gives someone a
+// realistic chance to notice without turning it into a permanent fixture.
+const WRAPPED_REVEAL_WINDOW_DAYS = 10;
+
+let _wrappedSlides = [];
+let _wrappedIndex = 0;
+let _wrappedHoldTimer = null;
+let _wrappedIsHolding = false;
+
+/**
+ * Which of month/quarter/half/year have closed within the last
+ * WRAPPED_REVEAL_WINDOW_DAYS, right now.
+ *
+ * Pure date arithmetic, no network call - the eligibility question ("has this
+ * period ended recently") is independent of whether there is any data to show
+ * for it, which renderWrappedTeasers() checks separately. More than one
+ * cadence can be eligible at once: on 3 January, last month (December), last
+ * quarter (Q4), last half (H2) and last year all closed within the same few
+ * days, and all four should be able to appear together.
+ *
+ * "Week" deliberately has no Wrapped - a week is too short a span for a
+ * retrospective to mean much, and it was the one cadence not asked for.
+ */
+function wrappedEligibleCadences() {
+  const now = new Date();
+  const inWindow = (endsAt) => {
+    const daysSinceClose = (now - endsAt) / 86400000;
+    return daysSinceClose >= 0 && daysSinceClose < WRAPPED_REVEAL_WINDOW_DAYS;
+  };
+
+  const cadences = [];
+
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  cadences.push({
+    period: 'last_month', endsAt: thisMonthStart,
+    label: lastMonthStart.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+  });
+
+  const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+  const thisQuarterStart = new Date(now.getFullYear(), qStartMonth, 1);
+  const lastQuarterStart = new Date(thisQuarterStart);
+  lastQuarterStart.setMonth(lastQuarterStart.getMonth() - 3);
+  cadences.push({
+    period: 'last_quarter', endsAt: thisQuarterStart,
+    label: `Q${Math.floor(lastQuarterStart.getMonth() / 3) + 1} ${lastQuarterStart.getFullYear()}`,
+  });
+
+  const hStartMonth = now.getMonth() < 6 ? 0 : 6;
+  const thisHalfStart = new Date(now.getFullYear(), hStartMonth, 1);
+  const lastHalfStart = new Date(thisHalfStart);
+  lastHalfStart.setMonth(lastHalfStart.getMonth() - 6);
+  cadences.push({
+    period: 'last_half', endsAt: thisHalfStart,
+    label: `${lastHalfStart.getMonth() < 6 ? 'H1' : 'H2'} ${lastHalfStart.getFullYear()}`,
+  });
+
+  const thisYearStart = new Date(now.getFullYear(), 0, 1);
+  const lastYearStart = new Date(now.getFullYear() - 1, 0, 1);
+  cadences.push({
+    period: 'last_year', endsAt: thisYearStart,
+    label: String(lastYearStart.getFullYear()),
+  });
+
+  return cadences.filter((c) => inWindow(c.endsAt));
+}
+
+/**
+ * Builds one teaser card per currently-eligible, currently-has-data cadence.
+ *
+ * Independent of the savings panel's period picker entirely - it runs once
+ * on page load based on today's date, not on whatever period button is
+ * active, because Wrapped is supposed to arrive on its own rather than being
+ * something you dial up. Each card carries its own fetched payload and opens
+ * directly into the story; there is no shared "current" Wrapped state to get
+ * out of sync between cards.
+ */
+async function renderWrappedTeasers() {
+  const container = document.getElementById('wrapped-teasers');
+  if (!container) return;
+
+  const cadences = wrappedEligibleCadences();
+  if (cadences.length === 0) { container.style.display = 'none'; container.innerHTML = ''; return; }
+
+  const fetched = await Promise.all(cadences.map(async (c) => {
+    try {
+      const res = await api(`/api/stats/wrapped?period=${encodeURIComponent(c.period)}`);
+      if (!res?.ok || !res.wrapped || res.wrapped.period.days_in_data < 1) return null;
+      return { ...c, wrapped: res.wrapped };
+    } catch (_e) {
+      return null;
+    }
+  }));
+
+  const ready = fetched.filter(Boolean);
+  if (ready.length === 0) { container.style.display = 'none'; container.innerHTML = ''; return; }
+
+  container.innerHTML = '';
+  for (const entry of ready) {
+    const t = entry.wrapped.totals;
+    const card = document.createElement('div');
+    card.className = 'wrapped-teaser';
+    card.innerHTML = `
+      <div class="wrapped-teaser-inner">
+        <div class="wrapped-teaser-kicker">✨ ${entry.label.toUpperCase()}, WRAPPED</div>
+        <div class="wrapped-teaser-headline">Your roof made <b>${t.solar_kwh.toFixed(0)} kWh</b> `
+      + `and <b>${t.self_pct}%</b> of everything you used came from it.</div>
+        <span class="wrapped-teaser-cta">▶ View the story</span>
+      </div>`;
+    card.addEventListener('click', () => openWrappedStory(entry.wrapped, entry.label));
+    container.appendChild(card);
+  }
+  container.style.display = '';
+}
+
+/** Eases a value from 0 to `to` over `duration`ms, calling onUpdate each frame. */
+function animateWrappedNumber({ to, duration = 1100, onUpdate }) {
+  if (WRAPPED_REDUCED_MOTION) { onUpdate(to); return; }
+  const start = performance.now();
+  function tick(now) {
+    const p = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+    onUpdate(to * eased);
+    if (p < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+/**
+ * Turns one period's wrapped payload into an ordered list of story slides.
+ *
+ * Each entry is either a static beat (intro, the self-sufficiency ring,
+ * finale) or a 'stat' slide with an icon, a headline number, and a line of
+ * detail. Conditional slides use the exact same gates the old inline grid
+ * used, so nothing that used to appear silently disappears in the rebuild.
+ */
+function buildWrappedSlides(w, periodLabel) {
+  const t = w.totals, sd = w.standout_days, so = w.solar_only;
+  const GOLD = 'rgba(255,196,110,0.45)', GREEN = 'rgba(120,220,160,0.4)',
+        BLUE = 'rgba(120,180,255,0.4)', PURPLE = 'rgba(190,140,255,0.45)';
+
+  const slides = [{
+    type: 'intro', glow: GOLD, duration: 4200,
+    kicker: periodLabel.toUpperCase(),
+    title: `Here's how the sun did.`,
+  }, {
+    type: 'stat', icon: '☀️', kicker: 'Solar generated', glow: GOLD, duration: 4800,
+    value: { to: t.solar_kwh, decimals: 0, suffix: ' kWh' },
+    detail: 'made it off your roof.',
+  }, {
+    type: 'ring', kicker: 'Self-sufficiency', glow: GREEN, duration: 5200,
+    pct: t.self_pct,
+    detail: `of everything you used came straight from the sun. The rest, `
+      + `$${t.net_cost_aud.toFixed(2)}, came from the grid.`,
+  }];
+
+  if (sd.sunniest) {
+    slides.push({
+      type: 'stat', icon: '🌞', kicker: 'Sunniest day', glow: GOLD, duration: 5000,
+      valueText: wrappedDay(sd.sunniest.day),
+      detail: `${sd.sunniest.solar_kwh.toFixed(1)} kWh off the roof in a single day.`,
+    });
+  }
+  if (sd.most_self_suff) {
+    slides.push({
+      type: 'stat', icon: '🔋', kicker: 'Least grid-reliant day', glow: GREEN, duration: 5000,
+      value: { to: sd.most_self_suff.self_pct, decimals: 0, suffix: '%' },
+      detail: `on ${wrappedDay(sd.most_self_suff.day)}, only `
+        + `${sd.most_self_suff.import_kwh.toFixed(1)} kWh came from the grid.`,
+    });
+  }
+  if (so.car && so.car.of_days > 0) {
+    slides.push({
+      type: 'stat', icon: '🚗', kicker: 'Car ran on sunshine', glow: BLUE, duration: 5600,
+      valueText: `${so.car.high_days} / ${so.car.of_days}`,
+      detail: `days charged at ${so.car.threshold_pct}%+ solar`
+        + (so.car.longest_streak > 1 ? `, best run ${so.car.longest_streak} days in a row` : '')
+        + (so.car.pure_days > 0 ? `. ${so.car.pure_days} of those took no grid at all.` : '.'),
+    });
+  }
+  if (so.hot_water && so.hot_water.of_days > 0) {
+    slides.push({
+      type: 'stat', icon: '💧', kicker: 'Hot water ran on sunshine', glow: BLUE, duration: 5600,
+      valueText: `${so.hot_water.high_days} / ${so.hot_water.of_days}`,
+      detail: `days at ${so.hot_water.threshold_pct}%+ solar`
+        + (so.hot_water.longest_streak > 1 ? `, best run ${so.hot_water.longest_streak} days in a row.` : '.'),
+    });
+  }
+  if (w.loads.top_saver) {
+    slides.push({
+      type: 'stat', icon: '🏆', kicker: 'Biggest saver', glow: PURPLE, duration: 5200,
+      value: { to: w.loads.top_saver.est_savings_aud, decimals: 2, prefix: '$' },
+      detail: `was your ${w.loads.top_saver.label.toLowerCase()}, `
+        + `${w.loads.top_saver.self_pct}% of it solar.`,
+    });
+  }
+  if (w.loads.greediest && w.loads.greediest.grid_kwh > 0.05) {
+    slides.push({
+      type: 'stat', icon: '🔌', kicker: 'Leaned on the grid most', glow: PURPLE, duration: 5200,
+      value: { to: w.loads.greediest.grid_kwh, decimals: 1, suffix: ' kWh' },
+      detail: `was your ${w.loads.greediest.label.toLowerCase()}: `
+        + `$${w.loads.greediest.grid_cost_aud.toFixed(2)} in grid electricity.`,
+    });
+  }
+  if (sd.priciest && sd.priciest.cost_aud > 0.005) {
+    slides.push({
+      type: 'stat', icon: '📈', kicker: 'Priciest day', glow: PURPLE, duration: 5000,
+      value: { to: sd.priciest.cost_aud, decimals: 2, prefix: '$' },
+      detail: `${wrappedDay(sd.priciest.day)}, ${sd.priciest.import_kwh.toFixed(1)} kWh imported.`,
+    });
+  }
+  if (t.kwh_exported > 0.05 && sd.biggest_export) {
+    slides.push({
+      type: 'stat', icon: '📤', kicker: 'Sent back to the grid', glow: GOLD, duration: 5200,
+      value: { to: t.kwh_exported, decimals: 0, suffix: ' kWh' },
+      detail: `$${t.export_credit_aud.toFixed(2)} credited. Best day was `
+        + `${wrappedDay(sd.biggest_export.day)} at ${sd.biggest_export.export_kwh.toFixed(1)} kWh.`,
+    });
+  }
+  if (w.car.sessions > 0) {
+    slides.push({
+      type: 'stat', icon: '⚡', kicker: 'Charging sessions', glow: BLUE, duration: 5000,
+      value: { to: w.car.sessions, decimals: 0 },
+      detail: `${w.car.solar_kwh.toFixed(1)} kWh came from solar`
+        + (w.car.best_session_kwh > 0
+          ? `, biggest single top-up ${w.car.best_session_kwh.toFixed(1)} kWh.` : '.'),
+    });
+  }
+
+  let finaleDetail = `You paid $${t.net_cost_aud.toFixed(2)} for the grid you used, `
+    + `and kept the rest in your pocket by not buying it.`;
+  if (w.period.coverage_pct < 98) {
+    finaleDetail += ` This period is only ${w.period.coverage_pct}% recorded, `
+      + `so the real numbers are a touch higher.`;
+  }
+  slides.push({
+    type: 'finale', icon: '🎉', kicker: 'The bottom line', glow: GREEN, duration: 6000,
+    value: { to: t.est_savings_aud, decimals: 2, prefix: '$' },
+    detail: finaleDetail,
+  });
+
+  return slides;
+}
+
+function renderWrappedSlideDOM(slide) {
+  const div = document.createElement('div');
+  div.className = 'wrapped-slide';
+  div.style.setProperty('--glow', slide.glow || 'rgba(255,255,255,0.18)');
+
+  if (slide.type === 'intro') {
+    div.innerHTML = `
+      <div class="wrapped-slide-icon">✨</div>
+      <div class="wrapped-slide-kicker">${slide.kicker}</div>
+      <div class="wrapped-slide-value small wrapped-fade" style="max-width:19rem">${slide.title}</div>`;
+  } else if (slide.type === 'ring') {
+    div.innerHTML = `
+      <div class="wrapped-slide-kicker">${slide.kicker}</div>
+      <svg class="wrapped-slide-ring wrapped-fade" viewBox="0 0 200 200">
+        <g transform="rotate(-90, 100, 100)">
+          <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="14"/>
+          <circle cx="100" cy="100" r="80" fill="none" stroke="#fff" stroke-width="14"
+                  stroke-linecap="round" stroke-dasharray="502.65" stroke-dashoffset="502.65"
+                  class="wrapped-ring-fill"/>
+        </g>
+        <text x="100" y="114" text-anchor="middle" font-family="'JetBrains Mono',monospace"
+              font-size="42" font-weight="700" fill="#fff" class="wrapped-ring-value">0%</text>
+      </svg>
+      <div class="wrapped-slide-detail">${slide.detail}</div>`;
+  } else if (slide.type === 'finale') {
+    const sparkleEmoji = ['✨', '⚡', '☀️', '💧'];
+    const sparks = Array.from({ length: 10 }, (_, i) => {
+      const left  = 8 + Math.random() * 84;
+      const delay = (Math.random() * 2.4).toFixed(2);
+      const emoji = sparkleEmoji[i % sparkleEmoji.length];
+      return `<span class="wrapped-spark" style="left:${left}%;bottom:8%;animation-delay:${delay}s">${emoji}</span>`;
+    }).join('');
+    div.innerHTML = `
+      ${sparks}
+      <div class="wrapped-slide-icon">${slide.icon}</div>
+      <div class="wrapped-slide-kicker">${slide.kicker}</div>
+      <div class="wrapped-slide-value wrapped-fade" data-count>$0.00</div>
+      <div class="wrapped-slide-detail">${slide.detail}</div>
+      <button class="wrapped-slide-done" type="button">Done</button>`;
+  } else {
+    div.innerHTML = `
+      <div class="wrapped-slide-icon">${slide.icon}</div>
+      <div class="wrapped-slide-kicker">${slide.kicker}</div>
+      <div class="wrapped-slide-value wrapped-fade" data-count>${slide.valueText || '0'}</div>
+      <div class="wrapped-slide-detail">${slide.detail}</div>`;
+  }
+  return div;
+}
+
+/**
+ * Triggers the count-up / ring-fill animation for whichever slide just became
+ * active, and fades in whatever that slide's ".wrapped-fade" element is - the
+ * count-up value, the ring, or the intro's title line. One reveal mechanism
+ * for all slide types rather than one path per type, so a new slide type
+ * can't silently ship without ever calling the reveal.
+ */
+function activateWrappedSlide(el, slide) {
+  if (slide.type === 'ring') {
+    const ringFill  = el.querySelector('.wrapped-ring-fill');
+    const ringValue = el.querySelector('.wrapped-ring-value');
+    const circumference = 502.65;
+    animateWrappedNumber({ to: slide.pct, onUpdate: (v) => {
+      ringValue.textContent = Math.round(v) + '%';
+      ringFill.style.strokeDashoffset = String(circumference - (v / 100) * circumference);
+    }});
+  } else {
+    const valueEl = el.querySelector('[data-count]');
+    if (valueEl && slide.value) {
+      const { to, decimals = 0, prefix = '', suffix = '' } = slide.value;
+      animateWrappedNumber({ to, onUpdate: (v) => {
+        valueEl.textContent = prefix + v.toFixed(decimals) + suffix;
+      }});
+    }
+  }
+  requestAnimationFrame(() => {
+    el.querySelectorAll('.wrapped-fade').forEach((n) => n.classList.add('shown'));
+  });
+}
+
+function wrappedKeyHandler(e) {
+  if (e.key === 'Escape')                        closeWrappedStory();
+  else if (e.key === 'ArrowRight' || e.key === ' ') goToWrappedSlide(_wrappedIndex + 1);
+  else if (e.key === 'ArrowLeft')                 goToWrappedSlide(_wrappedIndex - 1);
+}
+
+function goToWrappedSlide(i) {
+  if (i < 0) return; // already on the first slide - ignore rather than close
+  if (i >= _wrappedSlides.length) { closeWrappedStory(); return; }
+
+  const slideEls = document.querySelectorAll('#wrapped-slides .wrapped-slide');
+  const segs     = document.querySelectorAll('#wrapped-progress-row .wrapped-progress-fill');
+  slideEls.forEach((el, idx) => el.classList.toggle('active', idx === i));
+
+  segs.forEach((seg, idx) => {
+    seg.classList.remove('filling', 'paused');
+    if (idx < i) { seg.classList.add('done'); seg.style.width = ''; }
+    else if (idx > i) { seg.classList.remove('done'); seg.style.width = '0%'; }
+  });
+
+  _wrappedIndex = i;
+  const slide  = _wrappedSlides[i];
+  const isLast = i === _wrappedSlides.length - 1;
+
+  activateWrappedSlide(slideEls[i], slide);
+
+  const currentSeg = segs[i];
+  currentSeg.classList.remove('done');
+  if (isLast || WRAPPED_REDUCED_MOTION) {
+    // The finale waits for a deliberate close rather than auto-advancing off
+    // the end, and reduced-motion means no self-timed auto-advance at all -
+    // both just mark the segment complete and wait for the person.
+    currentSeg.style.width = '';
+    currentSeg.classList.add('done');
+  } else {
+    currentSeg.style.width = '';
+    currentSeg.style.setProperty('--dur', ((slide.duration || 5000) / 1000) + 's');
+    void currentSeg.offsetWidth; // restart the CSS animation if this slide was visited before
+    currentSeg.classList.add('filling');
+    currentSeg.addEventListener('animationend', function handler() {
+      currentSeg.removeEventListener('animationend', handler);
+      if (_wrappedIndex === i) goToWrappedSlide(i + 1);
+    }, { once: true });
+  }
+}
+
+function openWrappedStory(w, periodLabel) {
+  if (!w) return;
+  _wrappedSlides = buildWrappedSlides(w, periodLabel);
+
+  document.getElementById('wrapped-progress-row').innerHTML =
+    _wrappedSlides.map(() => '<div class="wrapped-progress-seg"><div class="wrapped-progress-fill"></div></div>').join('');
+  const slidesRoot = document.getElementById('wrapped-slides');
+  slidesRoot.innerHTML = '';
+  _wrappedSlides.forEach((s) => slidesRoot.appendChild(renderWrappedSlideDOM(s)));
+
+  const modal = document.getElementById('wrapped-modal');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+
+  goToWrappedSlide(0);
+  document.addEventListener('keydown', wrappedKeyHandler);
+}
+
+function closeWrappedStory() {
+  const modal = document.getElementById('wrapped-modal');
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+  // Full teardown rather than just hiding: stops every in-flight animation and
+  // count-up dead, and the next open() rebuilds from scratch anyway.
+  document.getElementById('wrapped-slides').innerHTML = '';
+  document.getElementById('wrapped-progress-row').innerHTML = '';
+  document.removeEventListener('keydown', wrappedKeyHandler);
+}
+
+/**
+ * Wires the story's navigation. Called once at page load - the modal shell
+ * (#wrapped-story, its buttons) persists across opens, only the slide/progress
+ * DOM inside it is rebuilt each time, so these listeners are attached once
+ * rather than per-open. Teaser cards are dynamic (zero to four of them,
+ * rebuilt by renderWrappedTeasers()) and each wires its own click handler
+ * directly, so there is no teaser-side wiring here.
+ */
+function setupWrappedStory() {
+  const modal  = document.getElementById('wrapped-modal');
+  const story  = document.getElementById('wrapped-story');
+  if (!modal || !story) return;
+
+  document.getElementById('wrapped-close').addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeWrappedStory();
+  });
+  document.getElementById('wrapped-prev').addEventListener('click', () => goToWrappedSlide(_wrappedIndex - 1));
+  document.getElementById('wrapped-next').addEventListener('click', () => goToWrappedSlide(_wrappedIndex + 1));
+
+  // Backdrop click (the modal flex container itself, not the story card) closes.
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeWrappedStory(); });
+
+  // Delegated: the Done button is recreated inside #wrapped-slides on every open().
+  document.getElementById('wrapped-slides').addEventListener('click', (e) => {
+    if (e.target.closest('.wrapped-slide-done')) closeWrappedStory();
+  });
+
+  // Tap-to-advance / press-and-hold-to-pause, unified for mouse and touch via
+  // pointer events. A hold under 200ms is treated as a tap (navigate); at or
+  // past 200ms it pauses the current slide's auto-advance until release,
+  // mirroring how Instagram/Spotify Stories behave.
+  const isNavException = (e) => e.target.closest && e.target.closest('.wrapped-close, .wrapped-slide-done');
+
+  story.addEventListener('pointerdown', (e) => {
+    if (isNavException(e)) return;
+    _wrappedIsHolding = false;
+    clearTimeout(_wrappedHoldTimer);
+    _wrappedHoldTimer = setTimeout(() => {
+      _wrappedIsHolding = true;
+      const fill = story.querySelector('.wrapped-progress-fill.filling');
+      if (fill) fill.classList.add('paused');
+    }, 200);
+  });
+
+  const release = (e) => {
+    clearTimeout(_wrappedHoldTimer);
+    if (_wrappedIsHolding) {
+      const fill = story.querySelector('.wrapped-progress-fill.paused');
+      if (fill) fill.classList.remove('paused');
+      _wrappedIsHolding = false;
+      return; // deliberate hold-to-read, not a navigation tap
+    }
+    if (isNavException(e)) return;
+    const rect = story.getBoundingClientRect();
+    const clientX = e.clientX != null ? e.clientX
+      : (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : rect.right);
+    const x = clientX - rect.left;
+    goToWrappedSlide(_wrappedIndex + (x < rect.width * 0.35 ? -1 : 1));
+  };
+  story.addEventListener('pointerup', release);
+  story.addEventListener('pointerleave', () => {
+    clearTimeout(_wrappedHoldTimer);
+    if (_wrappedIsHolding) {
+      const fill = story.querySelector('.wrapped-progress-fill.paused');
+      if (fill) fill.classList.remove('paused');
+      _wrappedIsHolding = false;
+    }
+  });
+}
+
 // ─── Unified period data loader ───
 // Drives both the savings hero block AND the 6 kWh stat cards.
 // Called on page load (defaults to 'month') and whenever a period toggle is clicked.
@@ -227,26 +762,39 @@ async function loadPeriodData(period) {
         ? exportKwh.toFixed(1) + ' kWh exported'
         : Math.max(0, solarKwh - exportKwh).toFixed(1) + ' kWh self-consumed';
     } else {
-      // hw.total_kwh is ALL energy delivered to hot water, including the
-      // grid-boosted portion - only the non-boost part is actually solar.
-      solarKwh     = (ev.solar_kwh || 0) + Math.max(0, (hw.total_kwh || 0) - (hw.boost_kwh || 0)) + (house.solar_kwh || 0);
+      // Solar that actually served load, across every monitored category. The
+      // old formula added up three separately-modelled solar shares, which
+      // double-counted where those models disagreed.
+      solarKwh     = master?.total_solar_kwh != null
+        ? master.total_solar_kwh
+        : (ev.solar_kwh || 0) + Math.max(0, (hw.total_kwh || 0) - (hw.boost_kwh || 0)) + (house.solar_kwh || 0);
       solarSubtext = 'solar self-consumed';
     }
 
-    const selfConsumed  = activePeriod === 'today' ? Math.max(0, solarKwh - exportKwh) : solarKwh;
-    const totalGridKwh  = (house.grid_kwh      || 0) + (ev.grid_kwh      || 0);
-    const totalGridCost = (house.grid_cost_aud  || 0) + (ev.grid_cost_aud  || 0);
-    const totalLoad     = (house.house_kwh      || 0) + (ev.total_kwh      || 0) + (hw.total_kwh || 0);
+    const selfConsumed = activePeriod === 'today' ? Math.max(0, solarKwh - exportKwh) : solarKwh;
 
-    // The self-sufficiency ring needs a numerator sourced the same way as
-    // totalLoad (both from telemetry_log/eddi_telemetry) so the ratio can't
-    // exceed 100%. "Today" uses a live Enphase hardware accumulator for
-    // `solarKwh` above (immune to polling gaps, which is correct for the
-    // "Today's Solar" production figure) - but that means it isn't
-    // comparable to a totalLoad that CAN be undercounted by a polling gap.
-    // Reuse the same telemetry-derived formula as other periods here instead.
+    // Grid import straight off the meter. This used to be house + car only,
+    // omitting hot water entirely, which is why the page under-reported import.
+    const totalGridKwh  = master?.kwh_imported != null
+      ? master.kwh_imported
+      : (house.grid_kwh || 0) + (ev.grid_kwh || 0);
+    const totalGridCost = master?.grid_cost_aud != null
+      ? master.grid_cost_aud
+      : (house.grid_cost_aud || 0) + (ev.grid_cost_aud || 0);
+    const totalLoad     = master?.total_load_kwh != null
+      ? master.total_load_kwh
+      : (house.house_kwh || 0) + (ev.total_kwh || 0) + (hw.total_kwh || 0);
+
+    // "Today" uses a live Enphase hardware accumulator for `solarKwh` above,
+    // which is immune to polling gaps and so correct for the "Today's Solar"
+    // production figure - but for that reason it is not comparable to a
+    // totalLoad that a polling gap CAN undercount. Use the telemetry-derived
+    // figure for the ratio, so numerator and denominator share a source and the
+    // fraction cannot exceed 100% on its own.
     const solarForRatio = activePeriod === 'today'
-      ? (ev.solar_kwh || 0) + Math.max(0, (hw.total_kwh || 0) - (hw.boost_kwh || 0)) + (house.solar_kwh || 0)
+      ? (master?.total_solar_kwh != null
+          ? master.total_solar_kwh
+          : (ev.solar_kwh || 0) + Math.max(0, (hw.total_kwh || 0) - (hw.boost_kwh || 0)) + (house.solar_kwh || 0))
       : selfConsumed;
     const selfSuffPct   = totalLoad > 0 ? Math.min(100, Math.round(solarForRatio / totalLoad * 100)) : 0;
     const label         = PERIOD_LABELS[activePeriod] || activePeriod;
@@ -264,14 +812,29 @@ async function loadPeriodData(period) {
     }
 
     // ── Savings hero ──────────────────────────────────────────────────────────
-    const evSaved    = ev?.est_savings_aud     || 0;
-    const hwSaved    = hw?.est_savings_aud     || 0;
-    const totalSaved = master?.est_savings_aud  || 0;
-    const houseSaved = Math.max(0, totalSaved - evSaved - hwSaved);
-    const totalSpent = master?.grid_cost_aud   || 0;
-    const evSpent    = ev?.grid_cost_aud       || 0;
-    const hwSpent    = hw?.grid_cost_aud       || 0;
-    const houseSpent = house?.grid_cost_aud    || 0;
+    // Per-category spend comes from master.categories, a single reconciled
+    // attribution whose parts add up to the metered import. Reading the three
+    // separate endpoints here (as this used to) meant summing three models that
+    // each split solar from grid on a different assumption, so the categories
+    // added up to more than the meter ever recorded. The older-server fallback
+    // keeps that behaviour rather than blanking the panel.
+    const cats       = master?.categories || null;
+    const catBy      = (key) => (cats ? cats.find((c) => c.key === key) : null) || null;
+    const catCar     = catBy('car');
+    const catHw      = catBy('hot_water');
+    const catHouse   = catBy('house');
+
+    const evSaved    = (catCar   ? catCar.est_savings_aud   : ev?.est_savings_aud) || 0;
+    const hwSaved    = (catHw    ? catHw.est_savings_aud    : hw?.est_savings_aud) || 0;
+    const totalSaved = master?.est_savings_aud || 0;
+    const houseSaved = catHouse
+      ? (catHouse.est_savings_aud || 0)
+      : Math.max(0, totalSaved - evSaved - hwSaved);
+
+    const totalSpent = master?.grid_cost_aud || 0;
+    const evSpent    = (catCar   ? catCar.grid_cost_aud   : ev?.grid_cost_aud)    || 0;
+    const hwSpent    = (catHw    ? catHw.grid_cost_aud    : hw?.grid_cost_aud)    || 0;
+    const houseSpent = (catHouse ? catHouse.grid_cost_aud : house?.grid_cost_aud) || 0;
 
     // Supply charge for this period. The server figure is priced day-by-day
     // from tariff_history, so past periods keep the rate that actually applied
@@ -281,10 +844,23 @@ async function loadPeriodData(period) {
       ? master.supply_charge_aud
       : periodDays * supplyChargeDailyAud;
 
+    // Feed-in credit, which was never shown before. Without it "Total Spent"
+    // was a gross figure being compared against a bill that nets the credit off.
+    const exportCredit = master?.export_credit_aud || 0;
+    const netSpent     = master?.net_cost_aud != null
+      ? master.net_cost_aud
+      : totalSpent + supplyCharge - exportCredit;
+
     el('sh-total-saved').textContent     = fmt(totalSaved);
     el('sh-total-spent').textContent     = fmt(totalSpent);
     el('sh-supply-charge').textContent   = fmt(supplyCharge);
-    el('sh-total-all-spent').textContent = fmt(totalSpent + supplyCharge);
+    el('sh-total-all-spent').textContent = fmt(netSpent);
+
+    const creditCell = el('sh-export-credit-cell');
+    if (creditCell) {
+      creditCell.style.display = exportCredit > 0.005 ? '' : 'none';
+      if (exportCredit > 0.005) el('sh-export-credit').textContent = fmt(exportCredit);
+    }
 
     el('sh-ev-saved').textContent    = fmt(evSaved);
     el('sh-hw-saved').textContent    = fmt(hwSaved);
@@ -294,6 +870,8 @@ async function loadPeriodData(period) {
     el('sh-ev-spent').textContent    = evSpent    > 0.005 ? fmt(evSpent)    + ' spent' : '';
     el('sh-hw-spent').textContent    = hwSpent    > 0.005 ? fmt(hwSpent)    + ' spent' : '';
     el('sh-house-spent').textContent = houseSpent > 0.005 ? fmt(houseSpent) + ' spent' : '';
+
+    renderSourceNote(el('sh-source-note'), master);
 
     // ── Stat card labels ──────────────────────────────────────────────────────
     if (el('hero-solar-label'))    el('hero-solar-label').textContent    = isToday ? "Today's Solar"  : label + ' Solar';
@@ -307,18 +885,27 @@ async function loadPeriodData(period) {
     el('hero-solar').textContent         = solarKwh.toFixed(1) + ' kWh';
     el('hero-solar-sub').textContent     = solarSubtext;
 
+    // These three read from the same reconciled categories as the savings panel
+    // above. They used to come from the three per-category endpoints, each with
+    // its own idea of the solar/grid split, so a card could disagree with the
+    // breakdown a few centimetres above it - hot water especially, since its
+    // solar share was (total - boost) / total from the Eddi's own counters
+    // rather than anything tied to the metered import.
+
     // House load: solar % BIG, kWh medium
-    el('hero-house').textContent         = (house.self_pct || 0) + '%';
-    el('hero-house-sub').innerHTML       = `<span style="font-size:1.1rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:#63b3ed">${(house.house_kwh || 0).toFixed(1)} kWh</span>`;
+    el('hero-house').textContent         = ((catHouse ? catHouse.self_pct : house.self_pct) || 0) + '%';
+    el('hero-house-sub').innerHTML       = `<span style="font-size:1.1rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:#63b3ed">${((catHouse ? catHouse.load_kwh : house.house_kwh) || 0).toFixed(1)} kWh</span>`;
 
     // EV: solar % BIG, kWh medium
-    el('hero-ev').textContent            = (ev.self_pct || 0) + '%';
-    el('hero-ev-sub').innerHTML          = `<span style="font-size:1.1rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--accent-charge)">${(ev.total_kwh || 0).toFixed(1)} kWh</span>`;
+    el('hero-ev').textContent            = ((catCar ? catCar.self_pct : ev.self_pct) || 0) + '%';
+    el('hero-ev-sub').innerHTML          = `<span style="font-size:1.1rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--accent-charge)">${((catCar ? catCar.load_kwh : ev.total_kwh) || 0).toFixed(1)} kWh</span>`;
 
     // Hot water: solar % BIG, kWh medium
-    const hwSolarPct = (hw.total_kwh || 0) > 0 ? Math.round(((hw.total_kwh - (hw.boost_kwh || 0)) / hw.total_kwh) * 100) : 0;
+    const hwSolarPct = catHw
+      ? (catHw.self_pct || 0)
+      : ((hw.total_kwh || 0) > 0 ? Math.round(((hw.total_kwh - (hw.boost_kwh || 0)) / hw.total_kwh) * 100) : 0);
     el('hero-hw').textContent            = hwSolarPct + '%';
-    el('hero-hw-sub').innerHTML          = `<span style="font-size:1.1rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:#fb923c">${(hw.total_kwh || 0).toFixed(1)} kWh</span>`;
+    el('hero-hw-sub').innerHTML          = `<span style="font-size:1.1rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:#fb923c">${((catHw ? catHw.load_kwh : hw.total_kwh) || 0).toFixed(1)} kWh</span>`;
 
     el('hero-import').textContent        = totalGridKwh.toFixed(1) + ' kWh';
     el('hero-import-sub').textContent    = fmt(totalGridCost) + ' in grid costs';
@@ -1153,6 +1740,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupChartToggles();
   setupHeatmapToggles();
   setupPeriodToggles();
+  setupWrappedStory();
+  renderWrappedTeasers();
 
   // Eddi grid boost backfill button
   const backfillBtn = document.getElementById('eddi-backfill-btn');

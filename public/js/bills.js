@@ -76,21 +76,35 @@ function accuracyPanelRow(bill, colSpan) {
   if (computed.length === 0) return null;
   const metrics = computed.map(m => m.html).join('');
 
-  const fullCoverage = a.days_recorded >= a.period_days;
+  // Coverage measured in hours of telemetry, not in calendar days that happen to
+  // contain at least one reading. The old day-count treated a day with a single
+  // row as complete, so July 2026 reported "32 of 31 days recorded" while 50.7
+  // hours were actually missing - a full-coverage chip sitting next to a 94% cost
+  // match, with nothing on screen to explain the gap. Falls back to the day count
+  // when talking to a server that doesn't send coverage_pct yet.
+  const hasCoverage  = a.coverage_pct != null;
+  const fullCoverage = hasCoverage ? a.coverage_pct >= 98 : a.days_recorded >= a.period_days;
   const chipClass    = fullCoverage ? 'full' : 'partial';
-  const chipText     = `${a.days_recorded} of ${a.period_days} days recorded`;
-  // A metric can still read well off target even with full day coverage - solar
+  const chipText     = hasCoverage
+    ? `${a.coverage_pct}% of the period recorded`
+    : `${a.days_recorded} of ${a.period_days} days recorded`;
+
+  // A metric can still read well off target even with full coverage - solar
   // export especially, since it's often brief midday spikes that a smart meter
   // captures continuously but WattSnatch only samples every few seconds. Say so
   // rather than blaming "rate rounding" for what's really a resolution gap.
   const worstOff = computed.reduce((min, m) => Math.abs(m.pct - 100) > Math.abs(min - 100) ? m.pct : min, 100);
   let note;
-  if (!fullCoverage) {
+  if (!fullCoverage && hasCoverage) {
+    note = `WattSnatch has telemetry for ${a.coverage_pct}% of this billing period`
+      + (a.unrecorded_hours ? ` (${a.unrecorded_hours.toFixed(1)} hours had no readings)` : '')
+      + `. Energy is only counted from readings that exist, so import, export and cost all read low here by roughly that much. This is a data gap, not a tariff problem.`;
+  } else if (!fullCoverage) {
     note = `WattSnatch only has data for ${a.days_recorded} of the ${a.period_days} billed days, so its figures are expected to read low for this period.`;
   } else if (worstOff < 85 || worstOff > 115) {
-    note = 'WattSnatch recorded data for every day of this billing period. The remaining gap is likely brief grid activity between polls (e.g. short export spikes) that a continuously-sampling smart meter catches and WattSnatch\'s periodic polling can miss, rather than a data recording problem.';
+    note = 'WattSnatch recorded data for essentially all of this billing period. The remaining gap is likely brief grid activity between polls (e.g. short export spikes) that a continuously-sampling smart meter catches and WattSnatch\'s periodic polling can miss, rather than a data recording problem.';
   } else {
-    note = 'WattSnatch recorded data for every day of this billing period. Remaining differences come from meter accuracy and rate rounding.';
+    note = 'WattSnatch recorded data for essentially all of this billing period. Remaining differences come from meter accuracy and rate rounding.';
   }
 
   return `

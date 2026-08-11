@@ -82,6 +82,8 @@ const elScheduledBanner  = document.getElementById('scheduled-banner');
 const elTouPeakBanner    = document.getElementById('tou-peak-banner');
 const elDepartureBanner  = document.getElementById('departure-banner');
 const elDepartureBannerDesc = document.getElementById('departure-banner-desc');
+const elFreePowerBanner  = document.getElementById('free-power-banner');
+const elFreePowerBannerDesc = document.getElementById('free-power-banner-desc');
 const elCertBanner       = document.getElementById('cert-banner');
 const elCertBannerDesc   = document.getElementById('cert-banner-desc');
 
@@ -240,6 +242,7 @@ function handleTelemetry(d) {
   hide(elStoppedBanner); hide(elAwayBanner);      hide(elControlOffBanner);
   hide(elScheduledBanner); hide(elTouPeakBanner);
   if (elDepartureBanner) hide(elDepartureBanner);
+  if (elFreePowerBanner) hide(elFreePowerBanner);
 
   if (!d.isAtHome) {
     show(elAwayBanner);
@@ -250,8 +253,26 @@ function handleTelemetry(d) {
   } else if (state === 'DEPARTURE') {
     if (elDepartureBanner) show(elDepartureBanner);
   } else if (state === 'SCHEDULED') {
-    show(elScheduledBanner);
-    if (d.inTouPeak) show(elTouPeakBanner);
+    // Free power reuses the SCHEDULED state, so the flag is what distinguishes
+    // them. Deliberately does not raise the TOU-peak warning alongside it: that
+    // banner exists to flag expensive import, and during a free window the
+    // import is free, so showing it would be alarming and wrong.
+    if (d.inFreePower && elFreePowerBanner) {
+      show(elFreePowerBanner);
+      if (elFreePowerBannerDesc) {
+        const w = d.freePowerWindow;
+        const until = w && w.endMs
+          ? new Date(w.endMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+          : null;
+        elFreePowerBannerDesc.textContent =
+          `Charging at maximum amps - grid power is free`
+          + (until ? ` until ${until}` : ' right now')
+          + (w && w.summary ? ` (${w.summary})` : '');
+      }
+    } else {
+      show(elScheduledBanner);
+      if (d.inTouPeak) show(elTouPeakBanner);
+    }
   } else if (state === 'STOPPED') {
     show(elStoppedBanner);
   } else if (state === 'HOLDING') {

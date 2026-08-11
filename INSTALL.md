@@ -451,6 +451,22 @@ The companion **car home/away sensor** for Home Assistant (`GET /api/car/locatio
 ### TeslaMate integration (drive history, solar-attributed drives)
 **Needs:** a separate, already-running [TeslaMate](https://github.com/teslamate-org/teslamate) instance (its own Docker Compose stack - not something WattSnatch installs for you) with **network access from the WattSnatch machine to TeslaMate's PostgreSQL port**. Enter the Postgres connection details in **Settings → TeslaMate**. This is read-only - WattSnatch never writes to TeslaMate's database.
 
+**You will almost certainly need to expose TeslaMate's Postgres port first.** TeslaMate's stock `docker-compose.yml` does not publish it, so the database is reachable only from inside TeslaMate's own Docker network and any connection from outside is refused with `ECONNREFUSED`. In TeslaMate's `docker-compose.yml`, under the `database` service, add:
+
+```yaml
+  database:
+    image: postgres:17
+    ports:
+      - "5432:5432"     # add this line
+```
+
+Then `docker compose up -d` to apply it. Use **Settings → TeslaMate → Test Connection** to check it before saving anything else.
+
+Two things worth knowing:
+
+- Use the **IP address or hostname of the machine running TeslaMate**, not the Docker service name (`database`). Service names only resolve inside Docker.
+- Publishing the port exposes your TeslaMate database to your whole local network. If that machine is reachable from outside your network, restrict it - for example bind to one interface with `- "192.168.1.50:5432:5432"`, or leave the port closed and run WattSnatch on the same Docker network instead.
+
 ### Real-time telemetry - Tesla Fleet Telemetry (advanced, optional)
 By default, WattSnatch gets vehicle data by **polling the Tesla REST API** as a fallback whenever its faster telemetry path is unavailable (every ~2 minutes while it's needed). This works out of the box with no extra setup and is genuinely fine for most people.
 

@@ -289,6 +289,13 @@
             <input type="password" id="setting_electricitymaps_api_key" autocomplete="new-password">
           </div>
         </div>
+        <!-- Saves the fields above, then does a real fetch, so a wrong key or
+             zone is reported here rather than only appearing later in the
+             server log. -->
+        <div id="grid-intensity-test-row" style="display:none">
+          <button type="button" class="btn btn-secondary" id="grid-intensity-test-btn">Test Connection</button>
+          <div id="grid-intensity-test-message" class="alert hidden mt-1"></div>
+        </div>
       </div>
 
       <!-- ERCOT Real-Time Pricing (Texas, best-effort/optional) -->
@@ -515,6 +522,33 @@
         <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 1rem">
           Every night, checks tomorrow's calendar trips and - if solar alone won't cover them - schedules exactly enough grid charging to reach the target safely, solar-first. On by default. Turn off to plan your own charging manually instead (e.g. via Departure Scheduling).
         </p>
+
+        <!-- Free power windows. Uses the same connected calendar as trips. -->
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem">
+          <label class="toggle-switch" style="flex-shrink:0">
+            <input type="checkbox" id="free_power_enabled_toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:0.85rem;font-weight:600">Free power windows</span>
+        </div>
+        <p style="font-size:0.78rem;color:var(--text-secondary);margin:0 0 0.75rem">
+          Some retailers give away electricity for set periods (Solar Sharer and similar), sometimes
+          in slots you pick yourself each fortnight. Add each one to the calendar above as an event
+          titled <strong style="color:var(--text-primary)">Free Power</strong>, and WattSnatch will
+          charge the car at full rate for exactly that window - ignoring solar, because the grid is
+          free at the time. Off by default, since this is the one feature that deliberately imports
+          from the grid.
+        </p>
+        <div class="form-group" style="max-width:420px">
+          <label for="setting_free_power_keywords">Match events whose title contains</label>
+          <input type="text" id="setting_free_power_keywords" placeholder="free power">
+          <span class="text-secondary text-xs mt-1">
+            Comma-separated, case-insensitive. Matches the event title only, never its location.
+            All-day events are ignored - a window has to state its hours.
+          </span>
+        </div>
+        <div id="free-power-upcoming" style="font-size:0.8rem;color:var(--text-secondary);margin:0 0 1rem"></div>
+
         <div class="form-group" style="max-width:320px">
           <label for="cal-provider-select">Provider</label>
           <select id="cal-provider-select">

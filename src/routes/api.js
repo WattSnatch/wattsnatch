@@ -34,6 +34,13 @@ function getLastPeriodBoundaries() {
   const thisQuarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
   const lastQuarterStart = new Date(thisQuarterStart); lastQuarterStart.setMonth(lastQuarterStart.getMonth() - 3);
 
+  // Calendar halves: Jan-Jun and Jul-Dec. Used by the Wrapped feature (there is
+  // no "half" button in the main period picker), added here rather than
+  // duplicated in that route so it shares the same boundary math as every
+  // other cadence.
+  const thisHalfStart = new Date(now.getFullYear(), now.getMonth() < 6 ? 0 : 6, 1);
+  const lastHalfStart = new Date(thisHalfStart); lastHalfStart.setMonth(lastHalfStart.getMonth() - 6);
+
   const thisYearStart = new Date(now.getFullYear(), 0, 1);
   const lastYearStart = new Date(now.getFullYear() - 1, 0, 1);
 
@@ -41,6 +48,7 @@ function getLastPeriodBoundaries() {
     last_week:    { start: lastWeekStart.getTime(),    end: thisWeekStart.getTime() },
     last_month:   { start: lastMonthStart.getTime(),   end: thisMonthStart.getTime() },
     last_quarter: { start: lastQuarterStart.getTime(), end: thisQuarterStart.getTime() },
+    last_half:    { start: lastHalfStart.getTime(),    end: thisHalfStart.getTime() },
     last_year:    { start: lastYearStart.getTime(),    end: thisYearStart.getTime() },
   };
 }
@@ -287,21 +295,36 @@ router.post('/api/location/set-home', async (req, res) => {
   }
 });
 
+// Secrets that are never sent back to the browser. Declared once and used by
+// both GET (to strip them) and POST (to treat '' as "unchanged"), because the
+// two lists silently drifting apart would either leak a secret or wipe one.
+const MASKED_SECRET_KEYS = [
+  'tesla_client_secret',
+  'google_calendar_client_secret',
+  'outlook_calendar_client_secret',
+  'mqtt_password',
+  'mqtt_in_password',
+  'watttime_password',
+  'electricitymaps_api_key',
+  'ercot_api_password',
+  'powerwall_password',
+];
+
 // GET /api/settings
 router.get('/api/settings', (req, res) => {
   try {
     const settings = db.getAllSettings();
     const safe = { ...settings };
-    delete safe.tesla_client_secret;
-    delete safe.google_calendar_client_secret;
-    delete safe.outlook_calendar_client_secret;
-    delete safe.mqtt_password;
-    delete safe.mqtt_in_password;
-    delete safe.watttime_password;
-    delete safe.electricitymaps_api_key;
-    delete safe.ercot_api_password;
-    delete safe.powerwall_password;
-    res.json({ ok: true, settings: safe });
+    // Alongside stripping the value, report whether one is stored. Without
+    // this the field just loads blank, which is indistinguishable from "my
+    // save didn't work" - and that is exactly how it was read in issue #8,
+    // where the key had in fact saved correctly the whole time.
+    const isSet = {};
+    for (const key of MASKED_SECRET_KEYS) {
+      isSet[key] = !!(safe[key] && String(safe[key]).length > 0);
+      delete safe[key];
+    }
+    res.json({ ok: true, settings: safe, secretsSet: isSet });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -352,6 +375,7 @@ router.post('/api/settings', (req, res) => {
       'ercot_pricing_enabled', 'ercot_api_username', 'ercot_api_password', 'ercot_settlement_point',
       'span_host', 'span_access_token', 'span_solar_circuit_id',
       'auto_trip_charging_enabled',
+      'free_power_enabled', 'free_power_keywords',
       'ac_brand',
       'battery_brand', 'battery_priority',
       'sigenergy_host', 'sigenergy_port', 'sigenergy_unit_id',
@@ -372,12 +396,7 @@ router.post('/api/settings', (req, res) => {
     // `undefined` in mqtt.connect() options anyway, so masking them costs
     // nothing functionally. Clearing a previously-set broker password now
     // requires the API directly, not a blank Settings field.
-    const maskedSecrets  = new Set([
-      'tesla_client_secret', 'google_calendar_client_secret', 'outlook_calendar_client_secret',
-      'watttime_password', 'electricitymaps_api_key', 'ercot_api_password',
-      'mqtt_password', 'mqtt_in_password',
-      'powerwall_password',
-    ]);
+    const maskedSecrets  = new Set(MASKED_SECRET_KEYS);
     let myenergiChanged  = false;
     let teslaMateChanged = false;
     let mqttInChanged    = false;
@@ -661,6 +680,48 @@ router.get('/api/stats/eddi/periods', (req, res) => {
   }
 });
 
+// GET /api/stats/wrapped?period=month - narrative summary for ONE period
+//
+// Takes a single period rather than returning all of them like the other stats
+// routes. Each one needs a full scan of the window plus a day-by-day rollup, so
+// building the whole set would do ten scans to serve the one the page is
+// showing. The period names match the Data page's own selector - today, week,
+// month, quarter, year, last_week, last_month, last_quarter, last_year, custom -
+// so it covers weekly through yearly without a separate concept of its own.
+router.get('/api/stats/wrapped', (req, res) => {
+  try {
+    const now = new Date();
+    const nowMs = now.getTime();
+
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const weekStart  = new Date(now);
+    weekStart.setDate(weekStart.getDate() - (weekStart.getDay() + 6) % 7);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const windows = {
+      today:   { start: todayStart.getTime(), end: nowMs },
+      week:    { start: weekStart.getTime(),  end: nowMs },
+      month:   { start: new Date(now.getFullYear(), now.getMonth(), 1).getTime(), end: nowMs },
+      quarter: { start: new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1).getTime(), end: nowMs },
+      year:    { start: new Date(now.getFullYear(), 0, 1).getTime(), end: nowMs },
+      ...getExtendedBoundaries(req),
+    };
+
+    const period = String(req.query.period || 'month');
+    const win = windows[period];
+    if (!win) {
+      return res.status(400).json({
+        ok: false,
+        error: `Unknown period "${period}". Expected one of: ${Object.keys(windows).join(', ')}`,
+      });
+    }
+
+    res.json({ ok: true, period, wrapped: db.getWrappedForPeriod(win.start, win.end) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // GET /api/stats/master/periods - combined car + eddi
 router.get('/api/stats/master/periods', (req, res) => {
   try {
@@ -681,21 +742,60 @@ router.get('/api/stats/master/periods', (req, res) => {
 
     const combined = {};
     const nowMs = now.getTime();
+    // Everything here comes from one reconciled breakdown rather than three
+    // independently-modelled ones. The old version summed the car, Eddi and
+    // house estimates, each of which split solar from grid on its own
+    // incompatible assumption - the house took a proportional share while the
+    // car gave the house first refusal - so the same watt could be billed twice.
+    // Over July 2026 that summed to 287.02 kWh of grid import against 276.63
+    // actually metered. See db.getEnergyBreakdownForPeriod.
     const computeCombined = (startTs, endTs) => {
-      const car   = db.getPeriodStats(startTs, endTs);
-      const eddi  = db.getEddiPeriodStats(startTs, endTs);
-      const house = db.getHousePeriodStats(startTs, endTs);
+      const b   = db.getEnergyBreakdownForPeriod(startTs, endTs);
+      const cat = (key) => b.categories.find((c) => c.key === key) || {};
+      const car   = cat('car');
+      const hw    = cat('hot_water');
+      const house = cat('house');
+
       return {
-        total_kwh:       Math.round((car.total_kwh + eddi.total_kwh + house.solar_kwh) * 100) / 100,
-        est_savings_aud: Math.round((car.est_savings_aud + eddi.est_savings_aud + (house.est_savings_aud || 0)) * 100) / 100,
-        car_kwh:         car.total_kwh,
-        hw_kwh:          eddi.total_kwh,
-        house_solar_kwh: house.solar_kwh,
-        grid_cost_aud:   Math.round(((car.grid_cost_aud || 0) + (eddi.grid_cost_aud || 0) + house.grid_cost_aud) * 100) / 100,
+        // Unchanged shape: the managed-load total the period cards and the
+        // petrol comparison are built from.
+        total_kwh:       Math.round(((car.load_kwh || 0) + (hw.load_kwh || 0) + (house.solar_kwh || 0)) * 100) / 100,
+        est_savings_aud: b.est_savings_aud,
+        car_kwh:         car.load_kwh   || 0,
+        hw_kwh:          hw.load_kwh    || 0,
+        house_solar_kwh: house.solar_kwh || 0,
+
+        // The metered import cost, no longer a sum of three estimates.
+        grid_cost_aud:   b.grid.import_cost,
         // Priced day-by-day from tariff_history, so a period spanning a supply-rate
         // change isn't charged wholly at today's rate (the frontend previously did
         // days × current setting, overstating any past period after a price rise).
-        supply_charge_aud: Math.round(db.getSupplyChargeForPeriod(startTs, endTs) * 100) / 100,
+        supply_charge_aud: b.supply_charge_aud,
+
+        // Straight off the grid meter. export_credit has never been surfaced
+        // before, which meant the "total spent" figure was a gross cost being
+        // compared against a bill that nets the feed-in credit off.
+        kwh_imported:      b.grid.kwh_imported,
+        kwh_exported:      b.grid.kwh_exported,
+        export_credit_aud: b.grid.export_credit,
+        net_cost_aud:      b.net_cost_aud,
+
+        // Per-category solar/grid split, reconciled to the totals above.
+        categories:        b.categories,
+        // Whole-of-home load and the solar that served it. total_load_kwh is the
+        // correct denominator for grid reliance: the old frontend built one from
+        // house + car + hot water while sourcing the numerator from a different
+        // pair of models, so the ratio needed clamping to stay under 100%.
+        total_load_kwh:    b.total_load_kwh,
+        total_solar_kwh:   b.total_solar_kwh,
+        self_pct:          b.self_pct,
+
+        // How much of the period was actually observed. A gap understates
+        // import and export at the same time, so without this a coverage
+        // problem is indistinguishable from a pricing problem.
+        coverage_pct:      b.coverage_pct,
+        unrecorded_hours:  b.unrecorded_hours,
+        unexplained_kwh:   b.unexplained_kwh,
       };
     };
     for (const [key, startTs] of Object.entries(boundaries)) {
@@ -1127,25 +1227,41 @@ router.get('/api/stats/bills/comparison', (req, res) => {
       // class of gap.
       let accuracy = null;
       if (start && end) {
-        const periodDays = Math.round((end - start) / 86400000) + 1;
-        const grid = db.getGridSummaryForPeriod(start, end + 86400000);
-        if (grid.days_recorded > 0) {
-          const startStr = new Date(start).toISOString().slice(0, 10);
-          const endStr   = new Date(end).toISOString().slice(0, 10);
-          const supplyCharge = db.getSupplyChargeForPeriod(
-            new Date(startStr + 'T00:00:00').getTime(),
-            new Date(endStr + 'T23:59:59').getTime()
-          );
-          const estimatedTotal = grid.import_cost + supplyCharge - grid.export_credit;
+        // A bill states local calendar dates ("1 Jul 2026 to 31 Jul 2026") but
+        // stores them as UTC midnight of those dates. Energy was being summed
+        // over that raw UTC window while the supply charge was priced over local
+        // days, so the two halves of this comparison described spans ten hours
+        // apart in AEST - and neither matched the Data page, which uses local
+        // month boundaries. Over July 2026 that alone moved grid import between
+        // 268.23 and 276.63 kWh. Resolve the stated dates back to local
+        // midnights once, and use that single window for everything.
+        const startStr = new Date(start).toISOString().slice(0, 10);
+        const endStr   = new Date(end).toISOString().slice(0, 10);
+        const periodStartMs = new Date(startStr + 'T00:00:00').getTime();
+        const periodEndMs   = new Date(endStr   + 'T00:00:00').getTime() + 86400000;
+        const periodDays    = Math.round((periodEndMs - periodStartMs) / 86400000);
+
+        const b = db.getEnergyBreakdownForPeriod(periodStartMs, periodEndMs);
+        if (b.days_recorded > 0) {
           accuracy = {
-            days_recorded:   grid.days_recorded,
+            days_recorded:   b.days_recorded,
             period_days:     periodDays,
-            kwh_imported:    grid.kwh_imported,
-            kwh_exported:    grid.kwh_exported,
-            import_cost:     grid.import_cost,
-            export_credit:   grid.export_credit,
-            supply_charge:   Math.round(supplyCharge * 100) / 100,
-            estimated_total: Math.round(estimatedTotal * 100) / 100,
+            kwh_imported:    b.grid.kwh_imported,
+            kwh_exported:    b.grid.kwh_exported,
+            import_cost:     b.grid.import_cost,
+            export_credit:   b.grid.export_credit,
+            supply_charge:   b.supply_charge_aud,
+            estimated_total: b.net_cost_aud,
+
+            // The honest measure of how much of the period was observed.
+            // days_recorded counts calendar days that have at least one reading,
+            // so a day with a single row counts the same as a complete one - it
+            // reported full coverage for July 2026 while 50.7 hours were
+            // actually missing, leaving a 94% cost match with nothing to explain
+            // it. Energy is integrated over the telemetry that exists, so gaps
+            // pull import, export and cost down together.
+            coverage_pct:     b.coverage_pct,
+            unrecorded_hours: b.unrecorded_hours,
           };
         }
       }
@@ -1232,6 +1348,67 @@ router.post('/api/teslamate/test', async (req, res) => {
   try {
     const result = await teslamate.testConnection();
     res.json(result);
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/calendar/free-power - windows detected in the connected calendar
+//
+// Lets the Settings page show what WattSnatch actually matched, so a typo in an
+// event title (or an all-day entry that is deliberately ignored) is visible
+// immediately rather than only becoming apparent when the car fails to charge.
+router.get('/api/calendar/free-power', (req, res) => {
+  try {
+    const calendar = require('../services/calendar');
+    res.json({
+      ok: true,
+      enabled: calendar.isFreePowerEnabled(),
+      active: calendar.isFreePowerActive(),
+      activeWindow: calendar.getActiveFreePowerWindow(),
+      windows: calendar.getFreePowerWindows(),
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/grid-intensity/test - verify the configured carbon-intensity source
+//
+// Exists because there was previously no way to find out that a source was
+// misconfigured except to save, go to the dashboard, notice the figure had not
+// changed, and then find the failure in the server log. That is what happened
+// in issue #8, where a 401 sat in the log for a day before anyone saw it.
+router.post('/api/grid-intensity/test', async (req, res) => {
+  try {
+    // Inline require to match how the other service lookups in this file work
+    // (there is no top-level import for the grid-intensity registry).
+    const gridIntensity = require('../services/gridIntensity');
+    const provider = gridIntensity.getActiveProvider();
+    if (!provider) return res.json({ ok: false, error: 'No grid intensity provider configured' });
+
+    if (typeof provider.isConfigured === 'function' && !provider.isConfigured()) {
+      return res.json({
+        ok: false,
+        provider: provider.label,
+        error: `${provider.label} is not fully configured - fill in the fields above and save first.`,
+      });
+    }
+
+    // Providers may expose a richer testConnection(); otherwise a live fetch is
+    // itself the test.
+    if (typeof provider.testConnection === 'function') {
+      const result = await provider.testConnection();
+      return res.json({ ...result, provider: provider.label });
+    }
+
+    const payload = await provider.fetchGridIntensity();
+    res.json({
+      ok: true,
+      provider: provider.label,
+      carbonIntensityG: payload.carbonIntensityG,
+      renewablePct: payload.renewablePct,
+    });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
@@ -1474,24 +1651,30 @@ router.get('/api/financial/dashboard', (req, res) => {
     const start = new Date(year, month - 1, 1).toISOString().split('T')[0];
     const end = new Date(year, month, 0).toISOString().split('T')[0];
 
-    // Get ledger for period
-    const ledger = db.getFinancialLedgerForPeriod(start, end);
+    // The current period comes from the same reconciled breakdown as the rest
+    // of the Data page, NOT from financial_ledger. The ledger is built
+    // incrementally once a night and has permanent holes on days its job never
+    // ran (65 of 85 days on the development install), and it allocates solar
+    // proportionally - the older method this release replaced. Reading it here
+    // put a Bill Estimate card on the same screen as the savings panel,
+    // disagreeing with it, both claiming to describe the same month.
+    //
+    // Running totals below still come from the ledger: they are a lifetime
+    // figure with no equivalent single-period query, and the difference matters
+    // far less there than it does beside the month it contradicts.
+    const monthStartMs = new Date(year, month - 1, 1).getTime();
+    const monthEndMs   = new Date(year, month, 1).getTime();
+    const breakdown    = db.getEnergyBreakdownForPeriod(monthStartMs, monthEndMs);
 
-    // Calculate totals
-    let totalImportCost = 0, totalExportCredit = 0, totalSupplyCharge = 0, totalSolarAvoided = 0;
-    let totalImportedKwh = 0, totalExportedKwh = 0, totalSolarSelfConsumed = 0;
+    const totalImportCost   = breakdown.grid.import_cost;
+    const totalExportCredit = breakdown.grid.export_credit;
+    const totalSupplyCharge = breakdown.supply_charge_aud;
+    const totalSolarAvoided = breakdown.est_savings_aud;
+    const totalImportedKwh  = breakdown.grid.kwh_imported;
+    const totalExportedKwh  = breakdown.grid.kwh_exported;
+    const totalSolarSelfConsumed = breakdown.total_solar_kwh;
 
-    for (const entry of ledger) {
-      totalImportCost += entry.import_cost || 0;
-      totalExportCredit += entry.export_credit || 0;
-      totalSupplyCharge += entry.supply_charge || 0;
-      totalSolarAvoided += entry.solar_avoided_cost || 0;
-      totalImportedKwh += entry.kwh_imported || 0;
-      totalExportedKwh += entry.kwh_exported || 0;
-      totalSolarSelfConsumed += entry.kwh_solar_self_consumed || 0;
-    }
-
-    const estimatedBill = totalImportCost + totalSupplyCharge - totalExportCredit;
+    const estimatedBill = breakdown.net_cost_aud;
 
     // Get running totals (since earliest ledger entry)
     const allLedger = db.getDb().prepare('SELECT * FROM financial_ledger ORDER BY date ASC').all();
@@ -1523,7 +1706,10 @@ router.get('/api/financial/dashboard', (req, res) => {
         total_solar_avoided_cost: Math.round(cumulativeSolarAvoided * 100) / 100,
         total_net_benefit: Math.round((cumulativeExportCredit + cumulativeSolarAvoided) * 100) / 100,
       },
-      daily_ledger: ledger,
+      // Still the raw per-day ledger rows, for anything wanting day-level
+      // detail. Known to be incomplete on days its nightly job did not run -
+      // which is exactly why the period totals above no longer come from it.
+      daily_ledger: db.getFinancialLedgerForPeriod(start, end),
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

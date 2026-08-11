@@ -364,6 +364,13 @@
           </div>
         </div>
 
+        <div id="free-power-banner" class="free-power-banner hidden">
+          <div class="free-power-banner-text">
+            <div class="free-power-banner-title">⚡ Free power window</div>
+            <div class="free-power-banner-desc" id="free-power-banner-desc">Charging at maximum amps - grid power is free right now</div>
+          </div>
+        </div>
+
         <div id="tou-peak-banner" class="tou-peak-banner hidden">
           <div class="tou-peak-text">Peak tariff period - grid charging blocked, solar only</div>
         </div>
@@ -1156,6 +1163,19 @@
   padding: 0.65rem 0.85rem;
   margin-bottom: 0.6rem;
 }
+
+/* Free power banner. Green rather than the amber used for scheduled/departure
+   charging: those mean "importing on purpose, it costs money", this one means
+   the import is free, and the colour should not imply a cost that isn't there. */
+.free-power-banner {
+  background: rgba(74,222,128,0.10);
+  border: 1px solid rgba(74,222,128,0.35);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.6rem;
+}
+.free-power-banner-title { font-weight: 700; font-size: 0.88rem; color: #4ade80; }
+.free-power-banner-desc  { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.1rem; }
 .departure-banner-title { font-weight: 700; font-size: 0.88rem; color: var(--accent-solar); }
 .departure-banner-desc  { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.1rem; }
 </style>

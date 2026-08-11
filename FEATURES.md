@@ -115,6 +115,15 @@ The most complex piece of business logic in the app:
 - Matches geocoded coordinates against previously seen destinations within 200m so recurring trips don't re-geocode every time.
 - Auto-imports frequent destinations from TeslaMate drive history to pre-populate the known-destination list.
 
+### Free power windows (`calendar.js`)
+- Several retailers give away electricity for set periods (Solar Sharer and similar), and some let the customer pick the slots themselves each fortnight - so there is no fixed tariff schedule to configure against. Those windows are read from the **same calendar already connected for trip planning**: create an event titled `Free Power` and WattSnatch charges the car at full rate for exactly that window, ignoring solar, because the grid costs nothing at the time.
+- **Off by default** - this is the only feature that deliberately imports from the grid, so it never runs unless switched on in **Settings → Calendar**.
+- Match keywords are configurable and comma-separated (default `free power`), matched case-insensitively against the **event title only, never its location** - so driving to a venue that happens to contain the phrase does nothing.
+- **All-day events are ignored.** A window has to state its hours; otherwise one mistyped all-day entry would mean twenty-four hours of full-rate grid charging, which is the opposite of the point.
+- Reuses the existing scheduled-charging path rather than adding a second way to force charging, so there is one force-charge implementation. The one difference: a free power window **overrides a TOU peak**, since a peak-rate window is a reason not to import and during free power the import is free. An explicit user stop still wins over both.
+- Grid import during a free window is logged with its own `free_power` diversion reason, so it is not conflated with ordinary scheduled import in the cost breakdown.
+- Settings lists the windows actually matched in the next 7 days, so a mistyped event title is visible immediately rather than only when the car fails to charge.
+
 ---
 
 ## 3. Home Energy Integrations
@@ -184,8 +193,28 @@ Mitsubishi Electric runs two genuinely separate cloud platforms that both get ca
 - The daily financial ledger resolves export credit per-interval against this (same pattern already used for import cost), so a day spanning both near-zero midday export and higher evening export is costed accurately rather than averaged into one flat number.
 - Applying a California rate template above sets this up automatically; it can also be configured manually (Settings → Export/Feed-in Rate).
 
+### Energy attribution - how solar-vs-grid is worked out (`db.getEnergyBreakdownForPeriod`)
+This is the single source for "what did this period cost, and where did the energy go". Everything money-related on the Data page and the Bills tab reads it, so those screens cannot disagree with each other.
+
+- **Totals are measured, not modelled.** Import, export, cost and credit come from `grid_w`, the whole-home meter flow. No estimation is involved.
+- **The solar-versus-grid split is computed once**, as a single waterfall across every category, so a watt can only be attributed to one load. It replaces three separate per-category models (house, hot water, car) that each used incompatible assumptions and were then summed - the house took a proportional share of production while the car assumed the house had first call on it, so the same watt could be billed twice.
+- **The waterfall allocates the measured import**, in reverse solar priority: whatever is last in line for sunshine is first in line for the grid. This is what makes the arithmetic close - the per-category figures add up to the meter on *every interval*, not merely on average, so no after-the-fact scaling is needed and time-of-use pricing stays exact.
+- Priority order is house → hot water → car, encoded in one list. Adding a monitored load is an entry in that list; the waterfall, reconciliation and API shape all follow from it.
+- **Coverage is reported alongside the numbers.** Energy is integrated over the telemetry rows that exist and each row counts for at most 2 minutes, so an unrecorded hour contributes almost nothing rather than being interpolated. That understates import *and* export together, which is hard to spot by eye and looks identical to a mis-set tariff, so the share of the period actually recorded is shown rather than hidden.
+- The per-category split remains an **attribution** and is presented as one; the totals are meter readings and are presented as fact.
+
+### Wrapped - period story (`db.getWrappedForPeriod`)
+A full-screen, slide-by-slide summary of a completed period: total generation, self-sufficiency, sunniest and least grid-reliant days, how many days the car and hot water ran on 95%+ solar and the longest run of them, biggest saver, which load leaned on the grid hardest, priciest day, export, and charging sessions.
+
+- Appears on the Data page only when a **month, quarter, half-year or year has just closed**, for 10 days afterwards - it is meant to arrive, not to be dialled up for arbitrary periods. Several can be waiting at once (on 1 January the month, quarter, half and year have all just ended).
+- Built on the same reconciled breakdown as the rest of the page, so the story cannot contradict the detail it summarises.
+- Day-level figures come from `telemetry_log` grouped by **local** calendar day, deliberately not from `financial_ledger` - see below.
+- Days with less than 18h of telemetry are excluded from "best day" superlatives, so an outage cannot win a ratio like self-sufficiency.
+
 ### Daily financial ledger
-Every night, the controller computes the previous day's full energy ledger from raw telemetry: kWh imported, kWh exported, kWh solar self-consumed, and a **proportional solar allocation** across the EV, hot water, and house loads based on each load's share of total consumption at each interval. Produces import cost, export credit (now interval-resolved, see above), solar-avoided cost, and net daily cost.
+Every night, the controller computes the previous day's energy ledger from raw telemetry: kWh imported, kWh exported, kWh solar self-consumed, and a **proportional solar allocation** across the EV, hot water, and house loads based on each load's share of total consumption at each interval. Produces import cost, export credit, solar-avoided cost, and net daily cost.
+
+**Not the source for any period total shown in the UI.** It is built incrementally and has permanent holes on any date its nightly job never ran for, and its proportional allocation predates the waterfall described above. It is retained for day-level detail and lifetime running totals only; anything describing a specific period reads `getEnergyBreakdownForPeriod` instead.
 
 ### Electricity bill parsing (`billPoller.js`)
 - Polls a Cloudflare Worker mailbox hourly for incoming bill emails, pulls PDF attachments, and sends them to Google Gemini for structured extraction: billing period, retailer, total amount, GST, tariff rates, and time-of-use usage breakdown.

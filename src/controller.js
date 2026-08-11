@@ -27,6 +27,40 @@ const mqttPublisher = require('./services/mqttPublisher');
 // about to stop, which is rare and is exactly when being wrong is costly.
 const VERIFY_LIMIT_BEFORE_STOP_MS = 2 * 60 * 1000;
 
+/**
+ * Whether a charge_state snapshot's charge_limit_soc can be believed.
+ *
+ * Tesla reports charge_limit_soc as charge_limit_soc_min while the car is
+ * unplugged, and the owner's real limit only once it is plugged in. Observed
+ * directly on this vehicle: every plugged-in read returned
+ * `limit=80 min=50 std=80`, while unplugged reads return
+ * `limit=50 min=50 std=80`.
+ *
+ * That is the whole "it keeps going back to 50%" bug. An hourly refresh, or a
+ * boot reconciliation, that happens to land while the car is unplugged latches
+ * 50 as a fresh and supposedly trusted 'api' reading. Fleet Telemetry then never
+ * corrects it, because it only pushes ChargeLimitSoc when the value CHANGES and
+ * from the car's point of view nothing did. The stale 50 is persisted, survives
+ * restarts, and the controller stops charging at 50% on a car set to 80%.
+ *
+ * Rejecting the reading is deliberately more conservative than substituting
+ * charge_limit_soc_std: an unplugged car is not charging, so there is nothing to
+ * decide yet, and the next plugged-in refresh supplies a genuine value. If the
+ * owner really does set 50, a plugged-in read confirms it normally - this only
+ * discards the placeholder, never a limit the owner actually chose while the car
+ * was connected.
+ */
+function isChargeLimitTrustworthy(cs) {
+  if (!cs || typeof cs.charge_limit_soc !== 'number') return false;
+  // Plugged in (Charging, Stopped, Complete, NoPower): Tesla reports the truth.
+  if (cs.charging_state && cs.charging_state !== 'Disconnected') return true;
+  // Unplugged AND sitting exactly on the floor while the standard differs - the
+  // signature of the placeholder rather than a real setting.
+  return !(cs.charge_limit_soc === cs.charge_limit_soc_min
+    && typeof cs.charge_limit_soc_std === 'number'
+    && cs.charge_limit_soc_std !== cs.charge_limit_soc_min);
+}
+
 const STATES = {
   IDLE:       'IDLE',       // No car, or car disconnected
   WAITING:    'WAITING',    // Car plugged in, no solar yet - we stopped any grid charge
@@ -79,6 +113,7 @@ class Controller {
     this._vehicleCloudState = null;
     this._scheduleActive = false;
     this._touPeakActive = false;
+    this._freePowerActive = false;
     this._lastFallbackAt = 0;
     this._lastCommandedAmps = null;
     this._lastGatewaySuccessAt = Date.now();
@@ -407,6 +442,29 @@ class Controller {
     } catch (_e) { return false; }
   }
 
+  /**
+   * Whether a retailer free power window is running right now, per the
+   * connected calendar.
+   *
+   * Kept behind its own try/catch and returning false on any problem: the
+   * calendar is an external dependency, and a fetch failure or malformed event
+   * must never be able to take the charging loop down with it.
+   */
+  _inFreePowerWindow() {
+    try {
+      // Inline require, matching _tripContext() above - there is no top-level
+      // calendar import in this file.
+      return require('./services/calendar').isFreePowerActive();
+    } catch (_e) { return false; }
+  }
+
+  /** The active free power window, for logging and the dashboard. */
+  _activeFreePowerWindow() {
+    try {
+      return require('./services/calendar').getActiveFreePowerWindow();
+    } catch (_e) { return null; }
+  }
+
   // ── Battery priority arbitration ─────────────────────────────────────────
   // See src/services/battery/README.md for the full design rationale. In
   // short: 'battery_first' (default) is a no-op, since every supported
@@ -496,8 +554,20 @@ class Controller {
     }
   }
 
-  async _runScheduled({ chargeState, readings, vin, teslaToken }) {
-    if (this.state !== STATES.SCHEDULED) this._setState(STATES.SCHEDULED, 'Scheduled charging window active');
+  /**
+   * Charge at full rate from the grid, ignoring solar, for the duration of a
+   * window. Shared by ordinary scheduled charging and retailer free power
+   * windows - `freePower` only changes how it is labelled, never what it does,
+   * so there is one force-charge implementation rather than two that can drift.
+   */
+  async _runScheduled({ chargeState, readings, vin, teslaToken, freePower }) {
+    const label = freePower ? 'Free power' : 'Schedule';
+    if (this.state !== STATES.SCHEDULED) {
+      const win = freePower ? this._activeFreePowerWindow() : null;
+      this._setState(STATES.SCHEDULED, freePower
+        ? `Free power window active${win && win.summary ? ` (${win.summary})` : ''}`
+        : 'Scheduled charging window active');
+    }
 
     const maxAmps       = parseInt(db.getSetting('max_charge_amps') || '32', 10);
     const chargingState = chargeState ? chargeState.charging_state   : null;
@@ -526,22 +596,22 @@ class Controller {
           if (canWake) {
             this.lastWakeAttempt = Date.now();
             this._trackApiCall('wake'); await wakeVehicle(vin, teslaToken);
-            logger.logEvent('command', 'Schedule: waking vehicle');
+            logger.logEvent('command', `${label}: waking vehicle`);
           }
         } else if (chargingState === 'Stopped' || chargingState === 'NoPower') {
           if (!this.currentSessionId) this._startSession(batteryPct);
           this._trackApiCall('command'); await setChargingAmps(vin, maxAmps, teslaToken);
           this._trackApiCall('command'); await startCharging(vin, teslaToken);
-          logger.logEvent('command', `Schedule: started charging at ${maxAmps}A`);
+          logger.logEvent('command', `${label}: started charging at ${maxAmps}A`);
         } else if (chargingState === 'Charging') {
           if (!this.currentSessionId) this._startSession(batteryPct);
           if (chargeAmps !== maxAmps) {
             this._trackApiCall('command'); await setChargingAmps(vin, maxAmps, teslaToken);
-            logger.logEvent('command', `Schedule: set amps to ${maxAmps}A`);
+            logger.logEvent('command', `${label}: set amps to ${maxAmps}A`);
           }
         }
       } catch (err) {
-        logger.logEvent('api_error', `Schedule command failed: ${err.message}`);
+        logger.logEvent('api_error', `${label} command failed: ${err.message}`);
       }
     }
 
@@ -554,7 +624,10 @@ class Controller {
         solar_excess_w: solarExcessW, ev_w: evWatts, eddi_w: myenergi.getState().divertW || 0, charge_amps: chargeAmps,
         battery_pct: batteryPct, controller_state: this.state, session_id: this.currentSessionId,
         trip_within_18hrs: this._tripContext().tripWithin18hrs,
-        diversion_reason: 'scheduled_charging',
+        // Distinct reason so the Data page and logs can tell free-power grid
+        // import apart from ordinary scheduled import - they cost very
+        // different amounts and conflating them would misreport both.
+        diversion_reason: freePower ? 'free_power' : 'scheduled_charging',
       });
       this._lastTelemetry = {
         solarW: readings.solarW, consumptionW: readings.consumptionW, gridW: readings.gridW,
@@ -807,12 +880,18 @@ class Controller {
             const limitRefreshOnly = chargeLimitStale && !this._forceBootReconcile
               && !telemetry.isStale() && ts.chargingState !== null;
 
+            // Only accept the limit when the snapshot can carry a real one. An
+            // unplugged car reports the floor (50) instead of the owner's limit,
+            // and caching that is what used to strand the app at 50%.
+            const limitOk = isChargeLimitTrustworthy(apiCharge);
+            const apiLimit = limitOk ? apiCharge.charge_limit_soc : undefined;
+
             telemetry.updateFromApi(limitRefreshOnly ? {
-              chargeLimit:    apiCharge?.charge_limit_soc ?? undefined,
+              chargeLimit:    apiLimit,
             } : {
               chargingState:  apiCharge?.charging_state  ?? undefined,
               batteryPct:     apiCharge?.battery_level   ?? undefined,
-              chargeLimit:    apiCharge?.charge_limit_soc ?? undefined,
+              chargeLimit:    apiLimit,
               chargeAmps:     apiCharge?.charge_amps     ?? undefined,
               chargerPowerKw: apiCharge?.charger_power   ?? undefined,
               latitude:       driveState?.latitude       ?? undefined,
@@ -823,7 +902,17 @@ class Controller {
               logger.logEvent('info', `REST fallback: got location ${driveState.latitude},${driveState.longitude}`);
             }
             this._teslaOk = true;
-            if (this._forceBootReconcile) {
+            if (!limitOk && apiCharge) {
+              // Say so explicitly. Silently skipping the field would leave the
+              // dashboard showing a limit with no hint that Tesla just handed
+              // back a placeholder, which is what made this hard to pin down.
+              logger.logEvent('info',
+                `Ignored charge_limit_soc=${apiCharge.charge_limit_soc}% from Tesla: car is `
+                + `${apiCharge.charging_state || 'unplugged'} and the value matches `
+                + `charge_limit_soc_min (real limit is likely ${apiCharge.charge_limit_soc_std}%). `
+                + `Keeping the last confirmed limit.`);
+              if (this._forceBootReconcile) this._forceBootReconcile = false;
+            } else if (this._forceBootReconcile) {
               logger.logEvent('info', `Boot reconciliation: charge_limit_soc confirmed at ${apiCharge?.charge_limit_soc}%`);
               this._forceBootReconcile = false;
             } else if (chargeLimitStale && apiCharge?.charge_limit_soc != null) {
@@ -891,19 +980,32 @@ class Controller {
         return;
       }
 
-      // --- Schedule / TOU ---
-      this._scheduleActive = this._inScheduleWindow();
-      this._touPeakActive  = this._checkTouPeak();
+      // --- Schedule / TOU / free power ---
+      this._scheduleActive  = this._inScheduleWindow();
+      this._touPeakActive   = this._checkTouPeak();
+      // A retailer free power window behaves exactly like a scheduled window -
+      // charge from the grid at full rate, ignore solar - so it reuses that
+      // path rather than introducing a second way to force charging. The one
+      // difference is that it overrides a TOU peak: a peak-rate window is a
+      // reason not to import, and during free power the import costs nothing.
+      this._freePowerActive = this._inFreePowerWindow();
 
-      // If we were in SCHEDULED and the window just ended, reset
-      if (!this._scheduleActive && this.state === STATES.SCHEDULED) {
+      const forceChargeActive = this._scheduleActive || this._freePowerActive;
+
+      // If we were force-charging and the window just ended, reset
+      if (!forceChargeActive && this.state === STATES.SCHEDULED) {
         if (this.currentSessionId) this._endSession(ts2.batteryPct || 0, 'schedule_ended');
         this._setState(STATES.IDLE, 'Schedule window ended');
       }
 
-      // Run scheduled charging if in window, not TOU peak, and user hasn't explicitly stopped
-      if (this._scheduleActive && !this._touPeakActive && this.state !== STATES.STOPPED) {
-        await this._runScheduled({ chargeState, readings, vin, teslaToken });
+      // Run forced charging if in a window and the user hasn't explicitly stopped.
+      // TOU peak still blocks an ordinary scheduled window, but not free power.
+      if (forceChargeActive && (this._freePowerActive || !this._touPeakActive)
+          && this.state !== STATES.STOPPED) {
+        await this._runScheduled({
+          chargeState, readings, vin, teslaToken,
+          freePower: this._freePowerActive,
+        });
         return;
       }
 
@@ -1677,6 +1779,8 @@ class Controller {
       controlEnabled: db.getSetting('charging_control_enabled') !== 'false',
       inSchedule:    this._scheduleActive || false,
       inTouPeak:     this._touPeakActive  || false,
+      inFreePower:   this._freePowerActive || false,
+      freePowerWindow: this._activeFreePowerWindow(),
       locationKnown: this._lastLatLng !== null,
       vehicleName,
       pollIntervalSecs: parseInt(db.getSetting('polling_interval_seconds') || '15', 10),
