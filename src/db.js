@@ -17,6 +17,25 @@ const fs = require('fs');
 const DB_DIR = path.join(os.homedir(), '.solarcharge');
 const DB_PATH = process.env.WATTSNATCH_DB_PATH || path.join(DB_DIR, 'solarcharge.db');
 
+/**
+ * Default Gemini model, in one place.
+ *
+ * Google retires model IDs on a schedule, and a retired ID stops working for
+ * NEW users well before it shuts down for existing ones - so a hardcoded model
+ * silently breaks fresh installs while continuing to work on the machine it was
+ * written on. That is exactly what happened in issue #13: gemini-2.5-flash
+ * returned "no longer available to new users" on a first-time bill import.
+ *
+ * It was made worse by the three call sites (bill parsing, AI insights, the
+ * manual upload route) each carrying their OWN differing `|| 'fallback'` string,
+ * so they disagreed about what to use and only some of them broke. One constant
+ * now, referenced everywhere, so the next retirement is a single-line change.
+ *
+ * flash-lite is Google's own recommendation for document extraction - which is
+ * what the bill parser does - and is the cheapest current option.
+ */
+const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
+
 let db = null;
 
 function initDb() {
@@ -408,7 +427,9 @@ function initDb() {
     cf_worker_url:              '',
     cf_worker_secret:           '',
     bill_email_local:           'bills',
-    gemini_model:               'gemini-2.5-flash',
+    // See DEFAULT_GEMINI_MODEL at the top of this file. Overridable in Settings
+    // so a future model retirement is a one-field fix, not an app update.
+    gemini_model:               DEFAULT_GEMINI_MODEL,
     solcast_api_key:            '',
     solcast_resource_id:        '',
     solcast_configured:         '0',
@@ -454,6 +475,15 @@ function initDb() {
     sungrow_unit_id:             '1',
     sungrow_max_charge_power_w:  '',
     sungrow_max_discharge_power_w: '',
+    // 'sh' = SH-series hybrid (battery-capable, energy data in the 13xxx block).
+    // 'sg' = SG-series string inverter (no battery, meter data in the 5xxx block).
+    // Defaults to 'sh' so every existing install behaves exactly as before.
+    sungrow_inverter_family:     'sh',
+    // Sign convention for the SG-series meter register: 'import' (default) means
+    // it reads positive while importing. Not verified against hardware, hence a
+    // setting rather than an assumption - see sgMeterPositiveIsImport() in
+    // services/meters/sungrow.js, and verify with scripts/diag-sungrow.js --watch.
+    sungrow_sg_meter_sign:       'import',
     powerwall_host:              '',
     powerwall_email:             '',
     powerwall_password:          '',
@@ -474,6 +504,33 @@ function initDb() {
   for (const [key, value] of Object.entries(defaults)) {
     insertDefault.run(key, value, now);
   }
+
+  // Migrate away from retired Gemini model IDs.
+  //
+  // The defaults above are INSERT OR IGNORE, so they only ever apply to a key
+  // that does not exist yet. An install created before a model was retired keeps
+  // the old value forever and stays broken - changing the default alone fixes
+  // new installs only, which is precisely the case reported in issue #13 (an
+  // existing install failing a bill import on gemini-2.5-flash).
+  //
+  // Only IDs known to be retired are rewritten. A model the user deliberately
+  // chose is never touched, and once rewritten this is a no-op on every
+  // subsequent boot.
+  const RETIRED_GEMINI_MODELS = new Set([
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
+    'gemini-pro',
+  ]);
+  try {
+    const current = db.prepare('SELECT value FROM settings WHERE key = ?').get('gemini_model')?.value;
+    if (current && RETIRED_GEMINI_MODELS.has(current)) {
+      db.prepare('UPDATE settings SET value = ?, updated_at = ? WHERE key = ?')
+        .run(DEFAULT_GEMINI_MODEL, now, 'gemini_model');
+      console.log(`[db] Gemini model "${current}" is retired - migrated to "${DEFAULT_GEMINI_MODEL}"`);
+    }
+  } catch (_e) { /* non-fatal: the Settings field remains editable by hand */ }
 
   // Seed electricity_rates from setting if table is empty
   const rateCount = db.prepare('SELECT COUNT(*) as n FROM electricity_rates').get().n;
@@ -3012,6 +3069,7 @@ module.exports = {
   getTariffAtDate,
   getSupplyChargeForPeriod,
   getGridSummaryForPeriod,
+  DEFAULT_GEMINI_MODEL,
   getEnergyBreakdownForPeriod,
   getDailyRollupForPeriod,
   getWrappedForPeriod,

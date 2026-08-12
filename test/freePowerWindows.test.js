@@ -37,8 +37,12 @@ test.after(() => {
 const ev = (summary, opts = {}) => ({
   summary,
   location: opts.location || '',
-  startDate: opts.startDate || new Date('2026-08-12T11:00:00'),
-  endDate: opts.endDate || new Date('2026-08-12T14:00:00'),
+  // Relative to now, never a fixed calendar date. poll() deliberately discards
+  // windows that have already ended, so a hardcoded date is a time bomb: it
+  // passes until the wall clock moves past it and then fails for a reason that
+  // has nothing to do with the code under test. (It did exactly that.)
+  startDate: opts.startDate || new Date(Date.now() + 60 * 60 * 1000),
+  endDate: opts.endDate || new Date(Date.now() + 4 * 60 * 60 * 1000),
   isAllDay: !!opts.isAllDay,
 });
 
@@ -106,8 +110,9 @@ test('active only inside the window, and only while enabled', async () => {
   db.setSetting('free_power_enabled', 'true');
   db.setSetting('free_power_keywords', 'free power');
 
-  const start = new Date('2026-08-12T11:00:00');
-  const end   = new Date('2026-08-12T14:00:00');
+  // Relative, for the reason given on the ev() helper above.
+  const start = new Date(Date.now() + 60 * 60 * 1000);
+  const end   = new Date(Date.now() + 4 * 60 * 60 * 1000);
 
   const providers = require('../src/services/calendar/index.js');
   const original = providers.getActiveProvider;

@@ -1129,6 +1129,36 @@
             <div class="form-group"><label for="setting_sungrow_port">Port</label><input type="number" id="setting_sungrow_port" value="502"></div>
           </div>
           <div class="form-group"><label for="setting_sungrow_unit_id">Modbus unit ID</label><input type="number" id="setting_sungrow_unit_id" value="1"></div>
+
+          <!-- Inverter family. The two Sungrow product lines do not share a
+               register map: SG-series string inverters have no 13xxx block at
+               all, and their meter data lives in the 5xxx block instead. -->
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="setting_sungrow_inverter_family">Inverter family</label>
+              <select id="setting_sungrow_inverter_family">
+                <option value="sh">SH series - hybrid (has a battery)</option>
+                <option value="sg">SG series - string inverter (no battery)</option>
+              </select>
+              <span class="text-secondary text-xs mt-1">
+                The two lines use different Modbus registers. If readings fail with
+                <code>Illegal data address</code>, you are on an SG and this is set wrong.
+              </span>
+            </div>
+            <div class="form-group">
+              <label for="setting_sungrow_sg_meter_sign">SG meter sign <span class="text-secondary">(SG only)</span></label>
+              <select id="setting_sungrow_sg_meter_sign">
+                <option value="import">Positive = importing</option>
+                <option value="export">Positive = exporting (feed-in)</option>
+              </select>
+              <span class="text-secondary text-xs mt-1">
+                Not verified across all SG models, so check it: run
+                <code>node scripts/diag-sungrow.js --host &lt;ip&gt; --watch</code>, switch a big
+                load on, and if the number rises then positive means importing.
+              </span>
+            </div>
+          </div>
+
           <div class="grid-2">
             <div class="form-group"><label for="setting_sungrow_max_charge_power_w">Max charge power (W)</label><input type="number" id="setting_sungrow_max_charge_power_w" placeholder="e.g. 5000"></div>
             <div class="form-group"><label for="setting_sungrow_max_discharge_power_w">Max discharge power (W)</label><input type="number" id="setting_sungrow_max_discharge_power_w" placeholder="e.g. 5000"></div>

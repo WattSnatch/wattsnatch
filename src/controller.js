@@ -794,9 +794,24 @@ class Controller {
         }
       }
 
+      // No meter data is a reason to skip SOLAR DIVERSION, not a reason to stop
+      // talking to the car.
+      //
+      // This used to `return` here, before any of the vehicle handling below.
+      // The effect was that anyone whose inverter was unconfigured or failing
+      // got a completely blank dashboard - no battery percentage, no charging
+      // state, no car at all - because the loop never reached the Tesla code a
+      // few lines further down. It reads as "Tesla is broken" when Tesla is
+      // fine. It also meant scheduled charging, free power windows and CHARGE
+      // NOW silently did nothing on such an install, even though none of them
+      // need solar data - they all charge from the grid at full rate.
+      //
+      // Everything downstream was already written to tolerate a null `readings`
+      // (_runOverride, _runScheduled and _emitTelemetry all guard for it), so
+      // this gate was the only thing in the way. The solar-diversion section,
+      // which genuinely cannot work without a reading, gets its own guard.
       if (!readings) {
         this._emitSSE({ type: 'error', ts: Date.now(), message: 'No gateway data' });
-        return;
       }
 
       // --- Vehicle state from Fleet Telemetry ---
@@ -965,7 +980,9 @@ class Controller {
       // to halve API cost without affecting solar responsiveness.
       this._teslaCommandTick++;
       if (this._teslaCommandTick % 2 !== 0) {
-        const solarExcessW = readings.solarW - readings.consumptionW;
+        // readings can be null now that a missing meter no longer aborts the
+        // loop above - 0 excess is the correct value to report in that case.
+        const solarExcessW = readings ? readings.solarW - readings.consumptionW : 0;
         const lastT = this._lastTelemetry;
         this._emitTelemetry(readings, chargeState || this._lastChargeState,
           lastT ? lastT.smoothedExcess : 0, lastT ? lastT.targetAmps : 0,
@@ -1012,18 +1029,22 @@ class Controller {
       // --- Charging Control toggle ---
       const controlEnabled = db.getSetting('charging_control_enabled') !== 'false';
       if (!controlEnabled) {
-        const solarExcessW = readings.solarW - readings.consumptionW;
+        const solarExcessW = readings ? readings.solarW - readings.consumptionW : 0;
         // Grid/solar/house telemetry is whole-house metering, independent of charging
         // control - must keep recording here even though EV control is paused, or the
         // dashboard/history silently loses coverage for as long as control stays off.
-        db.logTelemetry({
-          recorded_at: Date.now(),
-          solar_w: readings.solarW, consumption_w: readings.consumptionW, grid_w: readings.gridW,
-          solar_excess_w: solarExcessW, ev_w: 0, eddi_w: myenergi.getState().divertW || 0, charge_amps: 0,
-          battery_pct: chargeState ? chargeState.battery_level : null,
-          controller_state: this.state, session_id: this.currentSessionId,
-          diversion_reason: 'control_disabled',
-        });
+        // Skipped entirely with no meter: a row of zeroes is not a measurement, and
+        // writing one would corrupt the very history this block exists to preserve.
+        if (readings) {
+          db.logTelemetry({
+            recorded_at: Date.now(),
+            solar_w: readings.solarW, consumption_w: readings.consumptionW, grid_w: readings.gridW,
+            solar_excess_w: solarExcessW, ev_w: 0, eddi_w: myenergi.getState().divertW || 0, charge_amps: 0,
+            battery_pct: chargeState ? chargeState.battery_level : null,
+            controller_state: this.state, session_id: this.currentSessionId,
+            diversion_reason: 'control_disabled',
+          });
+        }
         this._emitTelemetry(readings, chargeState, 0, 0, solarExcessW, 0);
         return;
       }
@@ -1034,20 +1055,23 @@ class Controller {
           if (this.currentSessionId) this._endSession(chargeState?.battery_level || 0, 'left_home');
           this._setState(STATES.IDLE, 'Car away from home - control suspended');
         }
-        const solarExcessW = readings.solarW - readings.consumptionW;
+        const solarExcessW = readings ? readings.solarW - readings.consumptionW : 0;
         // Same reasoning as the control-disabled branch above: whole-house grid/solar
         // readings must keep recording regardless of where the car physically is, or
         // WattSnatch silently stops tracking real grid import/export (e.g. hot water
         // boost) for however long the car is away - confirmed root cause of a ~2x
-        // undercount vs. the gateway's own totals.
-        db.logTelemetry({
-          recorded_at: Date.now(),
-          solar_w: readings.solarW, consumption_w: readings.consumptionW, grid_w: readings.gridW,
-          solar_excess_w: solarExcessW, ev_w: 0, eddi_w: myenergi.getState().divertW || 0, charge_amps: 0,
-          battery_pct: chargeState ? chargeState.battery_level : null,
-          controller_state: this.state, session_id: this.currentSessionId,
-          diversion_reason: 'away_from_home',
-        });
+        // undercount vs. the gateway's own totals. Skipped with no meter, for the
+        // same reason as above: a row of zeroes is not a measurement.
+        if (readings) {
+          db.logTelemetry({
+            recorded_at: Date.now(),
+            solar_w: readings.solarW, consumption_w: readings.consumptionW, grid_w: readings.gridW,
+            solar_excess_w: solarExcessW, ev_w: 0, eddi_w: myenergi.getState().divertW || 0, charge_amps: 0,
+            battery_pct: chargeState ? chargeState.battery_level : null,
+            controller_state: this.state, session_id: this.currentSessionId,
+            diversion_reason: 'away_from_home',
+          });
+        }
         this._emitTelemetry(readings, chargeState, 0, 0, solarExcessW, 0);
         return;
       }
@@ -1073,6 +1097,22 @@ class Controller {
       const chargeAmps     = chargeState ? (chargeState.charge_amps    || 0) : 0;
       const pluggedIn      = PLUGGED_IN.has(chargingState);
       const currentlyCharging = chargingState === 'Charging';
+
+      // --- Solar diversion requires a meter reading ---
+      //
+      // Everything above this point works without one, which is the whole point
+      // of not aborting the loop when the meter is missing: the car is still
+      // polled, the dashboard still populates, and CHARGE NOW / scheduled /
+      // free-power charging still run, because none of those need to know what
+      // the roof is doing.
+      //
+      // From here down is solar arithmetic and cannot proceed on nothing. Stop
+      // here rather than substituting zeroes, which would look like "no surplus"
+      // and could drive a real charging decision off a value nobody measured.
+      if (!readings) {
+        this._emitTelemetry(null, chargeState, 0, 0, 0, 0);
+        return;
+      }
 
       // --- Solar target ---
       // Use amps × voltage (not Tesla's ACChargingPower) - ChargeAmps updates every 1s

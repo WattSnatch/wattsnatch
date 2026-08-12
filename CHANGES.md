@@ -2,6 +2,84 @@
 
 ---
 
+## 2026-08-12 - v2.1.0: Sungrow string inverters, a blank dashboard fix, and bill parsing
+
+### A missing solar meter no longer hides your car
+
+If your inverter was unconfigured or failing, the dashboard went completely
+blank - no battery percentage, no charging state, no car at all. It reads as
+"Tesla is broken" when Tesla is perfectly fine.
+
+The control loop was aborting the moment a meter read produced nothing, a few
+lines before it got to any of the vehicle handling. It also meant scheduled
+charging, free power windows and CHARGE NOW silently did nothing on such an
+install, even though none of them need solar data - they all charge from the grid
+at full rate.
+
+Now only solar *diversion* is skipped when there is no reading, which is the one
+thing that genuinely cannot work without one. Everything else carries on. Solar
+diversion still refuses to run on a null reading rather than treating it as zero
+surplus, because acting on a number nobody measured is worse than not acting.
+
+### Sungrow SG-series string inverters (issue #12 follow-up)
+
+The Sungrow adapter only ever supported SH-series **hybrid** inverters. It reads
+an energy-management register block in the 13xxx range that SG-series **string**
+inverters do not have at all - reading it returns `Illegal data address`. The
+dropdown said "Sungrow (SH Series Hybrid)", so SG owners reasonably concluded the
+option was not for them.
+
+There is now an **Inverter family** setting under the Sungrow connection details.
+Choose *SG series* and the adapter reads the meter data from the 5xxx block
+instead. Defaults to *SH series*, so existing installs behave exactly as before.
+
+Two things worth knowing:
+
+- Sungrow documents register **numbers**, which are 1-based, while Modbus takes a
+  0-based **address**. Every address is therefore the documented number minus
+  one. Confirmed against real hardware: "Total DC power" is documented at 5017
+  and reads correctly at 5016.
+- The SG meter's **sign convention** is not verified across models, so it is a
+  setting rather than an assumption. Getting it backwards would invert every
+  charging decision. Verify it with
+  `node scripts/diag-sungrow.js --host <ip> --watch`: switch a big load on, and
+  if the number rises then positive means importing.
+
+**New diagnostic:** `scripts/diag-sungrow.js` is read-only and runs standalone
+without WattSnatch configured. It reads the registers the adapter uses and
+decodes them exactly as the adapter does, tries both input and holding registers
+(firmware differs), and shows both word orders so a decode error is visible.
+`--scan` sweeps nearby blocks to find the right address, and `--watch` polls live
+so you can identify a register by switching a load and seeing which value moves.
+
+### Bill parsing failed on a first attempt (issue #13)
+
+Dropping a bill PDF in returned `Gemini API 404: This model models/gemini-2.5-flash
+is no longer available to new users`.
+
+Google retires model IDs on a schedule, and a retired ID stops working for new
+users well before it shuts down for existing ones - so the hardcoded default
+silently broke fresh installs while continuing to work on the machine it was
+written on. Made worse by the three call sites each carrying their own differing
+fallback model, so they disagreed and only some of them broke.
+
+Fixed properly rather than by swapping one string:
+
+- One shared default (`DEFAULT_GEMINI_MODEL`), referenced everywhere, so the next
+  retirement is a single-line change.
+- **A migration for existing installs.** The defaults only apply to settings that
+  do not exist yet, so simply changing the default would have fixed new installs
+  and left everyone already affected - including the reporter - still broken.
+  Known-retired model IDs are now rewritten on startup. A model you chose
+  yourself is never touched.
+- **Deprecated parameters removed.** Current Gemini models reject
+  `temperature`/`top_p`/`top_k` outright rather than ignoring them, so a
+  model-name-only fix would still have failed.
+- A 404 now says which model failed and where to change it, instead of passing
+  through Google's message, which reads like an account problem.
+
+---
+
 ## 2026-08-11 - v2.0.0: Accurate energy attribution, Wrapped, and free power windows
 
 **Your numbers will change when you update, including for months you have

@@ -381,6 +381,7 @@ router.post('/api/settings', (req, res) => {
       'sigenergy_host', 'sigenergy_port', 'sigenergy_unit_id',
       'sungrow_host', 'sungrow_port', 'sungrow_unit_id',
       'sungrow_max_charge_power_w', 'sungrow_max_discharge_power_w',
+      'sungrow_inverter_family', 'sungrow_sg_meter_sign',
       'powerwall_host', 'powerwall_email', 'powerwall_password',
     ];
     const myenergiKeys   = new Set(['myenergi_serial', 'myenergi_api_key', 'myenergi_poll_seconds']);
@@ -1122,7 +1123,7 @@ router.post('/api/bills/upload', async (req, res) => {
     if (!pdf) return res.status(400).json({ ok: false, error: 'No PDF data provided' });
 
     const apiKey = db.getSetting('gemini_api_key');
-    const model  = db.getSetting('gemini_model') || 'gemini-2.0-flash';
+    const model  = db.getSetting('gemini_model') || db.DEFAULT_GEMINI_MODEL;
     if (!apiKey) return res.status(400).json({ ok: false, error: 'Gemini API key not configured - add it in Settings' });
 
     const extracted = await billPoller.analyzeWithGemini(pdf, apiKey, model);

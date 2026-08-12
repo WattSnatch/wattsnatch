@@ -128,7 +128,7 @@ async function callClaude(apiKey, prompt) {
 
 // ── Gemini API call ───────────────────────────────────────────────────────────
 async function callGemini(apiKey, prompt) {
-  const model = db.getSetting('gemini_model') || 'gemini-2.5-flash';
+  const model = db.getSetting('gemini_model') || db.DEFAULT_GEMINI_MODEL;
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
@@ -136,7 +136,9 @@ async function callGemini(apiKey, prompt) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents:         [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 512 },
+        // No temperature/top_p/top_k - current Gemini models reject those
+        // parameters rather than ignoring them, which fails the whole request.
+        generationConfig: { maxOutputTokens: 512 },
       }),
       signal: AbortSignal.timeout(30_000),
     }

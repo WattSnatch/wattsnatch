@@ -15,7 +15,7 @@ async function pollOnce() {
   const secret    = db.getSetting('cf_worker_secret');
   const apiKey    = db.getSetting('gemini_api_key');
   const localPart = db.getSetting('bill_email_local') || 'bills';
-  const model     = db.getSetting('gemini_model') || 'gemini-2.0-flash';
+  const model     = db.getSetting('gemini_model') || db.DEFAULT_GEMINI_MODEL;
 
   if (!workerUrl || !secret || !apiKey) return;
 
@@ -128,7 +128,11 @@ Return ONLY the JSON object, no markdown fences, no explanation.`;
             { text: prompt },
           ],
         }],
-        generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+        // No temperature/top_p/top_k: current Gemini models reject those
+        // parameters outright rather than ignoring them, so sending one fails
+        // the whole request. responseMimeType is still supported and is the part
+        // that actually matters here - it forces valid JSON back.
+        generationConfig: { responseMimeType: 'application/json' },
       }),
       signal: AbortSignal.timeout(60_000),
     }
@@ -136,6 +140,19 @@ Return ONLY the JSON object, no markdown fences, no explanation.`;
 
   if (!res.ok) {
     const err = await res.text();
+    // A 404 here almost always means the model ID has been retired rather than
+    // anything being wrong with the request or the key, and Google's own message
+    // ("no longer available to new users") reads like an account problem. Say
+    // what to actually do about it - the model is a Settings field, so this is a
+    // one-line fix for the user and does not need an app update.
+    if (res.status === 404) {
+      throw new Error(
+        `Gemini model "${model}" is not available (404). Google retires model IDs `
+        + `periodically. Change it in Settings > Bills > Gemini model - `
+        + `"${db.DEFAULT_GEMINI_MODEL}" is the current default. Google's reply was: `
+        + err.slice(0, 200)
+      );
+    }
     throw new Error(`Gemini API ${res.status}: ${err.slice(0, 200)}`);
   }
 

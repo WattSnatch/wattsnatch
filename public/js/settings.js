@@ -405,6 +405,7 @@ const FIELD_IDS = [
   'sigenergy_host', 'sigenergy_port', 'sigenergy_unit_id',
   'sungrow_host', 'sungrow_port', 'sungrow_unit_id',
   'sungrow_max_charge_power_w', 'sungrow_max_discharge_power_w',
+  'sungrow_inverter_family', 'sungrow_sg_meter_sign',
   'powerwall_host', 'powerwall_email', 'powerwall_password',
 ];
 
