@@ -35,6 +35,29 @@ const ACTIVATION_HOURS = 6;
 // every existing install.
 const PRICE_SPIKE_MIN_MARGIN_HOURS = 2;
 
+const NO_SOC_MESSAGE =
+  'Departure scheduling needs the vehicle\'s battery percentage, which the OCPP '
+  + 'backend cannot read on typical home AC chargers (it requires ISO 15118 '
+  + '"Plug and Charge" between the car and the charger). Use a scheduled charging '
+  + 'window instead, which is time-based and works on any backend.';
+
+/**
+ * Whether the active charging backend can report a real battery percentage.
+ *
+ * This whole feature is "get me to X% by time T", so without a real SoC there
+ * is no question to answer. The OCPP backend reports batteryPct as a permanent
+ * 0, which made `missingPct` permanently equal to the full target: it could
+ * never reach 0, so the auto-clear never fired and `needsGridCharge` latched
+ * true for the entire ACTIVATION_HOURS window before every departure - hours of
+ * full-rate GRID charging, the exact opposite of what this app is for, ending
+ * only when the departure time passed.
+ *
+ * Refusing to answer is correct here; guessing is what caused the bug.
+ */
+function socAvailable() {
+  return db.getSetting('charging_backend') !== 'ocpp';
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -44,6 +67,9 @@ const PRICE_SPIKE_MIN_MARGIN_HOURS = 2;
  * @param {string} [notes]          Optional free-text label
  */
 function setDeparture(departureTimeMs, targetSoc, notes) {
+  if (!socAvailable()) {
+    throw new Error(NO_SOC_MESSAGE);
+  }
   if (!departureTimeMs || departureTimeMs <= Date.now()) {
     throw new Error('Departure time must be in the future');
   }
@@ -103,6 +129,13 @@ function getDepartureDecision(currentSoc, maxAmps) {
   const dep = db.getActiveDeparture();
   if (!dep) return { active: false };
 
+  // Defence in depth: setDeparture() already refuses on a no-SoC backend, but a
+  // departure stored earlier (e.g. set under Tesla, then switched to OCPP)
+  // would otherwise still be acted on with a permanently-0 SoC.
+  if (!socAvailable()) {
+    return { active: false, unsupported: true, unsupportedReason: NO_SOC_MESSAGE };
+  }
+
   const now = Date.now();
   const hoursUntil = (dep.departure_time - now) / (1000 * 60 * 60);
 
@@ -139,4 +172,7 @@ function getDepartureDecision(currentSoc, maxAmps) {
   };
 }
 
-module.exports = { setDeparture, getActiveDeparture, clearDeparture, getDepartureDecision };
+module.exports = {
+  setDeparture, getActiveDeparture, clearDeparture, getDepartureDecision,
+  socAvailable, NO_SOC_MESSAGE,
+};

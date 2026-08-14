@@ -120,7 +120,9 @@
       <div class="flow-branch" id="branch-ev">
         <div class="flow-node">
           <div class="flow-node-icon ev" id="ev-node">
-            <img src="https://www.google.com/s2/favicons?domain=tesla.com&sz=64" alt="Tesla" style="width:32px;height:32px;object-fit:contain"/>
+            <!-- Generic default; swapped for Tesla's or the configured EV manufacturer's
+                 favicon by applyEvBrandIcon() below. -->
+            <svg id="ev-node-default-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="22" height="13" rx="2"/><path d="M5 6V4"/><path d="M19 6V4"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>
           </div>
           <span class="flow-node-label" id="ev-flow-label">EV</span>
           <span class="flow-node-value" id="ev-node-val">- W</span>
@@ -375,8 +377,24 @@ function applyGridRetailerIcon(domain) {
     : `<svg id="grid-node-default-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>`;
 }
 
+// Same trick, for the EV node - blank means Tesla's logo on the Tesla backend
+// (today's look, unchanged) or a generic EV icon on the OCPP backend, per the
+// evBrandDomain the server already resolved (see controller.js _emitTelemetry).
+let _lastEvBrandDomain;
+function applyEvBrandIcon(domain) {
+  domain = domain || '';
+  if (domain === _lastEvBrandDomain) return;
+  _lastEvBrandDomain = domain;
+  const container = document.getElementById('ev-node');
+  if (!container) return;
+  container.innerHTML = domain
+    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:50%">`
+    : `<svg id="ev-node-default-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="22" height="13" rx="2"/><path d="M5 6V4"/><path d="M19 6V4"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>`;
+}
+
 function updateFlowDiagram(d) {
   applyGridRetailerIcon(d.gridRetailerDomain);
+  applyEvBrandIcon(d.evBrandDomain);
   updatePipe('.pipe-solar-home', d.solar > 50, false);
 
   const exporting = d.grid < -50, importing = d.grid > 50;

@@ -161,11 +161,28 @@ function applyGridRetailerIcon(domain) {
     : `<svg id="grid-node-default-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>`;
 }
 
+// Same trick, for the EV node - blank means "Tesla's logo" on the Tesla
+// backend (today's look, unchanged) or a generic EV icon on the OCPP backend,
+// per the evBrandDomain the server already resolved (see controller.js
+// _emitTelemetry) rather than re-deriving the backend here.
+let _lastEvBrandDomain;
+function applyEvBrandIcon(domain) {
+  domain = domain || '';
+  if (domain === _lastEvBrandDomain) return;
+  _lastEvBrandDomain = domain;
+  const container = document.getElementById('ev-node');
+  if (!container) return;
+  container.innerHTML = domain
+    ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:50%">`
+    : `<svg id="ev-node-default-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="22" height="13" rx="2"/><path d="M5 6V4"/><path d="M19 6V4"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>`;
+}
+
 function handleTelemetry(d) {
   lastTs = d.ts;
   currentControllerState = d.controllerState || 'IDLE';
   currentControlEnabled = d.controlEnabled !== false;
   applyGridRetailerIcon(d.gridRetailerDomain);
+  applyEvBrandIcon(d.evBrandDomain);
 
   // Energy values - subtract EV and Eddi from total consumption so Home shows pure house load
   const houseW = Math.max(0, (d.consumption || 0) - (d.evWatts || 0) - (d.eddiDivertW || 0));
@@ -1641,10 +1658,34 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    // Replaces the scheduler with an explanation on a backend that cannot read
+    // the vehicle's battery percentage (OCPP) - offering a "get me to X% by
+    // time T" control that can only ever fail is worse than not offering it.
+    function renderDepartureUnsupported(reason) {
+      if (activeEl)  activeEl.classList.add('hidden');
+      if (formEl)    formEl.style.display = 'none';
+      if (clearBtn)  clearBtn.classList.add('hidden');
+      if (elDepartureBanner) hide(elDepartureBanner);
+      let noteBox = document.getElementById('departure-unsupported-note');
+      if (!noteBox) {
+        noteBox = document.createElement('div');
+        noteBox.id = 'departure-unsupported-note';
+        noteBox.className = 'departure-form-note';
+        noteBox.style.cssText = 'padding:0.5rem 0;line-height:1.5';
+        card.appendChild(noteBox);
+      }
+      noteBox.textContent = reason || 'Departure scheduling is unavailable on this charging backend.';
+    }
+
     async function loadDeparture() {
       try {
         const r = await api('/api/departure');
-        if (r.ok) renderDeparture(r.departure);
+        if (!r.ok) return;
+        if (r.supported === false) {
+          renderDepartureUnsupported(r.unsupportedReason);
+          return;
+        }
+        renderDeparture(r.departure);
       } catch (_) {}
     }
 

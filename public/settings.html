@@ -113,6 +113,16 @@
           </span>
         </div>
         <div class="form-group" style="margin-top:1rem">
+          <label for="setting_ev_brand_domain">EV icon (your vehicle's manufacturer)</label>
+          <div style="display:flex;align-items:center;gap:0.75rem">
+            <img id="ev-brand-icon-preview" src="" alt="" width="28" height="28" style="border-radius:50%;object-fit:cover;background:var(--border);flex-shrink:0;visibility:hidden">
+            <input type="text" id="setting_ev_brand_domain" placeholder="e.g. byd.com, hyundai.com, tesla.com" style="flex:1">
+          </div>
+          <span class="text-secondary text-xs mt-1">
+            The dashboard's EV icon shows this manufacturer's website favicon, same trick as the Grid icon above. Leave blank for Tesla's logo on the Tesla backend, or a generic EV icon on the OCPP backend. Purely cosmetic.
+          </span>
+        </div>
+        <div class="form-group" style="margin-top:1rem">
           <label for="setting_retailer_network_distributor">Electricity distributor (network area)</label>
           <input type="text" id="setting_retailer_network_distributor" placeholder="e.g. Energex, Ausgrid, CitiPower" style="width:100%">
           <span class="text-secondary text-xs mt-1">
@@ -814,6 +824,51 @@
           <div class="form-group">
             <label for="setting_enphase_email">Enlighten Account Email</label>
             <input type="email" id="setting_enphase_email" placeholder="you@example.com">
+          </div>
+        </div>
+      </div>
+
+      <!-- Charging Backend (Tesla vs OCPP) -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Charging Backend</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          Controls which protocol WattSnatch uses to charge the car: Tesla's own Fleet API/Bluetooth LE, or OCPP 1.6J
+          for any charger that speaks it. Changing this needs a WattSnatch restart to take effect.
+        </p>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_charging_backend">Backend</label>
+            <select id="setting_charging_backend">
+              <option value="tesla">Tesla (default)</option>
+              <option value="ocpp">OCPP 1.6J charger</option>
+            </select>
+          </div>
+        </div>
+        <div id="charging-fields-ocpp" class="charging-backend-fields" style="display:none;margin-top:1rem">
+          <div class="alert alert-warn" style="font-size:0.8rem;margin:0 0 1rem">
+            <strong>No battery percentage.</strong> Reading state of charge over OCPP needs the vehicle to speak
+            ISO 15118 ("Plug and Charge") to the charger, which almost no home AC wallbox supports. WattSnatch will
+            charge at the solar-matched rate and cannot stop automatically at a battery percentage for an OCPP-controlled
+            charger - the vehicle or charger ends the session on its own once it's satisfied.
+          </div>
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="setting_ocpp_charge_point_id">Charge point ID</label>
+              <input type="text" id="setting_ocpp_charge_point_id" placeholder="e.g. WATTSNATCH-01 (leave blank to accept any)">
+              <span class="text-secondary text-xs mt-1">Must match the path segment your charger connects to WattSnatch with (ws://&lt;host&gt;:&lt;port&gt;/ocpp/&lt;this id&gt;). Leave blank to accept the first charger that connects.</span>
+            </div>
+            <div class="form-group">
+              <label for="setting_ocpp_ws_port">WebSocket port</label>
+              <input type="text" id="setting_ocpp_ws_port" placeholder="9220">
+              <span class="text-secondary text-xs mt-1">Point your charger's OCPP server URL at this port on the WattSnatch machine.</span>
+            </div>
+            <div class="form-group">
+              <label for="setting_ocpp_id_tag">Session ID tag</label>
+              <input type="text" id="setting_ocpp_id_tag" placeholder="WATTSNATCH">
+              <span class="text-secondary text-xs mt-1">Sent with RemoteStartTransaction - only matters if your charger's authorization list checks it.</span>
+            </div>
           </div>
         </div>
       </div>

@@ -73,14 +73,34 @@ A JSON response with `"ok": true` confirms the server is up and the setup API is
 
 ---
 
-## Phase 2 - Choose Fleet API or Bluetooth LE, then build the matching proxy ✅
+## Phase 2 - Choose the charging backend, then build the matching proxy ✅
 
-Ask the user first (don't assume): **Fleet API + Fleet Telemetry** (default - cloud-based, works
-from anywhere, needs an ongoing Fleet Telemetry streaming server for live vehicle state) or
-**Bluetooth LE** (fully cloud-free - no Fleet Telemetry, no ongoing Fleet API calls, no Tesla
-OAuth token needed once set up, but only works while the car is within Bluetooth range, i.e. at
-home). Both still need the same one-time Tesla developer app, EC keypair, and virtual key pairing
-below - that part is Tesla's own security requirement and is identical either way.
+**Ask the user which car they have before anything else in this phase (don't assume Tesla).**
+
+**If it is not a Tesla**, the answer is the **OCPP backend**, and Phases 2, 3 and 4 do not apply
+at all - no proxy to build, no Tesla developer app, no public key hosting, no virtual key pairing.
+Set it and skip straight to Phase 5 (the setup wizard):
+
+```bash
+curl -s -X POST http://localhost:3001/api/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"charging_backend":"ocpp","ocpp_ws_port":"9220","ocpp_charge_point_id":"<their-charger-id>"}'
+```
+
+Then tell the user to point their charger's own OCPP/backend URL at
+`ws://<this-machine-lan-ip>:9220/ocpp/<their-charger-id>`. Two things you must state plainly
+rather than glossing over: this path is **not yet verified against real charger hardware**, and it
+**cannot read the car's battery percentage** (that needs ISO 15118 "Plug and Charge", which almost
+no home AC wallbox has), which is why departure scheduling is disabled on it - a time-based
+scheduled charging window is the equivalent. See `OCPP-PLAN.md`.
+
+**If it is a Tesla**, ask which connection method (again, don't assume): **Fleet API + Fleet
+Telemetry** (default - cloud-based, works from anywhere, needs an ongoing Fleet Telemetry streaming
+server for live vehicle state) or **Bluetooth LE** (fully cloud-free - no Fleet Telemetry, no
+ongoing Fleet API calls, no Tesla OAuth token needed once set up, but only works while the car is
+within Bluetooth range, i.e. at home). Both still need the same one-time Tesla developer app, EC
+keypair, and virtual key pairing below - that part is Tesla's own security requirement and is
+identical either way.
 
 **Fleet API** - build `tesla-http-proxy`:
 ```bash

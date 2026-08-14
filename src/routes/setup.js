@@ -278,17 +278,19 @@ router.post('/api/setup/verify-key-url', async (req, res) => {
 router.post('/api/setup/install-service', (req, res) => {
   try {
     // Skip installing the Fleet-signing tesla-http-proxy service when the user has chosen
-    // Bluetooth LE for both command delivery and vehicle state - that binary is never
-    // invoked in that mode and usually hasn't even been built.
+    // Bluetooth LE for both command delivery and vehicle state, or the OCPP charging
+    // backend entirely - that binary is never invoked in either case and usually hasn't
+    // even been built.
     const fullyBle = db.getSetting('tesla_command_backend') === 'ble'
                    && db.getSetting('tesla_state_source') === 'ble';
+    const skipTeslaProxy = fullyBle || db.getSetting('charging_backend') === 'ocpp';
     const username = process.env.USER || require('os').userInfo().username;
     if (process.platform === 'linux') {
-      const result = installUnits(APP_DIR, username, !fullyBle);
+      const result = installUnits(APP_DIR, username, !skipTeslaProxy);
       logger.logEvent('info', `systemd units installed: ${result.appUnitPath}`);
       res.json({ ok: true, ...result });
     } else {
-      const result = installPlists(APP_DIR, username, !fullyBle);
+      const result = installPlists(APP_DIR, username, !skipTeslaProxy);
       logger.logEvent('info', `LaunchAgents installed: ${result.appPlistPath}`);
       res.json({ ok: true, ...result });
     }

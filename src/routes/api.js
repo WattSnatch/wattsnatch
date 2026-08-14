@@ -335,7 +335,7 @@ router.post('/api/settings', (req, res) => {
   try {
     const body = req.body;
     const allowed = [
-      'country', 'grid_retailer_domain', 'retailer_network_distributor',
+      'country', 'grid_retailer_domain', 'ev_brand_domain', 'retailer_network_distributor',
       'min_charge_amps', 'max_charge_amps', 'hold_minutes',
       'smoothing_window', 'polling_interval_seconds', 'charger_voltage',
       'electricity_rate_aud', 'electricity_rate_mode', 'export_rate_mode', 'auto_backup_enabled', 'gateway_ip', 'tesla_vin',
@@ -383,6 +383,7 @@ router.post('/api/settings', (req, res) => {
       'sungrow_max_charge_power_w', 'sungrow_max_discharge_power_w',
       'sungrow_inverter_family', 'sungrow_sg_meter_sign',
       'powerwall_host', 'powerwall_email', 'powerwall_password',
+      'charging_backend', 'ocpp_charge_point_id', 'ocpp_ws_port', 'ocpp_id_tag',
     ];
     const myenergiKeys   = new Set(['myenergi_serial', 'myenergi_api_key', 'myenergi_poll_seconds']);
     const teslaMateKeys  = new Set(['teslamate_database_url']);
@@ -2110,8 +2111,14 @@ router.get('/api/stats/solar-km', async (req, res) => {
 router.get('/api/departure', (req, res) => {
   try {
     const departureScheduler = require('../services/departureScheduler');
-    const dep = departureScheduler.getActiveDeparture();
-    res.json({ ok: true, departure: dep });
+    const supported = departureScheduler.socAvailable();
+    const dep = supported ? departureScheduler.getActiveDeparture() : null;
+    res.json({
+      ok: true,
+      departure: dep,
+      supported,
+      unsupportedReason: supported ? null : departureScheduler.NO_SOC_MESSAGE,
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

@@ -64,10 +64,12 @@
       <div class="step-number">Step 1 of 12</div>
       <div class="step-title">Welcome to WattSnatch</div>
       <div class="step-desc">
-        This wizard will connect WattSnatch to your Enphase IQ Gateway and Tesla vehicle,
+        This wizard will connect WattSnatch to your solar inverter and your EV or charger,
         then install it as a background service so it runs automatically.
         <br><br>
-        You'll need: your Enphase Enlighten login, your Tesla Fleet API credentials, and about 10 minutes.
+        You'll need: your solar inverter's connection details (brand, network or cloud login), your
+        EV charging credentials (a Tesla developer account, or your OCPP charger's connection info), and
+        about 10 minutes.
       </div>
     </div>
 
@@ -78,15 +80,15 @@
       </div>
       <div class="checklist-item">
         <div class="checklist-icon">·</div>
-        <div>Enphase IQ Gateway on local network</div>
+        <div>Solar inverter on your local network (or cloud account, depending on brand)</div>
       </div>
       <div class="checklist-item">
         <div class="checklist-icon">·</div>
-        <div>Tesla Fleet API developer account</div>
+        <div>Tesla developer account, if using Tesla</div>
       </div>
       <div class="checklist-item">
         <div class="checklist-icon">·</div>
-        <div>Tesla vehicle registered to your account</div>
+        <div>Your vehicle or OCPP charger ready to connect</div>
       </div>
     </div>
 
@@ -338,30 +340,74 @@
   <div id="step-4" class="step-card step-panel hidden">
     <div class="step-header">
       <div class="step-number">Step 4 of 12</div>
-      <div class="step-title">How should WattSnatch talk to your car?</div>
+      <div class="step-title">How should WattSnatch charge your car?</div>
       <div class="step-desc">
-        Both options need a one-time Tesla developer app and a virtual key paired to your car - that part
-        is Tesla's own security requirement and is the same either way. What differs is whether WattSnatch
-        keeps talking to Tesla's cloud afterward.
+        Tesla vehicles are controlled directly through Tesla's own APIs. Any other EV, through a charger that
+        speaks OCPP 1.6.
       </div>
     </div>
 
-    <div id="vehicle-mode-picker" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem">
-      <button type="button" class="btn btn-secondary mode-pill active" data-mode="fleet" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
-        <strong>Fleet API + Fleet Telemetry</strong> <span class="text-secondary" style="font-weight:400">(recommended)</span>
+    <div id="charging-backend-picker" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem">
+      <button type="button" class="btn btn-secondary backend-pill active" data-backend="tesla" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
+        <strong>Tesla</strong>
         <div class="text-secondary text-xs" style="margin-top:0.35rem;font-weight:400">
-          Live push updates from Tesla's cloud, works from anywhere your car has signal. Uses Tesla's free API tier and a one-time OAuth login.
+          Control the car directly, via Tesla's Fleet API or Bluetooth LE.
         </div>
       </button>
-      <button type="button" class="btn btn-secondary mode-pill" data-mode="ble" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
-        <strong>Bluetooth LE</strong> <span class="text-secondary" style="font-weight:400">(fully cloud-free)</span>
+      <button type="button" class="btn btn-secondary backend-pill" data-backend="ocpp" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
+        <strong>OCPP charger</strong> <span class="text-secondary" style="font-weight:400">(any EV)</span>
         <div class="text-secondary text-xs" style="margin-top:0.35rem;font-weight:400">
-          No Fleet Telemetry, no Fleet API calls, no Tesla OAuth login - everything happens over local Bluetooth.
-          Only works while the car is in range (a few metres, i.e. at home), and state updates are polled every
-          ~30s rather than pushed live. Requires building and running
-          <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener" onclick="event.stopPropagation()">TeslaBleHttpProxy</a> yourself.
+          Control any charger that speaks OCPP 1.6J - WattSnatch runs as the Central System and the charger
+          connects to it. No vehicle-reported battery percentage on typical home AC chargers - see the note below.
         </div>
       </button>
+    </div>
+
+    <div id="tesla-backend-section" style="margin-top:1.25rem">
+      <div class="step-desc" style="margin-bottom:0.75rem">
+        Both Tesla options need a one-time Tesla developer app and a virtual key paired to your car - that part
+        is Tesla's own security requirement and is the same either way. What differs is whether WattSnatch
+        keeps talking to Tesla's cloud afterward.
+      </div>
+      <div id="vehicle-mode-picker" style="display:flex;flex-direction:column;gap:0.75rem">
+        <button type="button" class="btn btn-secondary mode-pill active" data-mode="fleet" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
+          <strong>Fleet API + Fleet Telemetry</strong> <span class="text-secondary" style="font-weight:400">(recommended)</span>
+          <div class="text-secondary text-xs" style="margin-top:0.35rem;font-weight:400">
+            Live push updates from Tesla's cloud, works from anywhere your car has signal. Uses Tesla's free API tier and a one-time OAuth login.
+          </div>
+        </button>
+        <button type="button" class="btn btn-secondary mode-pill" data-mode="ble" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
+          <strong>Bluetooth LE</strong> <span class="text-secondary" style="font-weight:400">(fully cloud-free)</span>
+          <div class="text-secondary text-xs" style="margin-top:0.35rem;font-weight:400">
+            No Fleet Telemetry, no Fleet API calls, no Tesla OAuth login - everything happens over local Bluetooth.
+            Only works while the car is in range (a few metres, i.e. at home), and state updates are polled every
+            ~30s rather than pushed live. Requires building and running
+            <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener" onclick="event.stopPropagation()">TeslaBleHttpProxy</a> yourself.
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <div id="ocpp-backend-section" class="hidden" style="margin-top:1.25rem">
+      <div class="alert alert-warn" style="font-size:0.85rem;margin-bottom:1rem">
+        <strong>No battery percentage.</strong> Reading state of charge over OCPP needs the vehicle to speak
+        ISO 15118 ("Plug and Charge") to the charger, which almost no home AC wallbox supports. WattSnatch will
+        charge at the solar-matched rate and can't stop automatically at a battery percentage - the vehicle or
+        charger ends the session itself once satisfied. All of this can be changed later in Settings.
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label for="setup_ocpp_charge_point_id">Charge point ID</label>
+          <input type="text" id="setup_ocpp_charge_point_id" placeholder="e.g. WATTSNATCH-01 (leave blank to accept any)">
+        </div>
+        <div class="form-group">
+          <label for="setup_ocpp_ws_port">WebSocket port</label>
+          <input type="text" id="setup_ocpp_ws_port" placeholder="9220" value="9220">
+        </div>
+      </div>
+      <div class="text-secondary text-xs" style="margin-top:0.5rem">
+        Point your charger's OCPP server URL at this machine on the port above once setup finishes.
+      </div>
     </div>
 
     <div id="step4-error" class="alert alert-error hidden mt-2"></div>
@@ -676,7 +722,7 @@
         <div class="step-number">Step 12 of 12</div>
         <div class="step-title">Setup Complete!</div>
         <div class="step-desc">
-          WattSnatch is configured and ready to go. It will automatically start charging your Tesla
+          WattSnatch is configured and ready to go. It will automatically start charging your car
           whenever there is sufficient solar excess.
         </div>
       </div>
@@ -684,7 +730,7 @@
       <div class="checklist" style="text-align:left;margin-top:1.25rem">
         <div class="checklist-item done">
           <div class="checklist-icon">✓</div>
-          <div>Enphase gateway connected</div>
+          <div id="step12-inverter-checklist-item">Enphase gateway connected</div>
         </div>
         <div class="checklist-item done">
           <div class="checklist-icon">✓</div>
@@ -694,9 +740,9 @@
           <div class="checklist-icon">✓</div>
           <div>Charging preferences saved</div>
         </div>
-        <div class="checklist-item done">
-          <div class="checklist-icon">✓</div>
-          <div>Background service installed</div>
+        <div class="checklist-item done" id="step12-service-checklist-row">
+          <div class="checklist-icon" id="step12-service-checklist-icon">✓</div>
+          <div id="step12-service-checklist-item">Background service installed</div>
         </div>
       </div>
 

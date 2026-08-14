@@ -30,12 +30,66 @@ function goToStep(n) {
   if (n === 12) initStep12Complete();
 }
 
-function initStep12Complete() {
-  const vehicleItem = document.getElementById('step12-vehicle-checklist-item');
-  if (vehicleItem) {
-    vehicleItem.textContent = selectedVehicleMode === 'ble'
-      ? 'Tesla vehicle configured (Bluetooth LE)'
-      : 'Tesla account authorised';
+const INVERTER_BRAND_LABELS = {
+  enphase: 'Enphase gateway',
+  fronius: 'Fronius inverter',
+  solaredge: 'SolarEdge inverter',
+  span: 'SPAN Panel',
+  sungrow: 'Sungrow inverter',
+  mqtt: 'MQTT solar feed',
+};
+
+// Reads the actually-saved settings rather than trusting the in-memory
+// selectedInverterBrand/selectedChargingBackend/selectedVehicleMode variables -
+// those are plain JS state with no persistence, so anything that loses them
+// (a reload, revisiting this step via browser back/forward, a future direct
+// link) would otherwise silently fall back to their initial defaults
+// ('enphase'/'tesla'/'fleet') and claim the wrong brand was connected.
+async function initStep12Complete() {
+  try {
+    const data = await api('/api/settings');
+    if (data.ok) {
+      const inverterItem = document.getElementById('step12-inverter-checklist-item');
+      if (inverterItem) {
+        const brand = data.settings.inverter_brand || selectedInverterBrand;
+        inverterItem.textContent = `${INVERTER_BRAND_LABELS[brand] || 'Solar inverter'} connected`;
+      }
+      const vehicleItem = document.getElementById('step12-vehicle-checklist-item');
+      if (vehicleItem) {
+        const backend = data.settings.charging_backend || selectedChargingBackend;
+        const commandBackend = data.settings.tesla_command_backend || selectedVehicleMode;
+        vehicleItem.textContent = backend === 'ocpp'
+          ? 'OCPP charger ready'
+          : commandBackend === 'ble'
+          ? 'Tesla vehicle configured (Bluetooth LE)'
+          : 'Tesla account authorised';
+      }
+    }
+  } catch (_err) {
+    // Settings fetch failed - leave whatever the static defaults already say
+    // rather than throw and abandon the rest of this step's init.
+  }
+  updateStep12ServiceStatus();
+}
+
+// Reflects whether the background service was actually installed in this
+// session, rather than always claiming success - "Install Service" on step 11
+// is optional (you can do it later from Settings), so this must not lie about it.
+async function updateStep12ServiceStatus() {
+  const row = document.getElementById('step12-service-checklist-row');
+  const icon = document.getElementById('step12-service-checklist-icon');
+  const label = document.getElementById('step12-service-checklist-item');
+  if (!row || !icon || !label) return;
+  try {
+    const data = await api('/api/setup/service-status');
+    const running = !!(data.ok && data.status?.app?.running);
+    row.classList.toggle('done', running);
+    icon.textContent = running ? '✓' : '·';
+    label.textContent = running
+      ? 'Background service installed'
+      : 'Background service not installed - you can do this anytime from Settings';
+  } catch (_err) {
+    // Status check itself failed - leave the row as-is rather than guess.
   }
 }
 
@@ -294,11 +348,21 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('step3-back')?.addEventListener('click', () => goToStep(2));
 });
 
-// ─── Step 4: Vehicle connection method (Fleet API/Telemetry vs Bluetooth LE) ───
+// ─── Step 4: Charging backend (Tesla vs OCPP), then within Tesla: Fleet API vs Bluetooth LE ───
 // This single choice sets BOTH tesla_command_backend and tesla_state_source to the same
 // value. Mixed setups (e.g. BLE commands + Fleet Telemetry state) are still possible
 // afterward from Settings, but a combined choice is the sane default for setup.
+let selectedChargingBackend = 'tesla';
 let selectedVehicleMode = 'fleet';
+
+function setChargingBackend(backend) {
+  selectedChargingBackend = backend;
+  document.querySelectorAll('.backend-pill').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.backend === backend);
+  });
+  document.getElementById('tesla-backend-section')?.classList.toggle('hidden', backend !== 'tesla');
+  document.getElementById('ocpp-backend-section')?.classList.toggle('hidden', backend !== 'ocpp');
+}
 
 function setVehicleMode(mode) {
   selectedVehicleMode = mode;
@@ -308,10 +372,35 @@ function setVehicleMode(mode) {
 }
 
 async function saveVehicleModeAndNext() {
+  if (selectedChargingBackend === 'ocpp') {
+    const chargePointId = document.getElementById('setup_ocpp_charge_point_id')?.value.trim() || '';
+    const wsPort = document.getElementById('setup_ocpp_ws_port')?.value.trim() || '9220';
+    try {
+      await api('/api/settings', {
+        method: 'POST',
+        body: {
+          charging_backend: 'ocpp',
+          ocpp_charge_point_id: chargePointId,
+          ocpp_ws_port: wsPort,
+          // controller.js's main loop requires a non-empty tesla_vin to run at
+          // all, for either backend - see OCPP-PLAN.md. Falls back to a fixed
+          // placeholder when no charge point id is given (accept-any mode),
+          // since the OCPP backend's functions don't use this value for
+          // dispatch anyway (one charger supported at a time).
+          tesla_vin: chargePointId || 'ocpp-charger',
+        },
+      });
+      goToStep(10); // skip every Tesla-only step (developer app, vehicle confirm, key pairing, BLE proxy)
+    } catch (err) {
+      showStepError('step4', 'Save failed: ' + err.message);
+    }
+    return;
+  }
+
   try {
     await api('/api/settings', {
       method: 'POST',
-      body: { tesla_command_backend: selectedVehicleMode, tesla_state_source: selectedVehicleMode },
+      body: { charging_backend: 'tesla', tesla_command_backend: selectedVehicleMode, tesla_state_source: selectedVehicleMode },
     });
     goToStep(5);
   } catch (err) {
@@ -320,6 +409,9 @@ async function saveVehicleModeAndNext() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.backend-pill').forEach((btn) => {
+    btn.addEventListener('click', () => setChargingBackend(btn.dataset.backend));
+  });
   document.querySelectorAll('.mode-pill').forEach((btn) => {
     btn.addEventListener('click', () => setVehicleMode(btn.dataset.mode));
   });
@@ -729,13 +821,17 @@ document.addEventListener('DOMContentLoaded', () => {
 // ─── Step 11: Install service ───
 function initStep11Service() {
   const isFullyBle = selectedVehicleMode === 'ble';
+  const isOcpp = selectedChargingBackend === 'ocpp';
+  const skipProxy = isFullyBle || isOcpp;
   const descEl = document.getElementById('step11-desc');
   if (descEl) {
-    descEl.textContent = isFullyBle
+    descEl.textContent = isOcpp
+      ? 'Install WattSnatch as a macOS LaunchAgent so it starts automatically at login and runs continuously in the background. The OCPP backend does not use Tesla\'s Fleet-signing proxy, so it is skipped.'
+      : isFullyBle
       ? 'Install WattSnatch as a macOS LaunchAgent so it starts automatically at login and runs continuously in the background. Bluetooth LE mode does not need the Fleet-signing Tesla proxy service, so it is skipped - keep your own TeslaBleHttpProxy process running instead (step 9).'
       : 'Install WattSnatch as a macOS LaunchAgent so it starts automatically at login and runs continuously in the background. This will also install the Tesla command proxy service.';
   }
-  document.getElementById('service-proxy-row')?.classList.toggle('hidden', isFullyBle);
+  document.getElementById('service-proxy-row')?.classList.toggle('hidden', skipProxy);
   checkServiceStatus();
 }
 

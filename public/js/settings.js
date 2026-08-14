@@ -368,10 +368,11 @@ function renderWindows(listId, windows) {
 }
 
 const FIELD_IDS = [
-  'country', 'grid_retailer_domain', 'retailer_network_distributor',
+  'country', 'grid_retailer_domain', 'ev_brand_domain', 'retailer_network_distributor',
   'min_charge_amps', 'max_charge_amps', 'hold_minutes',
   'smoothing_window', 'polling_interval_seconds', 'charger_voltage',
   'gateway_ip', 'tesla_vin',
+  'charging_backend', 'ocpp_charge_point_id', 'ocpp_ws_port', 'ocpp_id_tag',
   'tesla_client_id', 'tesla_redirect_uri', 'tesla_region',
   'tesla_command_backend', 'tesla_ble_proxy_url', 'tesla_state_source',
   'enphase_serial', 'enphase_email',
@@ -415,6 +416,16 @@ const FIELD_IDS = [
 function updateGridRetailerIconPreview() {
   const input = document.getElementById('setting_grid_retailer_domain');
   const preview = document.getElementById('grid-retailer-icon-preview');
+  if (!input || !preview) return;
+  const domain = input.value.trim();
+  preview.src = domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64` : '';
+  preview.style.visibility = domain ? 'visible' : 'hidden';
+}
+
+// Same trick, for the dashboard's EV icon.
+function updateEvBrandIconPreview() {
+  const input = document.getElementById('setting_ev_brand_domain');
+  const preview = document.getElementById('ev-brand-icon-preview');
   if (!input || !preview) return;
   const domain = input.value.trim();
   preview.src = domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64` : '';
@@ -581,6 +592,7 @@ async function loadSettings() {
     }
 
     updateGridRetailerIconPreview();
+    updateEvBrandIconPreview();
     const vinDisplay = document.getElementById('tesla-vin-display');
     if (vinDisplay && data.settings.tesla_display_name) {
       vinDisplay.textContent = data.settings.tesla_display_name + ' (' + data.settings.tesla_vin + ')';
@@ -1397,6 +1409,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('mqtt-in-test-btn')?.addEventListener('click', testMqttInput);
   document.getElementById('ble-test-btn')?.addEventListener('click', testBleProxy);
   document.getElementById('setting_grid_retailer_domain')?.addEventListener('input', updateGridRetailerIconPreview);
+  document.getElementById('setting_ev_brand_domain')?.addEventListener('input', updateEvBrandIconPreview);
   // Reveal the zone and credential inputs as soon as the provider changes,
   // rather than only on page load.
   document.getElementById('setting_grid_intensity_provider')?.addEventListener('change', applyGridIntensityProviderUI);
@@ -2013,6 +2026,25 @@ document.addEventListener('DOMContentLoaded', () => {
   loadIcalFields();
   loadCalProviders();
   loadCalStatus();
+
+  // ─── Charging Backend (Tesla vs OCPP) ────────────────────────────────────
+  const chargingBackendSelect = document.getElementById('setting_charging_backend');
+  function showChargingBackendFields(backend) {
+    document.querySelectorAll('.charging-backend-fields').forEach((el) => {
+      el.style.display = (el.id === `charging-fields-${backend}`) ? 'block' : 'none';
+    });
+  }
+  if (chargingBackendSelect) {
+    chargingBackendSelect.addEventListener('change', () => showChargingBackendFields(chargingBackendSelect.value));
+  }
+  (async () => {
+    const data = await api('/api/settings');
+    if (data.ok) {
+      const backend = data.settings.charging_backend || 'tesla';
+      if (chargingBackendSelect) chargingBackendSelect.value = backend;
+      showChargingBackendFields(backend);
+    }
+  })();
 
   // ─── Battery (Sigenergy / Sungrow / Tesla Powerwall) ─────────────────────
   const BATTERY_CONTROL_BRANDS = new Set(['sungrow']); // brands whose setMode() actually does something

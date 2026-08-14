@@ -11,6 +11,7 @@ WattSnatch is **one required core** (solar monitoring + Tesla charge control) pl
 1. [What you need before you start](#1-what-you-need-before-you-start)
 2. [System requirements](#2-system-requirements)
 3. [Install Node.js and the app](#3-install-nodejs-and-the-app)
+   - [Charging backend: Tesla or OCPP](#charging-backend-tesla-or-ocpp)
    - [Tesla vehicle connection: Fleet API vs. Bluetooth LE](#tesla-vehicle-connection-fleet-api-vs-bluetooth-le)
 4. [Build the Tesla command proxy](#4-build-the-tesla-command-proxy)
 5. [Register a Tesla developer app](#5-register-a-tesla-developer-app)
@@ -32,13 +33,12 @@ WattSnatch is **one required core** (solar monitoring + Tesla charge control) pl
 
 **Hardware:**
 - A solar inverter or meter WattSnatch can read from. Natively supported: **Enphase IQ Gateway** (the most battle-tested), **Fronius** (local Solar API, no cloud account), or **SolarEdge** (cloud monitoring API). Also supported but not yet verified against real hardware: **SPAN Panel** (US smart electrical panel) and **Sungrow** (SH-series hybrid *or* SG-series string inverter, local Modbus TCP - pick which under **Inverter family**, since the two lines use different registers; a read-only `scripts/diag-sungrow.js` diagnostic is included to confirm your registers before trusting the readings). Don't have any of those? **MQTT** input lets you feed in readings from literally anything else you already have - Home Assistant, solar-assistant, an ESPHome device, whatever publishes solar/grid data. See [Run the setup wizard](#7-run-the-setup-wizard) below for the connection fields each brand needs, and the [website docs](https://wattsnatch.app/docs.html#int-enphase) for more detail on each.
-- A **Tesla vehicle**.
-- A machine to run the server that can stay on continuously - a Mac Mini, an old laptop, a NUC, a Raspberry Pi 4+, or a cheap always-on Linux box all work. If your solar meter is a local-network device (Enphase, Fronius, SPAN, or Sungrow), this machine must be on the **same local network** as it.
+- Either a **Tesla vehicle** (the primary, battle-tested path), or **any EV plus a charger that speaks OCPP 1.6J** - see [Charging backend: Tesla or OCPP](#charging-backend-tesla-or-ocpp). The OCPP path is implemented and tested but not yet verified against real charger hardware, and cannot read the car's battery percentage.
+- A machine to run the server that can stay on continuously - a Mac Mini, an old laptop, a NUC, a Raspberry Pi 4+, or a cheap always-on Linux box all work. If your solar meter is a local-network device (Enphase, Fronius, SPAN, or Sungrow), this machine must be on the **same local network** as it. On the OCPP backend your charger must also be able to reach this machine over the network.
 
 **Accounts (all free):**
 - Whatever your chosen solar meter needs: an Enlighten account (email + password) for Enphase, an API key + site ID for SolarEdge, an access token for SPAN. Fronius, Sungrow, and MQTT input need no cloud account at all - just local network access.
-- A free [Tesla developer account](https://developer.tesla.com) (uses your normal Tesla login).
-- A place to publicly host one static text file - a free **GitHub Pages** site is the easiest option and is what this guide uses. (Tesla requires your app's public key to be reachable at a public HTTPS URL; it does not need to be the same machine running WattSnatch.)
+- **Tesla backend only:** a free [Tesla developer account](https://developer.tesla.com) (uses your normal Tesla login), and a place to publicly host one static text file - a free **GitHub Pages** site is the easiest option and is what this guide uses. (Tesla requires your app's public key to be reachable at a public HTTPS URL; it does not need to be the same machine running WattSnatch.) The **OCPP backend needs neither** - no cloud account and nothing hosted publicly.
 
 **Optional, if you want them** (see [Optional integrations](#11-optional-integrations) for setup details on each): a home battery (Sigenergy, Sungrow, or Tesla Powerwall) for the dashboard's animated battery visual, and air conditioning monitoring via MELCloud or MelView (Mitsubishi Electric's two separate platforms - MELCloud globally, MelView for Australia/NZ).
 
@@ -117,9 +117,38 @@ This checks everything that's actually caused a real install to fail before - No
 
 ---
 
+## Charging backend: Tesla or OCPP
+
+The first thing to decide, because it determines whether most of this guide applies to you at all. The setup wizard asks it at step 4, and it is the `charging_backend` setting (default `tesla`).
+
+| | Tesla *(default)* | OCPP 1.6J charger |
+|---|---|---|
+| What it controls | The **car**, through Tesla's own APIs | The **charger**, over OCPP - so the car's brand doesn't matter |
+| Works with | Tesla vehicles only | Any EV, via any charger that speaks OCPP 1.6J |
+| Status | Primary, battle-tested in daily use | Implemented and tested, but **not yet verified against real charger hardware** |
+| Battery percentage | Yes | **No** - see the caveat below |
+| Sections of this guide you need | 4, 5, 6, 7, 8 | **Skip 4-6 and 8 entirely** - no proxy to build, no Tesla developer app, no key pairing. Just section 7 (the wizard) |
+| Extra setup | Tesla developer app, EC keypair, virtual key pairing | Point your charger's OCPP server URL at this machine |
+
+**How OCPP is wired up.** WattSnatch acts as the **Central System (CSMS)**, which means it *listens* and the charger connects in to it - that is the standard OCPP topology, not an inversion of it. It listens on `ocpp_ws_port` (default 9220), so in your charger's own configuration set the OCPP/backend URL to:
+
+```
+ws://<the-machine-running-wattsnatch>:9220/ocpp/<your-charge-point-id>
+```
+
+Set the same charge point ID in WattSnatch (wizard step 4, or Settings → Charging Backend). Leaving it blank accepts the first charger that connects, which is fine on a home network. Solar diversion is sent as `SetChargingProfile`, start/stop as `RemoteStartTransaction`/`RemoteStopTransaction`, and live power is read from the charger's own `MeterValues`.
+
+> **⚠️ No battery percentage on OCPP, and what follows from it.** Reading state of charge over OCPP needs the *car* to speak ISO 15118 ("Plug and Charge") to the charger, and almost no home AC wallbox supports it. WattSnatch will charge at the solar-matched rate and cannot stop at a battery percentage - the car or charger ends the session itself when it's satisfied, exactly as it would without WattSnatch involved. Two consequences: the dashboard shows 0% rather than a real figure, and **departure scheduling ("80% by 8am") is disabled**, because it cannot be answered without knowing where you're starting from. Settings and the dashboard both say so. Use a time-based **scheduled charging window** instead - it works identically on any backend.
+
+> **⚠️ Not verified against real hardware.** The protocol side is tested against a real WebSocket client and independently against [`ocpp-rpc`](https://github.com/mikuso/ocpp-rpc) in strict mode, which validates every message against the official OCPP 1.6 JSON schemas; the charging logic is tested end to end against a simulated charge point (amps tracking solar, hold timer, Charge Now, scheduled windows, manual stop, mid-charge disconnect). That proves the implementation is correct, not that any particular charger agrees with it - real chargers are often loose with the spec. If you run this against real hardware, please [open an issue](https://github.com/WattSnatch/wattsnatch/issues) saying what happened, working or not.
+
+If you chose OCPP, skip ahead to [section 7, the setup wizard](#7-run-the-setup-wizard) - nothing between here and there applies to you.
+
+---
+
 ## Tesla vehicle connection: Fleet API vs. Bluetooth LE
 
-Before building anything, decide how WattSnatch should talk to your car - the setup wizard asks this too (step 4), and it changes which proxy you build below and what the rest of setup looks like.
+**Tesla backend only.** Before building anything, decide how WattSnatch should talk to your car - the setup wizard asks this too (step 4, after the backend choice above), and it changes which proxy you build below and what the rest of setup looks like.
 
 | | Fleet API + Fleet Telemetry (default) | Bluetooth LE (fully cloud-free) |
 |---|---|---|
@@ -250,21 +279,21 @@ Start the server:
 npm start
 ```
 
-Open **http://localhost:3001** in a browser on the same machine (or any device on your LAN, using the server's local IP instead of `localhost`). The wizard walks through 12 steps, branching at step 4 depending on whether you choose Fleet API or Bluetooth LE (see [Tesla vehicle connection: Fleet API vs. Bluetooth LE](#tesla-vehicle-connection-fleet-api-vs-bluetooth-le) below):
+Open **http://localhost:3001** in a browser on the same machine (or any device on your LAN, using the server's local IP instead of `localhost`). The wizard walks through 12 steps, branching at step 4 - first on which **charging backend** you pick (Tesla or an OCPP charger), and then, for Tesla, on whether you choose Fleet API or Bluetooth LE (see [Tesla vehicle connection: Fleet API vs. Bluetooth LE](#tesla-vehicle-connection-fleet-api-vs-bluetooth-le) below):
 
 | Step | What it does |
 |---|---|
 | 1 | Welcome / overview |
 | 2 | Choose your solar meter brand - **Enphase** (gateway IP, with "Find automatically" LAN discovery), **Fronius** or **SolarEdge**, **SPAN Panel** or **Sungrow** (both unverified against real hardware), or **MQTT (other)** to feed any inverter in over MQTT (see [MQTT solar input](#mqtt-solar-input---any-unsupported-inverter)). Each brand's connection fields appear here - only Enphase needs an Enlighten login (next step); every other brand skips straight to step 4. |
 | 3 | **Enphase only** - enter your Enlighten account email + password once, which generates a local access token; **your password itself is never stored.** Skipped entirely for every other brand. |
-| 4 | Choose **Fleet API + Fleet Telemetry** or **Bluetooth LE** - this sets how WattSnatch reads and controls your car for the rest of setup |
+| 4 | Choose the **charging backend**: **Tesla** (default) or **OCPP charger** (any EV). Picking OCPP asks for the charge point ID and WebSocket port, then jumps straight to step 10 - steps 5-9 are all Tesla-specific. Picking Tesla then asks for **Fleet API + Fleet Telemetry** or **Bluetooth LE**, which sets how WattSnatch reads and controls your car for the rest of setup |
 | 5 | Paste your Tesla Client ID / Client Secret from the developer app you registered. **Fleet mode** also asks for a Redirect URI and clicking through completes Tesla's OAuth login in your browser; **Bluetooth LE mode** only needs the Client ID/Secret and never leaves this page |
 | 6 | **Fleet mode:** confirms the vehicle detected via your Tesla account (falling back to manual VIN entry if that fails). **Bluetooth LE mode:** enter your VIN directly - there's no token to auto-detect it with |
 | 7 | Copy the generated public key, add it to your GitHub Pages repo at the path above, then click Verify. **Bluetooth LE mode** also has a required "Register domain with Tesla" button here - Fleet mode registers this automatically as part of step 6 if needed |
 | 8 | Pair a virtual key with the car (see the pairing section below - must be done from your phone, near the car). Required for both paths |
 | 9 | **Bluetooth LE mode only:** enter your BLE proxy URL and test connectivity to the TeslaBleHttpProxy process you built and are running (see below). Fleet mode skips straight to step 10 |
 | 10 | Set your charging preferences (min/max amps, hold timer, charger voltage, electricity rate - see the Settings reference in `README.md` for what each does) |
-| 11 | (macOS/Linux) install WattSnatch as a background service. Fleet mode also installs the Tesla-signing proxy service; Bluetooth LE mode skips it since it isn't used |
+| 11 | (macOS/Linux) install WattSnatch as a background service. Fleet mode also installs the Tesla-signing proxy service; Bluetooth LE and OCPP both skip it since neither uses it |
 | 12 | Done |
 
 If you get interrupted partway through, just reopen `http://localhost:3001/setup` - it resumes where you left off using what's already saved.

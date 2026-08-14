@@ -14,8 +14,8 @@ const baseline = require('./services/baseline');
 const meters = require('./services/meters');
 const battery = require('./services/battery');
 const retailerRates = require('./services/retailerRates');
-const { wakeVehicle, setChargingAmps, startCharging, stopCharging, getVehicleState, getVehicleData, useBleCommands, getVehicleDataBle, getBodyStateBle } = require('./services/tesla');
-const telemetry = require('./services/telemetry');
+const { wakeVehicle, setChargingAmps, startCharging, stopCharging, getVehicleState, getVehicleData, useBleCommands, getVehicleDataBle, getBodyStateBle } = require('./services/charging');
+const telemetry = require('./services/charging').telemetry;
 const notificationMonitor = require('./services/notificationMonitor');
 const departureScheduler  = require('./services/departureScheduler');
 const { decrypt } = require('./utils/crypto');
@@ -325,6 +325,15 @@ class Controller {
   // which is correct - that call genuinely needs the token). In Fleet mode a valid token is
   // required exactly as before, so fleet-mode behaviour is unchanged.
   _canSendCommands(token) {
+    // The OCPP backend authenticates by the charge point's own inbound
+    // WebSocket connection - there is no Tesla OAuth token in play at all, so
+    // requiring one here silently disabled every command path that IS gated on
+    // this: CHARGE NOW (_runOverride), scheduled and free-power windows
+    // (_runScheduled), departure top-ups (_runDeparture), and the dashboard's
+    // manual STOP button (commandStop). Plain solar charging kept working the
+    // whole time because _stateMachine dispatches without this gate, which is
+    // exactly what made it easy to miss.
+    if (db.getSetting('charging_backend') === 'ocpp') return true;
     return useBleCommands() ? true : !!token;
   }
 
@@ -395,6 +404,16 @@ class Controller {
   }
 
   _checkAtHome() {
+    // OCPP charge points are physically fixed at one location - there is no
+    // vehicle GPS to geofence against, and "away" doesn't mean anything for a
+    // charger wired to your property. A charger that's connected is home by
+    // definition; one that isn't already shows up as disconnected/unplugged
+    // through the normal charging-state checks, so there's nothing extra to
+    // suspend here.
+    if (db.getSetting('charging_backend') === 'ocpp') {
+      return true;
+    }
+
     // In BLE state-source mode there is no GPS feed, but Bluetooth only reaches a few metres,
     // so a car the proxy can talk to is a car parked at home. Reachable = home; unreachable
     // (out of range or proxy down) = away, and control is suspended exactly as a GPS geofence would.
@@ -1725,9 +1744,18 @@ class Controller {
     const batteryPct   = display ? display.battery_level  : 0;
     const chargerPower = isActuallyCharging && chargeState ? (chargeState.charger_power  || 0) : 0;
     const chargeLimit  = display ? display.charge_limit_soc : 80;
-    const vehicleName  = db.getSetting('tesla_display_name') || 'Tesla';
+    // 'tesla_display_name' is set automatically for Tesla (from the Fleet API's
+    // display_name, or the VIN in BLE mode) but never for OCPP, which has no
+    // equivalent - default to a generic label instead of a Tesla-branded one
+    // nobody chose.
+    const vehicleName  = db.getSetting('tesla_display_name')
+      || (db.getSetting('charging_backend') === 'ocpp' ? 'EV' : 'Tesla');
     const vehicleModel = (() => {
+      // Only a real 17-character Tesla VIN carries a meaningful model digit at
+      // index 3 - an OCPP charge-point ID isn't VIN-shaped, so this degrades
+      // to no guess rather than a wrong one.
       const vin = db.getSetting('tesla_vin') || '';
+      if (vin.length !== 17) return null;
       const c = vin[3];
       return { S: 'Model S', X: 'Model X', 3: 'Model 3', Y: 'Model Y', C: 'Cybertruck' }[c] || null;
     })();
@@ -1813,6 +1841,10 @@ class Controller {
       batteryPct, chargeLimit, chargingState,
       vehicleName, vehicleModel,
       gridRetailerDomain: db.getSetting('grid_retailer_domain') || '',
+      // Blank preserves today's look exactly: Tesla's logo on the Tesla backend
+      // (unchanged default), a generic EV icon on the OCPP backend.
+      evBrandDomain: db.getSetting('ev_brand_domain')
+        || (db.getSetting('charging_backend') === 'ocpp' ? '' : 'tesla.com'),
       controllerState: this.state, holdRemaining, holdTotal, lastUpdated: now,
       gatewayOk: this._gatewayOk, teslaOk: this._teslaOk, isAtHome: this._isAtHome,
       manualOverride: db.getSetting('manual_charge_enabled') === 'true',

@@ -2,6 +2,100 @@
 
 ---
 
+## 2026-08-14 - v2.2.0: OCPP chargers, so any EV can charge on solar
+
+**Nothing changes for existing installs.** The new charging backend is off by
+default and every Tesla install keeps behaving exactly as before - there is a
+test asserting the Tesla command path is byte-for-byte unchanged, not just a
+claim that it is.
+
+### OCPP 1.6J - control the charger instead of the car
+
+Until now WattSnatch controlled the *car*, through Tesla's own APIs, which meant
+Tesla only. It can now control the *charger* over OCPP 1.6J instead, which is
+what most home wallboxes speak - so a BYD, Hyundai, Kia, Polestar or anything
+else can charge on your surplus solar with the same control loop.
+
+WattSnatch runs as the **Central System**: it listens on a WebSocket port
+(default 9220) and your charger connects in to it, which is the standard OCPP
+topology. Set it in **Settings → Charging Backend**, or pick it during setup -
+choosing OCPP skips every Tesla-specific step in the wizard. Solar diversion
+maps onto `SetChargingProfile`, start/stop onto
+`RemoteStartTransaction`/`RemoteStopTransaction`, and live power comes back from
+the charger's own `MeterValues`.
+
+**Please treat this as unverified against real hardware.** It has been tested
+hard, but only against simulated chargers - see below for exactly what that
+covers. Real chargers are notoriously loose with the spec, so if you have one,
+please report what happens.
+
+**No battery percentage.** Reading state of charge over OCPP needs the *car* to
+speak ISO 15118 ("Plug and Charge") to the charger, which almost no home AC
+wallbox supports. Charging runs at the solar-matched rate and the car or charger
+ends the session itself. As a direct consequence, **departure scheduling is
+disabled on OCPP** - "get me to 80% by 8am" is unanswerable without knowing the
+current percentage. A time-based scheduled charging window is the equivalent
+that works on any backend, and the dashboard says so rather than offering a
+control that could not work.
+
+### What was actually tested
+
+Two independent layers, because passing your own fixtures only proves you are
+self-consistent:
+
+- **Protocol.** The full OCPP-J lifecycle (BootNotification, Heartbeat,
+  StatusNotification, Authorize, StartTransaction, MeterValues, StopTransaction,
+  plus outbound RemoteStart/RemoteStop/SetChargingProfile) against a real
+  WebSocket client - and then again against
+  [`ocpp-rpc`](https://github.com/mikuso/ocpp-rpc), an independently written
+  library, in strict mode, which validates every message against the *official*
+  OCPP 1.6 JSON schemas. Zero schema violations.
+- **Charging behaviour.** The real control loop driving a real charge point:
+  amps tracking solar up and down and clamping to your maximum, a live EV draw
+  being added back into the surplus rather than mistaken for house load, solar
+  loss stepping down and stopping only after the hold timer rather than
+  instantly, Charge Now and scheduled windows commanding full rate regardless of
+  solar, the manual Stop button reaching the charger, and a charger dropping
+  mid-charge not disturbing the loop.
+
+### Two bugs that pass found, before anyone hit them
+
+Both were in the new backend only. **Neither ever affected a Tesla install.**
+
+- **Departure scheduling would have forced hours of grid charging.** With no
+  battery percentage available, "how much is still missing" evaluated to the
+  full target forever, so the grid top-up latched on and never cleared - six
+  hours of full-rate grid import before every departure, the exact opposite of
+  the point of this app. Departure scheduling is now refused outright on OCPP
+  rather than approximated.
+- **Charge Now, scheduled windows and the Stop button silently did nothing.**
+  Those paths were gated on having a Tesla API token, which an OCPP install
+  has no reason to possess. Ordinary solar charging dispatches through a
+  different, ungated path, so it worked perfectly the whole time - which is
+  precisely why this survived casual testing. The Stop button was the serious
+  one: it appeared to work and did not stop the charger.
+
+### Choose the icon for your car on the dashboard
+
+The dashboard's EV icon was hardcoded to Tesla's logo. **Settings → Region → EV
+icon** now takes your manufacturer's domain (`byd.com`, `hyundai.com`, …) and
+shows their favicon, exactly as the Grid icon already did for your electricity
+retailer. Blank keeps Tesla's logo on the Tesla backend, or a generic EV outline
+on OCPP. Purely cosmetic.
+
+### Setup wizard corrections
+
+The wizard described hardware you might not own. Step 1 asked for "your Enphase
+IQ Gateway and Tesla vehicle" whatever you actually had; the service-install
+step offered to install Tesla's signing proxy to OCPP users who will never use
+it; and the final screen reported "Enphase gateway connected / Tesla account
+authorised" regardless of the brand and backend you had just chosen. All three
+now reflect your real setup, read from what was actually saved rather than from
+in-page state that a reload could lose. The final screen also no longer claims
+the background service was installed when you skipped that step.
+
+---
+
 ## 2026-08-12 - v2.1.0: Sungrow string inverters, a blank dashboard fix, and bill parsing
 
 ### A missing solar meter no longer hides your car

@@ -1,10 +1,59 @@
 # OCPP support - design notes
 
-Status: **planned, not started.** Written up so the architectural decision is not
-re-derived from scratch later.
+Status: **built, not yet deployed to production.** `charging_backend` defaults to
+`'tesla'` on every install, including this one - nothing changes until it's
+deliberately switched to `'ocpp'` and the app is restarted. Not yet tested
+against real OCPP hardware (see Testing below).
 
 Goal: let WattSnatch control non-Tesla EVs by talking to the *charger* over OCPP,
 rather than to the car over a manufacturer API.
+
+## What actually shipped, and what changed from the plan below
+
+The design below (adapter with identical Tesla-shaped signatures, one require
+line in `controller.js`) held up, with two corrections found by reading the
+real code rather than trusting this document:
+
+1. **`services/telemetry.js` is a second Tesla-specific dependency**, not just
+   `services/tesla.js` - a stateful ZMQ push cache with 18 call sites in
+   `controller.js`, not a stateless function set. The adapter
+   (`src/services/charging/`) covers both: `tesla.js` re-exports the real
+   `services/tesla.js` functions *and* a `telemetry` object wrapping the real
+   `services/telemetry.js`.
+2. **`controller.js` is required before `db.initDb()` runs** (`src/server.js`:
+   `controller.js` at line 14, `initDb()` inside `main()` at line 45). A
+   dispatcher that decided Tesla-vs-OCPP via `db.getSetting(...)` at
+   require/module-load time would crash the server on boot. `services/charging/
+   index.js` decides **per call** instead - a pure forwarding wrapper, not a
+   cached-at-load-time reference. The safety property is "argument/return/throw
+   forwarded unchanged," proven by `test/chargingBackendPassthrough.test.js`,
+   rather than literal function-reference identity (which turned out to be
+   impossible to get at require time without the DB crash above).
+
+Built: `src/services/charging/{index,tesla}.js` (dispatcher + Tesla passthrough),
+`src/services/charging/ocpp/{protocol,server,handlers,state,index}.js` (OCPP-J
+1.6 CSMS - `ws` is now a direct dependency), the 3-point `controller.js` touch
+(the two require lines plus a defensive length guard on the VIN-to-model-name
+lookup, since a 17-char check is what makes it safe for a non-VIN-shaped OCPP
+charge-point ID), settings (`charging_backend`, `ocpp_ws_port`,
+`ocpp_charge_point_id`, `ocpp_id_tag`) with UI in Settings and a new step 4
+picker in the setup wizard (reuses the existing Fleet/BLE branch-and-skip
+mechanism - choosing OCPP jumps straight from step 4 to step 10, skipping every
+Tesla-only step). Tests: `test/chargingBackendPassthrough.test.js` (Tesla-path
+safety proof) and `test/ocppProtocol.test.js` (a real `ws` client running the
+full OCPP-J lifecycle against the real CSMS server) - 73/73 tests passing,
+including all pre-existing ones, unchanged.
+
+One real bug found and fixed along the way: current `ws` versions pass
+`handleProtocols` a `Set`, not an array (older versions/most examples online
+show an array) - `.includes()` on it throws and silently hangs every
+connection attempt. Handled defensively (`.has()` if available, `.includes()`
+otherwise).
+
+No SoC on typical home AC OCPP chargers, as expected (see below) -
+`chargeLimitAt` never gets set, so `getChargeLimitAge()` is always `Infinity`,
+so `limitConfirmed` is always `false`, so the battery>=limit stop condition can
+provably never fire for this backend - verified in `test/ocppProtocol.test.js`.
 
 ---
 
@@ -77,15 +126,72 @@ asserting the adapter's exported functions are reference-identical to
 
 ## Setup wizard
 
-Ask which charging backend to use before the Tesla-specific steps, so an OCPP
-user is never walked through Tesla developer account creation. Default to Tesla.
+**Shipped.** Step 4 (previously just Fleet API vs Bluetooth LE) now leads with a
+Tesla-vs-OCPP choice; OCPP jumps straight to step 10 (Charging Preferences),
+skipping every Tesla-only step (developer app, vehicle confirmation, key
+pairing, BLE proxy). Verified in a real browser against an isolated instance
+(throwaway DB, not production) - both paths save the correct settings,
+including a `tesla_vin` fallback (`ocpp_charge_point_id` or a fixed
+placeholder), since `controller.js`'s main loop requires a non-empty
+`tesla_vin` to run *at all*, for either backend.
 
-Future (explicitly out of scope for the first pass): two Teslas, or one Tesla
+Future (explicitly out of scope for this pass): two Teslas, or one Tesla
 plus one OCPP charger. See the notes on multi-vehicle below.
 
 ---
 
+## Two real bugs found by the charging-logic test pass
+
+Both were invisible to the protocol tests, because the protocol was fine - the
+bugs were in how `controller.js` treats a backend that has no Tesla token and
+no battery percentage. Both are fixed, each pinned by regression tests.
+
+**1. Departure scheduling forced hours of grid charging.** `batteryPct` is a
+permanent 0 on OCPP, so `missingPct = target - currentSoc` stayed permanently
+equal to the full target: it never hit the `missingPct === 0` auto-clear, so
+`needsGridCharge` latched true for the whole 6-hour activation window before
+every departure. Measured against the real code before the fix:
+`{ active: true, needsGridCharge: true, missingPct: 80, hoursUntil: 3 }` -
+six hours of full-rate grid import, the exact opposite of the app's purpose,
+ending only when the departure time passed. Fixed by refusing to answer rather
+than answering wrongly (`departureScheduler.socAvailable()`), at three layers:
+`setDeparture()` rejects with an explanation, `getDepartureDecision()` returns
+inactive (covering a departure stored under Tesla before switching), and the
+dashboard replaces the scheduler with the reason. Auto trip-charging was
+already safe - it bails at an existing `battery SOC unknown - skipping` guard.
+
+**2. CHARGE NOW, scheduled/free-power windows, and the manual STOP button
+silently did nothing.** `_canSendCommands()` returned `!!token`, and OCPP has
+no Tesla OAuth token, so every command path gated on it was a no-op -
+`_runOverride`, `_runScheduled`, `_runDeparture`, and `commandStop`. Plain
+solar charging kept working the entire time because `_stateMachine` dispatches
+*without* that gate, which is precisely why this was easy to miss in casual
+testing. The STOP case is the serious one: pressing STOP appeared to work and
+did not stop the charger. Fixed by exempting the OCPP backend from the token
+requirement; the Tesla Fleet/BLE behaviour is unchanged and pinned by
+`test/ocppChargingLogic.test.js`.
+
+## Verified charging behaviour (test/ocppChargingLogic.test.js)
+
+Real CSMS + real `ws` charge point + the real controller, with only the solar
+meter stubbed. `_loop()` is driven manually so each tick is deterministic
+(commands run every *other* tick by design, to halve Tesla API cost).
+Confirmed: amps track solar up and down and clamp to `max_charge_amps`; a live
+EV draw is added back into the excess rather than counted as house load (getting
+this wrong would stop charging dead); solar loss steps down and stops only after
+the hold timer, not instantly; CHARGE NOW and scheduled windows command full
+rate regardless of solar; manual STOP reaches the charger; and a mid-charge
+charger disconnect does not crash the control loop.
+
 ## Known limitations to be honest about in the UI
+
+### Departure scheduling is unavailable (follows from no SoC)
+
+Disabled on OCPP rather than approximated - see bug 1 above. A time-based
+**scheduled charging window** is the equivalent that works on any backend, and
+is what the UI points users to. An energy-delivered target (kWh rather than %)
+would be a reasonable future substitute, but inventing one that has never been
+validated against real hardware is how you get a third bug.
 
 ### State of charge is often unavailable
 
@@ -107,13 +213,24 @@ the existing "bring your own inverter" ingestion pattern
 
 ### Testing
 
-Must be driven against a real OCPP charge point simulator covering the full
-lifecycle (BootNotification, Heartbeat, StatusNotification, Authorize,
-StartTransaction, MeterValues, StopTransaction, RemoteStart/Stop,
-SetChargingProfile) before shipping.
+**Done:** `test/ocppProtocol.test.js` drives a real `ws` client (not a mock)
+through the full lifecycle - BootNotification, Heartbeat, StatusNotification,
+Authorize, StartTransaction, MeterValues, StopTransaction - against the real
+CSMS server, plus asserts correct outbound RemoteStartTransaction /
+RemoteStopTransaction / SetChargingProfile frames when `services/charging/
+ocpp`'s exported functions are called. Also checked npm for a maintained OCPP
+1.6 simulator library as a bonus cross-check (`ocpp-rpc` looks solid) but
+didn't add it as a dependency - the hand-rolled fixtures already exercise the
+real protocol end to end, and a library brought in only for extra test
+confidence isn't worth the added dependency.
 
-Simulator-passing is necessary but **not sufficient** - it proves the protocol
-implementation, not compatibility with any specific piece of hardware.
+**Not done, and still necessary before relying on this for real charging:**
+testing against an actual physical OCPP charge point. Simulator/fixture-passing
+proves the protocol implementation, not compatibility with any specific piece
+of hardware - real chargers have historically been sloppy about spec
+conformance (message ordering, optional-field handling, non-standard
+`StatusNotification` sequences). Treat `charging_backend=ocpp` as unverified
+against real hardware until it has been.
 
 ---
 

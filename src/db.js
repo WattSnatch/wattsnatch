@@ -379,6 +379,9 @@ function initDb() {
   const defaults = {
     country: 'AU',
     grid_retailer_domain: '', // e.g. "agl.com.au" - drives the dashboard's Grid node icon; blank shows a generic icon
+    // e.g. "byd.com" - drives the dashboard's EV node icon; blank falls back to Tesla's
+    // logo on the Tesla backend (unchanged default) or a generic EV icon on OCPP.
+    ev_brand_domain: '',
     min_charge_amps: '5',
     max_charge_amps: '32',
     hold_minutes: '3',
@@ -484,6 +487,14 @@ function initDb() {
     // setting rather than an assumption - see sgMeterPositiveIsImport() in
     // services/meters/sungrow.js, and verify with scripts/diag-sungrow.js --watch.
     sungrow_sg_meter_sign:       'import',
+    // 'tesla' (default) = control the car directly via Tesla's Fleet API/BLE.
+    // 'ocpp' = control a charger over OCPP 1.6J instead - WattSnatch acts as
+    // the Central System, chargers connect in as WebSocket clients. Defaults
+    // to 'tesla' so every existing install behaves exactly as before.
+    charging_backend:            'tesla',
+    ocpp_ws_port:                '9220',
+    ocpp_charge_point_id:        '',
+    ocpp_id_tag:                 'WATTSNATCH',
     powerwall_host:              '',
     powerwall_email:             '',
     powerwall_password:          '',
