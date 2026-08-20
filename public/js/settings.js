@@ -642,8 +642,52 @@ async function loadSettings() {
     const freePowerToggle = document.getElementById('free_power_enabled_toggle');
     if (freePowerToggle) freePowerToggle.checked = data.settings.free_power_enabled === 'true';
     loadFreePowerWindows();
+
+    // Both switches in this card save the moment they are changed. See
+    // saveToggleNow for why. Bound once, on the first load.
+    if (autoTripToggle && !autoTripToggle.dataset.bound) {
+      autoTripToggle.dataset.bound = '1';
+      autoTripToggle.addEventListener('change', () => {
+        saveToggleNow('auto_trip_charging_enabled', autoTripToggle.checked, 'Automatic overnight trip charging');
+      });
+    }
+    if (freePowerToggle && !freePowerToggle.dataset.bound) {
+      freePowerToggle.dataset.bound = '1';
+      freePowerToggle.addEventListener('change', async () => {
+        const ok = await saveToggleNow('free_power_enabled', freePowerToggle.checked, 'Free power windows');
+        // The upcoming-windows list is a function of this setting, so refresh
+        // it rather than leaving it contradicting the switch above it.
+        if (ok) loadFreePowerWindows();
+      });
+    }
   } catch (err) {
     showMessage('error', 'Failed to load settings: ' + err.message);
+  }
+}
+
+/**
+ * Save one setting immediately, without waiting for the main form Save.
+ *
+ * These switches sit inside the Calendar card, which has its own "Save &
+ * Connect" button for the account credentials. That button saves credentials
+ * only, so a switch ticked here and left to the main Save at the far end of a
+ * very long page silently reverted on the next page load.
+ *
+ * Reported by a user who ticked Free power, entered his app-specific password,
+ * pressed the nearest save button, was told the calendar had connected, and
+ * came back to find the switch off again. Nothing about that sequence was
+ * unreasonable. A switch that reports success should be a switch that saved.
+ */
+async function saveToggleNow(key, checked, label) {
+  const value = checked ? 'true' : 'false';
+  try {
+    const data = await api('/api/settings', { method: 'POST', body: { [key]: value } });
+    if (data && data.ok === false) throw new Error(data.error || 'Save failed');
+    showMessage('success', label + (checked ? ' turned on.' : ' turned off.'));
+    return true;
+  } catch (err) {
+    showMessage('error', 'Could not save ' + label.toLowerCase() + ': ' + err.message);
+    return false;
   }
 }
 

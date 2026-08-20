@@ -2,6 +2,86 @@
 
 ---
 
+## 2026-08-21 - v2.2.2: CHARGE NOW wakes a sleeping car, and trip charging stops where it should
+
+Two faults in the charging commands, both found by using the app and then
+confirmed against the event log rather than reasoned about. Both had been
+present for months.
+
+**Fixed: CHARGE NOW did nothing when the car was asleep.** Pressing it fired
+`set_charging_amps` at a sleeping car every ten seconds, each one coming back
+`vehicle unavailable: vehicle is offline or asleep`, and never sent a wake. One
+install logged thirteen consecutive failures over two minutes before the car
+happened to wake for an unrelated reason. The log line for a CHARGE NOW wake had
+never appeared once in the entire history of that install.
+
+The cause is worth stating plainly, because it is the sort of thing that hides
+well. Telemetry keeps whatever state it was last pushed, so a car that was
+plugged in and then went to sleep still reports `Stopped`. Every command path
+decided it therefore had a live car, skipped its own wake branch, and sent a
+command that could not land. The solar path and the departure path each carried
+their own recovery for exactly this case; the CHARGE NOW and scheduled paths did
+not, which is why solar charging kept working the whole time and made the button
+look like the only broken thing.
+
+There is now one wake recovery, shared by all four paths. A button press is also
+no longer silently throttled by a wake the background loop happened to send
+moments earlier, and when a command genuinely cannot be sent, it says so in the
+log instead of failing silently.
+
+**Fixed: charging for a trip ran past the amount the trip needed.** The
+"Charge to X% for this trip" button set the Tesla charge limit to the target and
+relied on the car to stop itself. Tesla will not accept a charge limit below
+50%, and the minimum a short trip needs is usually well under that, so the limit
+was rejected and the car carried on toward its real limit. The automatic
+overnight path could not stop either: it had no stop command at all, and the
+scheduler cleared the departure the instant the target was reached, so the one
+branch that could have acted was never reached.
+
+The target is now held by WattSnatch rather than pushed to the car. Charging
+stops on the live battery reading the moment the target is met, which works at
+any percentage, and the Tesla charge limit is left exactly as its owner set it.
+This is the whole point of the feature, so it is now covered by tests that fail
+if either half regresses.
+
+**Fixed: a missing solar meter silently disabled trip charging.** Departure
+charging is grid charging and needs no solar data, but it sat behind the guard
+that stops solar arithmetic running on nothing. An inverter that dropped out
+therefore turned off overnight trip charging with no indication, which is the
+kind of failure nobody notices until the car is short on the morning of a trip.
+
+**Fixed: tests could write to a live install's database.** One test file set the
+wrong environment variable to redirect the database, so it silently ran against
+whatever install it found instead of a throwaway file. That also explains why it
+disagreed with its neighbour when the two ran in the same process.
+
+---
+
+## 2026-08-17 - v2.2.1: Free power switch now stays on, and shows on the dashboard
+
+Both found by using the feature on a real install.
+
+**Fixed: the Free power switch did not stay on.** It sits in the Calendar card,
+which has its own "Save & Connect" button for the iCloud credentials. That
+button saves credentials only, so the switch was quietly waiting on the main
+Save at the far end of a very long page. Tick it, enter your app-specific
+password, press the nearest save button, get told the calendar connected, come
+back later and find it off again. Nothing about that sequence is unreasonable,
+and a switch that reports success should be a switch that saved. Both switches
+in that card (Free power windows, and Automatic overnight trip charging) now
+save the moment they are changed, and confirm it.
+
+**Added: the dashboard now shows that free power is set up.** Previously the
+only indicator appeared while a window was already running, so someone who had
+configured it correctly had no confirmation until the window arrived. There is
+now a quiet line with the charging controls naming the next window, "Free power
+is on. Next window Sat 3:00-4:00 pm", or saying plainly that the calendar has
+no matching events, since those two situations need different fixes. It stays
+hidden while a window is actually running, because the existing banner is
+already saying it louder.
+
+---
+
 ## 2026-08-14 - v2.2.0: OCPP chargers, so any EV can charge on solar
 
 **Nothing changes for existing installs.** The new charging backend is off by

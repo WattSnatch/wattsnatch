@@ -84,6 +84,8 @@ const elDepartureBanner  = document.getElementById('departure-banner');
 const elDepartureBannerDesc = document.getElementById('departure-banner-desc');
 const elFreePowerBanner  = document.getElementById('free-power-banner');
 const elFreePowerBannerDesc = document.getElementById('free-power-banner-desc');
+const elFreePowerNext    = document.getElementById('free-power-next');
+const elFreePowerNextText = document.getElementById('free-power-next-text');
 const elCertBanner       = document.getElementById('cert-banner');
 const elCertBannerDesc   = document.getElementById('cert-banner-desc');
 
@@ -260,6 +262,7 @@ function handleTelemetry(d) {
   hide(elScheduledBanner); hide(elTouPeakBanner);
   if (elDepartureBanner) hide(elDepartureBanner);
   if (elFreePowerBanner) hide(elFreePowerBanner);
+  renderFreePowerNext(d);
 
   if (!d.isAtHome) {
     show(elAwayBanner);
@@ -397,6 +400,51 @@ function setActionActive(name, active) {
 
 function show(el) { if (el) el.classList.remove('hidden'); }
 function hide(el) { if (el) el.classList.add('hidden');    }
+
+/**
+ * Show that free power is set up, and when the next window is.
+ *
+ * Separate from the active banner above, and shown in every charging state,
+ * because it answers a different question: not "what is the car doing" but
+ * "did my setup actually take". Someone who has configured this correctly
+ * previously saw nothing at all until a window arrived.
+ */
+function renderFreePowerNext(d) {
+  if (!elFreePowerNext) return;
+
+  // Nothing to say when the feature is off, and nothing to add while a window
+  // is already running. The active banner is saying it louder.
+  if (!d.freePowerEnabled || d.inFreePower) {
+    hide(elFreePowerNext);
+    return;
+  }
+
+  const w = d.freePowerNext;
+  if (!w) {
+    // On and armed, but the calendar has nothing matching. Say which of those
+    // two things is true, since the fix is different for each.
+    elFreePowerNextText.textContent =
+      'Free power is on. No matching calendar events in the next 7 days.';
+    show(elFreePowerNext);
+    return;
+  }
+
+  const start = new Date(w.startMs);
+  const end = w.endMs ? new Date(w.endMs) : null;
+  const time = (dt) => dt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const sameDay = end && start.toDateString() === end.toDateString();
+  const today = start.toDateString() === new Date().toDateString();
+
+  const when = today
+    ? 'today ' + time(start)
+    : start.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + time(start);
+
+  elFreePowerNextText.textContent =
+    'Free power is on. Next window ' + when + (sameDay ? '–' + time(end) : '') +
+    (w.summary ? ' (' + w.summary + ')' : '');
+  show(elFreePowerNext);
+}
+
 
 function updateStatusStrip(d) {
   const strip = document.getElementById('status-strip');
@@ -960,7 +1008,7 @@ function renderTrips(trips) {
 
     const needsGrid = trip.status === 'NEEDS_ATTENTION' && minSocPct != null;
     const gridBtnHtml = needsGrid ? `
-      <button class="trip-grid-charge-btn" data-target-soc="${minSocPct}" title="Charge to exactly ${minSocPct}% - just enough for this trip">
+      <button class="trip-grid-charge-btn" data-target-soc="${minSocPct}" data-departure="${trip.departureTime || ''}" title="Charge to exactly ${minSocPct}% - just enough for this trip, then stop">
         ⚡ Charge to ${minSocPct}% for this trip
       </button>` : '';
 
@@ -981,12 +1029,21 @@ function renderTrips(trips) {
         e.stopPropagation();
         const btn = e.currentTarget;
         const target = parseInt(btn.dataset.targetSoc, 10);
+        const departure = parseInt(btn.dataset.departure, 10) || undefined;
         btn.disabled = true;
-        btn.textContent = `Setting charge limit to ${target}%…`;
+        btn.textContent = `Setting up…`;
         try {
-          const res = await api('/api/trips/charge-for-trip', { method: 'POST', body: { targetSocPct: target } });
+          const res = await api('/api/trips/charge-for-trip', {
+            method: 'POST',
+            body: { targetSocPct: target, departureTime: departure },
+          });
           if (res.ok) {
-            btn.textContent = `✓ Charging to ${target}%`;
+            // Say which of the two actually happened. Charging only starts
+            // within 6 hours of departure, so a trip further out is scheduled,
+            // not running - claiming otherwise is how you lose trust in it.
+            btn.textContent = res.chargingNow
+              ? `✓ Charging to ${target}%, will stop there`
+              : `✓ Scheduled - will charge to ${target}% before you go`;
             btn.style.color = 'var(--accent-solar)';
             btn.style.borderColor = 'var(--accent-solar)';
           } else {

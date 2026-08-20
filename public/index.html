@@ -377,6 +377,14 @@
           <div class="tou-peak-text">Peak tariff period - grid charging blocked, solar only</div>
         </div>
 
+        <!-- Free power is armed but not running. Shown in every charging state,
+             because the question it answers - "is this actually set up?" - does
+             not depend on what the car happens to be doing right now. -->
+        <div id="free-power-next" class="free-power-next hidden">
+          <span class="free-power-next-dot">⚡</span>
+          <span id="free-power-next-text">Free power is on</span>
+        </div>
+
         <!-- Charging Control toggle -->
         <div class="control-toggle-row">
           <div class="control-toggle-label">
@@ -1177,6 +1185,18 @@
   margin-bottom: 0.6rem;
 }
 .free-power-banner-title { font-weight: 700; font-size: 0.88rem; color: #4ade80; }
+
+/* Quieter than the active banner on purpose: this is a standing reassurance,
+   not an event. It must not compete with what the car is doing now. */
+.free-power-next {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-top: 0.6rem; padding: 0.5rem 0.7rem;
+  border: 1px solid rgba(74, 222, 128, 0.22);
+  border-radius: 8px;
+  background: rgba(74, 222, 128, 0.05);
+  font-size: 0.78rem; color: var(--text-secondary);
+}
+.free-power-next-dot { font-size: 0.85rem; opacity: 0.85; }
 .free-power-banner-desc  { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.1rem; }
 .departure-banner-title { font-weight: 700; font-size: 0.88rem; color: var(--accent-solar); }
 .departure-banner-desc  { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.1rem; }

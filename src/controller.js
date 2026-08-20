@@ -337,11 +337,32 @@ class Controller {
     return useBleCommands() ? true : !!token;
   }
 
+  /**
+   * The Tesla access token, or null.
+   *
+   * Every null path here logs. They used to be silent, and a null token makes
+   * `_canSendCommands()` false, which skips whole command blocks with no `else`
+   * - so a missing token row or a decrypt failure turned every button in the
+   * app into a no-op that reported success. Rate-limited to once a minute so a
+   * genuinely unauthenticated install does not flood its own log.
+   */
+  _logTokenProblem(reason) {
+    const now = Date.now();
+    if (this._lastTokenComplaintAt && (now - this._lastTokenComplaintAt) < 60 * 1000) return;
+    this._lastTokenComplaintAt = now;
+    logger.logEvent('api_error', `No usable Tesla token (${reason}) - commands cannot be sent. Reconnect Tesla in Settings.`);
+  }
+
   _getTeslaToken() {
     const row = db.getToken('tesla');
-    if (!row) return null;
+    if (!row) { this._logTokenProblem('not authenticated'); return null; }
     let parsed;
-    try { parsed = JSON.parse(decrypt(row.token_data)); } catch (_e) { return null; }
+    try {
+      parsed = JSON.parse(decrypt(row.token_data));
+    } catch (_e) {
+      this._logTokenProblem('stored token could not be decrypted');
+      return null;
+    }
     // expires_at is stored as a separate ms-timestamp column in the tokens table
     const expiresAt = row.expires_at || 0;
     const now = Date.now();
@@ -354,6 +375,7 @@ class Controller {
         return null;
       }
     }
+    if (!parsed.access_token) this._logTokenProblem('stored token has no access_token');
     return parsed.access_token || null;
   }
 
@@ -481,6 +503,25 @@ class Controller {
   _activeFreePowerWindow() {
     try {
       return require('./services/calendar').getActiveFreePowerWindow();
+    } catch (_e) { return null; }
+  }
+
+  /**
+   * The next free power window that has not started yet.
+   *
+   * The dashboard previously had no way to show that free power was armed,
+   * only that it was happening, and only while it happened. So someone who had
+   * set it up correctly had no confirmation until the window arrived, which a
+   * user reasonably asked about. This is what lets the dashboard say "next
+   * window Saturday 3 pm" instead of showing nothing at all.
+   */
+  _nextFreePowerWindow() {
+    try {
+      const now = Date.now();
+      const windows = require('./services/calendar').getFreePowerWindows() || [];
+      return windows
+        .filter((w) => w.startMs > now)
+        .sort((a, b) => a.startMs - b.startMs)[0] || null;
     } catch (_e) { return null; }
   }
 
@@ -631,6 +672,7 @@ class Controller {
         }
       } catch (err) {
         logger.logEvent('api_error', `${label} command failed: ${err.message}`);
+        await this._wakeIfAsleep(err, vin, teslaToken, label);
       }
     }
 
@@ -675,9 +717,29 @@ class Controller {
     const chargerPower  = chargeState ? (chargeState.charger_power   || 0)  : 0;
     const pluggedIn     = PLUGGED_IN.has(chargingState);
 
-    if (!pluggedIn || (batteryPct > 0 && batteryPct >= departure.targetSoc)) {
+    const targetReached = batteryPct > 0 && batteryPct >= departure.targetSoc;
+
+    if (!pluggedIn || targetReached) {
+      // Actually stop the car.
+      //
+      // This is the whole point of the feature. Tesla refuses a charge limit
+      // below 50%, so a trip needing 31% can only be honoured by watching
+      // telemetry and stopping on it. Everything this branch used to do was
+      // bookkeeping: it logged "target reached", set IDLE, and left the car
+      // charging on toward 80%.
+      //
+      // Deliberately NOT gated on `limitConfirmed`. That guard exists so a
+      // stale *Tesla* charge limit cannot stop a charge early. This target is
+      // our own number, so the age of Tesla's limit has no bearing on it.
+      if (targetReached && chargingState === 'Charging' && vin && this._canSendCommands(teslaToken)) {
+        await this._safeStop(vin, teslaToken,
+          `Departure target ${departure.targetSoc}% reached at ${Math.round(batteryPct)}% - stopped charging`);
+      }
+
       if (this.currentSessionId) this._endSession(batteryPct, !pluggedIn ? 'disconnected' : 'charge_complete');
-      if (batteryPct >= departure.targetSoc) {
+      if (targetReached) {
+        // Cleared only now that the car has actually been told to stop - see
+        // the matching comment in departureScheduler.getDepartureDecision().
         departureScheduler.clearDeparture();
         logger.logEvent('info', `Departure target ${departure.targetSoc}% reached - clearing schedule`);
       }
@@ -709,22 +771,7 @@ class Controller {
         }
       } catch (err) {
         logger.logEvent('api_error', `Departure command failed: ${err.message}`);
-        // chargeState can be stale from before sleep. If we get "offline or asleep",
-        // the cached state tricked us into skipping the outer wake path - wake now.
-        if (err.message.includes('offline or asleep') || err.message.includes('vehicle unavailable')) {
-          const canWake = !this.lastWakeAttempt || (Date.now() - this.lastWakeAttempt > 3 * 60 * 1000);
-          if (canWake) {
-            this.lastWakeAttempt = Date.now();
-            this._carSleeping = false;
-            try {
-              this._trackApiCall('wake');
-              await wakeVehicle(vin, teslaToken);
-              logger.logEvent('command', 'Departure: waking car - chargeState was stale from before sleep');
-            } catch (wakeErr) {
-              logger.logEvent('api_error', `Departure wake-on-failure: ${wakeErr.message}`);
-            }
-          }
-        }
+        await this._wakeIfAsleep(err, vin, teslaToken, 'Departure');
       }
     }
 
@@ -762,6 +809,59 @@ class Controller {
       logger.logEvent('command', reason);
     } catch (err) {
       logger.logEvent('api_error', `Stop charging failed: ${err.message}`);
+    }
+  }
+
+  /**
+   * Wake a car that turned out to be asleep, after a command failed.
+   *
+   * Telemetry keeps whatever state it was last pushed, so a car that was plugged
+   * in and then fell asleep still reports `charging_state: 'Stopped'`. Every
+   * command path therefore believes it has a live car, skips its own
+   * `if (!chargeState)` wake branch, and sends a command that comes back
+   * "vehicle unavailable: vehicle is offline or asleep".
+   *
+   * Without this recovery the path just retries forever. That is exactly how
+   * CHARGE NOW came to fire thirteen failed commands over two minutes without a
+   * single wake: the solar path and departure path each had their own copy of
+   * this logic, and the override and scheduled paths did not.
+   *
+   * `_carSleeping` is cleared as well as waking, because while it is true the
+   * REST fallback is skipped entirely - so the stale state that caused this
+   * would never be refreshed and the next tick would fail identically.
+   *
+   * @returns {boolean} true when a wake was actually sent
+   */
+  async _wakeIfAsleep(err, vin, teslaToken, label, { userInitiated = false } = {}) {
+    const msg = (err && err.message) || '';
+    // Same three tokens the solar path has matched on in production for months.
+    if (!/offline|asleep|unavailable/i.test(msg)) return false;
+    if (!vin || !this._canSendCommands(teslaToken)) return false;
+
+    // `lastWakeAttempt` is shared with the background loop. Someone who just
+    // pressed a button is not the background loop, and should not be silently
+    // throttled by a wake it happened to send moments earlier - still guarded,
+    // just far more tightly.
+    const guardMs = userInitiated ? 20 * 1000 : 3 * 60 * 1000;
+    const sinceMs = Date.now() - (this.lastWakeAttempt || 0);
+    if (this.lastWakeAttempt && sinceMs < guardMs) {
+      // Never silent. An unexplained dead button is precisely what made this
+      // take so long to find.
+      logger.logEvent('info',
+        `${label}: car is asleep, but a wake was sent ${Math.round(sinceMs / 1000)}s ago - waiting before retrying`);
+      return false;
+    }
+
+    this.lastWakeAttempt = Date.now();
+    this._carSleeping = false;
+    try {
+      this._trackApiCall('wake');
+      await wakeVehicle(vin, teslaToken);
+      logger.logEvent('command', `${label}: waking car - its cached state was stale from before it slept`);
+      return true;
+    } catch (wakeErr) {
+      logger.logEvent('api_error', `${label}: wake after failed command did not work: ${wakeErr.message}`);
+      return false;
     }
   }
 
@@ -1117,13 +1217,56 @@ class Controller {
       const pluggedIn      = PLUGGED_IN.has(chargingState);
       const currentlyCharging = chargingState === 'Charging';
 
+      // --- Departure scheduler ---------------------------------------------
+      // Fires within ACTIVATION_HOURS of departure when SOC is still below
+      // target, and again the moment the target is reached so the car can be
+      // STOPPED - see _runDeparture, which owns that stop.
+      //
+      // Deliberately ABOVE the meter guard below. Departure charging is grid
+      // charging: it does not need to know what the roof is doing. While this
+      // sat below the guard, a flaky inverter silently disabled the entire
+      // trip-charging feature, which is exactly the kind of failure nobody
+      // notices until the car is short on the morning of a trip.
+      const depSolarExcessW = readings ? readings.solarW - readings.consumptionW : 0;
+      const depEvWatts      = currentlyCharging ? chargerPower * 1000 : 0;
+      const departureDecision = departureScheduler.getDepartureDecision(batteryPct, maxAmps);
+      if (departureDecision.active && pluggedIn
+          && (departureDecision.needsGridCharge || departureDecision.targetReached)) {
+        await this._runDeparture({
+          departure:   departureDecision,
+          chargeState, readings, vin, teslaToken,
+          maxAmps,     solarExcessW: depSolarExcessW, evWatts: depEvWatts,
+        });
+        return;
+      }
+      // Car may be sleeping but departure charging is needed - force a wake attempt so
+      // the next tick can confirm plugged-in and start charging.
+      if (departureDecision.active && departureDecision.needsGridCharge && !pluggedIn && !chargeState && vin && teslaToken) {
+        const canWake = !this.lastWakeAttempt || (Date.now() - this.lastWakeAttempt > 3 * 60 * 1000);
+        if (canWake) {
+          this.lastWakeAttempt = Date.now();
+          this._carSleeping = false; // force fallback to re-poll on next tick
+          try {
+            this._trackApiCall('wake');
+            await wakeVehicle(vin, teslaToken);
+            logger.logEvent('command', `Departure: waking sleeping vehicle (${departureDecision.hoursUntil}h until departure)`);
+          } catch (err) {
+            logger.logEvent('api_error', `Departure wake attempt failed: ${err.message}`);
+          }
+        }
+      }
+      // If DEPARTURE state but scheduler cleared (target reached / time passed), reset to IDLE
+      if (this.state === STATES.DEPARTURE && !departureDecision.active) {
+        this._setState(STATES.IDLE, 'Departure schedule cleared');
+      }
+
       // --- Solar diversion requires a meter reading ---
       //
       // Everything above this point works without one, which is the whole point
       // of not aborting the loop when the meter is missing: the car is still
       // polled, the dashboard still populates, and CHARGE NOW / scheduled /
-      // free-power charging still run, because none of those need to know what
-      // the roof is doing.
+      // free-power / departure charging still run, because none of those need
+      // to know what the roof is doing.
       //
       // From here down is solar arithmetic and cannot proceed on nothing. Stop
       // here rather than substituting zeroes, which would look like "no surplus"
@@ -1156,40 +1299,6 @@ class Controller {
 
       const solarExcessW = readings.solarW - readings.consumptionW;
       const evWatts = currentlyCharging ? chargerPower * 1000 : 0;
-
-      // --- Departure scheduler ---------------------------------------------
-      // Fires within ACTIVATION_HOURS of departure when SOC is still below target.
-      // Solar-first: if the normal solar loop can get us there in time, this won't
-      // activate (because missingPct would be 0 by the time we need it).
-      const departureDecision = departureScheduler.getDepartureDecision(batteryPct, maxAmps);
-      if (departureDecision.active && departureDecision.needsGridCharge && pluggedIn) {
-        await this._runDeparture({
-          departure:   departureDecision,
-          chargeState, readings, vin, teslaToken,
-          maxAmps,     solarExcessW, evWatts,
-        });
-        return;
-      }
-      // Car may be sleeping but departure charging is needed - force a wake attempt so
-      // the next tick can confirm plugged-in and start charging.
-      if (departureDecision.active && departureDecision.needsGridCharge && !pluggedIn && !chargeState && vin && teslaToken) {
-        const canWake = !this.lastWakeAttempt || (Date.now() - this.lastWakeAttempt > 3 * 60 * 1000);
-        if (canWake) {
-          this.lastWakeAttempt = Date.now();
-          this._carSleeping = false; // force fallback to re-poll on next tick
-          try {
-            this._trackApiCall('wake');
-            await wakeVehicle(vin, teslaToken);
-            logger.logEvent('command', `Departure: waking sleeping vehicle (${departureDecision.hoursUntil}h until departure)`);
-          } catch (err) {
-            logger.logEvent('api_error', `Departure wake attempt failed: ${err.message}`);
-          }
-        }
-      }
-      // If DEPARTURE state but scheduler cleared (target reached / time passed), reset to IDLE
-      if (this.state === STATES.DEPARTURE && !departureDecision.active) {
-        this._setState(STATES.IDLE, 'Departure schedule cleared');
-      }
 
       // Run state machine
       await this._stateMachine({
@@ -1512,21 +1621,9 @@ class Controller {
           } catch (err) {
             if (err.message && err.message.includes('401')) {
               this._triggerTeslaTokenRefresh();
-            } else if (err.message && (err.message.includes('offline') || err.message.includes('asleep') || err.message.includes('unavailable'))) {
-              // Car reports Stopped but is actually asleep - send a wake command
-              const canWake = !this.lastWakeAttempt || (now - this.lastWakeAttempt > wakeGuardMs);
-              if (canWake) {
-                this.lastWakeAttempt = now;
-                try {
-                  this._trackApiCall('wake'); await wakeVehicle(vin, teslaToken);
-                  logger.logEvent('command', 'Wake vehicle sent (was asleep despite Stopped state)');
-                } catch (wakeErr) {
-                  logger.logEvent('api_error', `Wake vehicle failed: ${wakeErr.message}`);
-                }
-              } else {
-                logger.logEvent('api_error', `Start charging failed: ${err.message}`);
-              }
-            } else {
+            } else if (!(await this._wakeIfAsleep(err, vin, teslaToken, 'Solar'))) {
+              // Not an asleep-car error, or a wake was already in flight - either
+              // way the original failure is what a reader needs to see.
               logger.logEvent('api_error', `Start charging failed: ${err.message}`);
             }
           }
@@ -1642,7 +1739,15 @@ class Controller {
         }
       } catch (err) {
         logger.logEvent('api_error', `CHARGE NOW command failed: ${err.message}`);
+        // The user pressed a button; a sleeping car must not be the end of it.
+        await this._wakeIfAsleep(err, vin, teslaToken, 'CHARGE NOW', { userInitiated: true });
       }
+    } else if (vin && !this._canSendCommands(teslaToken)) {
+      // Previously this was a completely silent no-op: no log, no SSE, and the
+      // route had already returned {ok:true} which the dashboard discards. A
+      // button that does nothing must at least say so somewhere.
+      logger.logEvent('api_error',
+        'CHARGE NOW: no usable Tesla token, so no command was sent. Reconnect Tesla in Settings.');
     }
 
     const evWatts = chargingState === 'Charging' ? chargerPower * 1000 : 0;
@@ -1853,6 +1958,11 @@ class Controller {
       inTouPeak:     this._touPeakActive  || false,
       inFreePower:   this._freePowerActive || false,
       freePowerWindow: this._activeFreePowerWindow(),
+      freePowerEnabled: (() => {
+        try { return require('./services/calendar').isFreePowerEnabled(); }
+        catch (_e) { return false; }
+      })(),
+      freePowerNext: this._nextFreePowerWindow(),
       locationKnown: this._lastLatLng !== null,
       vehicleName,
       pollIntervalSecs: parseInt(db.getSetting('polling_interval_seconds') || '15', 10),

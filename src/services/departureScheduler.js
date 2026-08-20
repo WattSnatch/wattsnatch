@@ -146,10 +146,28 @@ function getDepartureDecision(currentSoc, maxAmps) {
 
   const missingPct = Math.max(0, dep.target_soc - (currentSoc || 0));
 
-  // Auto-clear when target reached
+  // Target reached - reported, deliberately NOT cleared here.
+  //
+  // Clearing at this instant used to make the controller's own stop
+  // unreachable. This returned {active:false}, so _runDeparture was never
+  // called on the tick the target was hit, and control fell through to the
+  // ordinary state machine - which stops on the Tesla charge limit (80%), not
+  // on our target. The car sailed straight past the number the entire feature
+  // exists to hit.
+  //
+  // The controller clears it once it has actually stopped the car.
   if (missingPct === 0) {
-    db.clearDeparture();
-    return { active: false, autoCleared: true };
+    return {
+      active:          true,
+      targetReached:   true,
+      needsGridCharge: false,
+      targetSoc:       dep.target_soc,
+      departureTime:   dep.departure_time,
+      hoursUntil:      Math.round(hoursUntil * 10) / 10,
+      missingPct:      0,
+      suggestedAmps:   maxAmps,
+      notes:           dep.notes,
+    };
   }
 
   let needsGridCharge = missingPct > 0 && hoursUntil <= ACTIVATION_HOURS;

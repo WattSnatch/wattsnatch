@@ -188,29 +188,61 @@ router.post('/api/charge/limit', async (req, res) => {
   }
 });
 
-// POST /api/trips/charge-for-trip - set charge limit to exactly what a trip needs and start charging
+// POST /api/trips/charge-for-trip - grid-charge to exactly what a trip needs, then stop
+//
+// This used to call setChargeLimit(vin, target) and rely on the car to stop
+// itself. That cannot work: Tesla enforces a 50% floor on the charge limit, and
+// tripPlanner computes `minimumSocRequired` as trip% + a 20% floor, so a short
+// trip lands at ~31% - inside the band Tesla rejects. The limit silently
+// clamped, the car charged on toward 80%, and the one thing this feature exists
+// to do (cover a trip on the least possible grid power) never happened.
+//
+// The target is now handed to the departure scheduler, and the controller stops
+// the car on live telemetry when it reaches it. The Tesla charge limit is left
+// exactly as the owner set it.
 router.post('/api/trips/charge-for-trip', async (req, res) => {
   try {
-    const { targetSocPct } = req.body;
+    const { targetSocPct, departureTime } = req.body;
     const target = Math.ceil(parseFloat(targetSocPct));
     if (!target || target < 20 || target > 100) {
       return res.status(400).json({ ok: false, error: 'Invalid target SoC' });
     }
-    const { setChargeLimit } = require('../services/tesla');
-    const { decrypt } = require('../utils/crypto');
-    const vin = db.getSetting('tesla_vin');
-    if (!vin) return res.json({ ok: false, error: 'No VIN configured' });
-    const tokenRow = db.getToken('tesla');
-    if (!tokenRow) return res.json({ ok: false, error: 'Tesla not authenticated' });
-    const token = JSON.parse(decrypt(tokenRow.token_data));
-    await setChargeLimit(vin, target, token.access_token);
-    // Only start charging immediately if the car is at home - otherwise the limit
-    // will take effect automatically when it arrives home and plugs in
-    const status = controller.getStatus();
-    if (status.isAtHome) controller.commandChargeNow();
-    res.json({ ok: true, targetSocPct: target, chargingStarted: !!status.isAtHome });
+
+    const departureScheduler = require('../services/departureScheduler');
+
+    // Prefer the trip's own departure time. Falling back to the next known trip
+    // keeps older dashboards (which only sent targetSocPct) working.
+    let whenMs = Number(departureTime) || 0;
+    if (!whenMs || whenMs <= Date.now()) {
+      try {
+        const trips = require('../services/calendar').getState().trips || [];
+        const next = trips.filter(t => t.departureTime > Date.now())
+                          .sort((a, b) => a.departureTime - b.departureTime)[0];
+        if (next) whenMs = next.departureTime;
+      } catch (_e) { /* no calendar - fall through to the default below */ }
+    }
+    // No trip to hang it on: treat the button press itself as the deadline and
+    // charge now. ACTIVATION_HOURS is 6, so anything inside that starts on the
+    // next tick.
+    if (!whenMs || whenMs <= Date.now()) whenMs = Date.now() + 5 * 60 * 60 * 1000;
+
+    departureScheduler.setDeparture(whenMs, target, 'Requested from the trip list');
+
+    // Say what will actually happen rather than always claiming it started.
+    // Grid charging begins within ACTIVATION_HOURS of departure, so a trip two
+    // days out is genuinely scheduled, not charging yet.
+    const decision = departureScheduler.getDepartureDecision(
+      controller.getStatus().batteryPct || 0,
+      parseInt(db.getSetting('max_charge_amps') || '32', 10),
+    );
+    res.json({
+      ok: true,
+      targetSocPct:  target,
+      departureTime: whenMs,
+      chargingNow:   !!decision.needsGridCharge,
+    });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(400).json({ ok: false, error: err.message });
   }
 });
 

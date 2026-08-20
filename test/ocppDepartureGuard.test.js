@@ -101,13 +101,21 @@ test('Tesla: departure scheduling is completely unchanged', () => {
   assert.equal(short.suggestedAmps, 32);
 });
 
-test('Tesla: reaching the target still auto-clears the departure', () => {
+test('Tesla: reaching the target reports targetReached and does NOT clear yet', () => {
+  // Deliberately changed behaviour. Clearing the row here used to make the
+  // controller's stop unreachable: the decision went {active:false}, so
+  // _runDeparture never ran on the tick the target was hit and the car carried
+  // on charging toward the Tesla charge limit instead of stopping at target.
+  // The controller now clears it, once it has actually stopped the car.
   reset('tesla');
   departureScheduler.setDeparture(Date.now() + 3 * HOURS, 80, 'tesla-reached');
   const done = departureScheduler.getDepartureDecision(80, 32);
-  assert.equal(done.active, false);
-  assert.equal(done.autoCleared, true);
-  assert.equal(departureScheduler.getActiveDeparture(), null);
+  assert.equal(done.active, true);
+  assert.equal(done.targetReached, true);
+  assert.equal(done.needsGridCharge, false);
+  assert.equal(done.targetSoc, 80);
+  // Still stored - the controller is responsible for clearing it.
+  assert.ok(departureScheduler.getActiveDeparture());
 });
 
 test('Tesla: outside the activation window it stays solar-first', () => {
