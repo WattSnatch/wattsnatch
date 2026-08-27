@@ -272,6 +272,7 @@ class Controller {
         batteryPct: t.batteryPct, chargingState: t.chargingState,
         controllerState: this.state, holdRemaining: null, lastUpdated: Date.now(),
         gatewayOk: this._gatewayOk, teslaOk: this._teslaOk, isAtHome: this._isAtHome,
+        chargerPhases: parseInt(db.getSetting('charger_phases') || '1', 10),
         manualOverride: db.getSetting('manual_charge_enabled') === 'true',
         controlEnabled: db.getSetting('charging_control_enabled') !== 'false',
         eddiDivertW: eddi.divertW,
@@ -586,6 +587,19 @@ class Controller {
   }
 
   /**
+   * Watts drawn per amp of commanded charge current.
+   * Charge current is per-phase, so a three-phase charger at N amps draws three
+   * times the power a single-phase one does. Every amps<->watts conversion in
+   * the diversion loop goes through here.
+   */
+  _wattsPerAmp() {
+    const voltage = parseInt(db.getSetting('charger_voltage') || '240', 10);
+    let phases = parseInt(db.getSetting('charger_phases') || '1', 10);
+    if (!Number.isInteger(phases) || phases < 1 || phases > 3) phases = 1;
+    return voltage * phases;
+  }
+
+  /**
    * The minimum solar-surplus (in watts) required before we divert to the car.
    * Normal operation returns the configured min_charge_amps × voltage. The ONLY
    * Phase 5 input to the diversion loop: when a trip within 18h still needs charge,
@@ -594,8 +608,8 @@ class Controller {
    */
   _getDiversionThreshold(tripPriority) {
     const minAmps = parseInt(db.getSetting('min_charge_amps') || '5',   10);
-    const voltage = parseInt(db.getSetting('charger_voltage') || '240', 10);
-    const baseThresholdW = minAmps * voltage;
+    const wattsPerAmp = this._wattsPerAmp();
+    const baseThresholdW = minAmps * wattsPerAmp;
     if (tripPriority) return Math.max(baseThresholdW * 0.7, 400);
     return baseThresholdW;
   }
@@ -1200,13 +1214,13 @@ class Controller {
       const maxAmps       = parseInt(db.getSetting('max_charge_amps')          || '32',  10);
       const holdMinutes   = parseInt(db.getSetting('hold_minutes')             || '3',   10);
       const smoothWin     = parseInt(db.getSetting('smoothing_window')         || '3',   10);
-      const chargerVoltage= parseInt(db.getSetting('charger_voltage')          || '240', 10);
+      const wattsPerAmp   = this._wattsPerAmp();
 
       // Phase 5 - trip-aware threshold. The only new input to the diversion loop:
       // an imminent trip that still needs charge lowers the minimum surplus we act on.
       const { tripPriority, tripWithin18hrs } = this._tripContext();
       const thresholdW    = this._getDiversionThreshold(tripPriority);
-      const effectiveMinAmps = Math.max(1, Math.floor(thresholdW / chargerVoltage));
+      const effectiveMinAmps = Math.max(1, Math.floor(thresholdW / wattsPerAmp));
 
       // --- Vehicle state ---
       const chargingState  = chargeState ? chargeState.charging_state  : null;
@@ -1286,14 +1300,14 @@ class Controller {
       if (gatewayDataExpired && this.state === STATES.CHARGING) {
         logger.logEvent('api_error', 'Gateway offline >2 min - treating solar as zero to trigger hold timer');
       }
-      const chargerWatts = currentlyCharging ? chargeAmps * chargerVoltage : 0;
+      const chargerWatts = currentlyCharging ? chargeAmps * wattsPerAmp : 0;
       const rawExcess = gatewayDataExpired
         ? 0
         : readings.solarW - readings.consumptionW + chargerWatts;
       this.smoothingBuffer.push(rawExcess);
       if (this.smoothingBuffer.length > smoothWin) this.smoothingBuffer.shift();
       const smoothedExcess = this.smoothingBuffer.reduce((a, b) => a + b, 0) / this.smoothingBuffer.length;
-      let targetAmps = Math.floor(smoothedExcess / chargerVoltage);
+      let targetAmps = Math.floor(smoothedExcess / wattsPerAmp);
       targetAmps = Math.max(0, Math.min(maxAmps, targetAmps));
       if (targetAmps < effectiveMinAmps) targetAmps = 0;
 
@@ -1952,6 +1966,7 @@ class Controller {
         || (db.getSetting('charging_backend') === 'ocpp' ? '' : 'tesla.com'),
       controllerState: this.state, holdRemaining, holdTotal, lastUpdated: now,
       gatewayOk: this._gatewayOk, teslaOk: this._teslaOk, isAtHome: this._isAtHome,
+      chargerPhases: parseInt(db.getSetting('charger_phases') || '1', 10),
       manualOverride: db.getSetting('manual_charge_enabled') === 'true',
       controlEnabled: db.getSetting('charging_control_enabled') !== 'false',
       inSchedule:    this._scheduleActive || false,
