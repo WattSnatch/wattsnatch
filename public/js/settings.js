@@ -370,7 +370,7 @@ function renderWindows(listId, windows) {
 const FIELD_IDS = [
   'country', 'grid_retailer_domain', 'ev_brand_domain', 'retailer_network_distributor',
   'min_charge_amps', 'max_charge_amps', 'hold_minutes',
-  'smoothing_window', 'polling_interval_seconds', 'charger_voltage',
+  'smoothing_window', 'polling_interval_seconds', 'charger_voltage', 'charger_phases',
   'gateway_ip', 'tesla_vin',
   'charging_backend', 'ocpp_charge_point_id', 'ocpp_ws_port', 'ocpp_id_tag',
   'tesla_client_id', 'tesla_redirect_uri', 'tesla_region',
