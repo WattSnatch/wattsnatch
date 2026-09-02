@@ -314,106 +314,12 @@ router.get('/api/setup/service-status', (req, res) => {
 // Sends fleet_telemetry_config to Tesla via the local proxy using stored credentials.
 router.post('/api/setup/send-telemetry-config', async (req, res) => {
   try {
-    const { decrypt } = require('../utils/crypto');
-    const https = require('https');
-
-    const vin = db.getSetting('tesla_vin');
-    if (!vin) return res.json({ ok: false, error: 'No VIN stored - complete setup first' });
-
-    const hostname = db.getSetting('fleet_telemetry_hostname');
-    if (!hostname) {
-      return res.json({ ok: false, error: 'fleet_telemetry_hostname not set - enter your telemetry server\'s public hostname in Settings first. See TELEMETRY.md for how to stand one up.' });
-    }
-
-    const tokenRow = db.getToken('tesla');
-    if (!tokenRow) return res.json({ ok: false, error: 'No Tesla token stored' });
-
-    const tokenData = JSON.parse(decrypt(tokenRow.token_data));
-    const accessToken = tokenData.access_token;
-
-    // Default: Let's Encrypt E7 intermediate CA (valid until Mar 2027 - Let's Encrypt rotates
-    // these periodically, see https://letsencrypt.org/certificates/). Override via the
-    // fleet_telemetry_ca_cert setting if your telemetry server uses a different CA.
-    const defaultLeCa = `-----BEGIN CERTIFICATE-----
-MIIEVzCCAj+gAwIBAgIRAKp18eYrjwoiCWbTi7/UuqEwDQYJKoZIhvcNAQELBQAw
-TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
-cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMjQwMzEzMDAwMDAw
-WhcNMjcwMzEyMjM1OTU5WjAyMQswCQYDVQQGEwJVUzEWMBQGA1UEChMNTGV0J3Mg
-RW5jcnlwdDELMAkGA1UEAxMCRTcwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAARB6AST
-CFh/vjcwDMCgQer+VtqEkz7JANurZxLP+U9TCeioL6sp5Z8VRvRbYk4P1INBmbef
-QHJFHCxcSjKmwtvGBWpl/9ra8HW0QDsUaJW2qOJqceJ0ZVFT3hbUHifBM/2jgfgw
-gfUwDgYDVR0PAQH/BAQDAgGGMB0GA1UdJQQWMBQGCCsGAQUFBwMCBggrBgEFBQcD
-ATASBgNVHRMBAf8ECDAGAQH/AgEAMB0GA1UdDgQWBBSuSJ7chx1EoG/aouVgdAR4
-wpwAgDAfBgNVHSMEGDAWgBR5tFnme7bl5AFzgAiIyBpY9umbbjAyBggrBgEFBQcB
-AQQmMCQwIgYIKwYBBQUHMAKGFmh0dHA6Ly94MS5pLmxlbmNyLm9yZy8wEwYDVR0g
-BAwwCjAIBgZngQwBAgEwJwYDVR0fBCAwHjAcoBqgGIYWaHR0cDovL3gxLmMubGVu
-Y3Iub3JnLzANBgkqhkiG9w0BAQsFAAOCAgEAjx66fDdLk5ywFn3CzA1w1qfylHUD
-aEf0QZpXcJseddJGSfbUUOvbNR9N/QQ16K1lXl4VFyhmGXDT5Kdfcr0RvIIVrNxF
-h4lqHtRRCP6RBRstqbZ2zURgqakn/Xip0iaQL0IdfHBZr396FgknniRYFckKORPG
-yM3QKnd66gtMst8I5nkRQlAg/Jb+Gc3egIvuGKWboE1G89NTsN9LTDD3PLj0dUMr
-OIuqVjLB8pEC6yk9enrlrqjXQgkLEYhXzq7dLafv5Vkig6Gl0nuuqjqfp0Q1bi1o
-yVNAlXe6aUXw92CcghC9bNsKEO1+M52YY5+ofIXlS/SEQbvVYYBLZ5yeiglV6t3S
-M6H+vTG0aP9YHzLn/KVOHzGQfXDP7qM5tkf+7diZe7o2fw6O7IvN6fsQXEQQj8TJ
-UXJxv2/uJhcuy/tSDgXwHM8Uk34WNbRT7zGTGkQRX0gsbjAea/jYAoWv0ZvQRwpq
-Pe79D/i7Cep8qWnA+7AE/3B3S/3dEEYmc0lpe1366A/6GEgk3ktr9PEoQrLChs6I
-tu3wnNLB2euC8IKGLQFpGtOO/2/hiAKjyajaBP25w1jF0Wl8Bbqne3uZ2q1GyPFJ
-YRmT7/OXpmOH/FVLtwS+8ng1cAmpCujPwteJZNcDG0sF2n/sc0+SQf49fdyUK0ty
-+VUwFj9tmWxyR/M=
------END CERTIFICATE-----`;
-
-    const port = parseInt(db.getSetting('fleet_telemetry_port') || '443', 10);
-    const caCert = db.getSetting('fleet_telemetry_ca_cert') || defaultLeCa;
-
-    const payload = JSON.stringify({
-      vins: [vin],
-      config: {
-        hostname,
-        port,
-        ca: caCert,
-        fields: {
-          ChargeAmps:          { interval_seconds: 1  },
-          DetailedChargeState: { interval_seconds: 1  },
-          Soc:                 { interval_seconds: 30 },
-          ChargeLimitSoc:      { interval_seconds: 60 },
-          ChargerVoltage:      { interval_seconds: 30 },
-          ACChargingPower:     { interval_seconds: 5  },
-          Location:            { interval_seconds: 30 },
-        },
-      },
-    });
-
-    const proxyAgent = new https.Agent({ rejectUnauthorized: false });
-    const response = await new Promise((resolve, reject) => {
-      const reqOptions = {
-        hostname: 'localhost',
-        port: 4443,
-        path: '/api/1/vehicles/fleet_telemetry_config',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Length': Buffer.byteLength(payload),
-        },
-        agent: proxyAgent,
-        timeout: 30000,
-      };
-      const proxyReq = https.request(reqOptions, (proxyRes) => {
-        let data = '';
-        proxyRes.on('data', (chunk) => { data += chunk; });
-        proxyRes.on('end', () => resolve({ status: proxyRes.statusCode, body: data }));
-      });
-      proxyReq.on('error', reject);
-      proxyReq.on('timeout', () => { proxyReq.destroy(); reject(new Error('Proxy request timed out')); });
-      proxyReq.write(payload);
-      proxyReq.end();
-    });
-
-    let parsed;
-    try { parsed = JSON.parse(response.body); } catch (_) { parsed = { raw: response.body }; }
-
-    const ok = response.status === 200 && parsed.error == null;
-    logger.logEvent('info', `fleet_telemetry_config: status=${response.status} body=${response.body}`);
-    res.json({ ok, status: response.status, response: parsed });
+    // Shared with the automatic health monitor (services/telemetryHealth) so the wizard and
+    // the auto-repair path build and send byte-identical configs.
+    const telemetryHealth = require('../services/telemetryHealth');
+    const result = await telemetryHealth.sendConfig();
+    if (result.error) return res.json({ ok: false, error: result.error });
+    res.json({ ok: result.ok, status: result.status, response: result.response });
   } catch (err) {
     logger.logEvent('error', `fleet_telemetry_config failed: ${err.message}`);
     res.json({ ok: false, error: err.message });

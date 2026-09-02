@@ -64,6 +64,59 @@ function commandBaseUrl() {
   return useBleCommands() ? bleProxyUrl() : PROXY_URL;
 }
 
+// Tesla returns this specific 403 when the developer app itself has been rate-limited or
+// suspended - not a single bad call, the whole account. Every caller here sits behind a
+// poll loop with no backoff of its own, so without this a locked-out account gets hit again
+// on the very next tick, forever, which only adds to whatever count got it locked out in the
+// first place. Once seen, stop making real calls for a while and fail fast instead.
+let _accountLockedUntil = 0;
+const ACCOUNT_LOCK_BACKOFF_MS = 10 * 60 * 1000;
+
+function _noteAccountLockIfPresent(body) {
+  // BLE commands go straight to the car over Bluetooth and never touch Tesla's cloud
+  // account, so a Fleet API lockout is meaningless to them - never arm the breaker for BLE.
+  if (useBleCommands()) return;
+  if (typeof body === 'string' && /account disabled|exceeded_limit/i.test(body)) {
+    _accountLockedUntil = Date.now() + ACCOUNT_LOCK_BACKOFF_MS;
+  }
+}
+
+function _assertAccountNotLocked() {
+  if (useBleCommands()) return;
+  if (Date.now() < _accountLockedUntil) {
+    const secs = Math.round((_accountLockedUntil - Date.now()) / 1000);
+    throw new Error(`Tesla account rate-limited (exceeded_limit) - backing off, retrying in ${secs}s`);
+  }
+}
+
+// Vehicle-offline backoff. A charge command sent to a sleeping or away car returns 500
+// "vehicle unavailable: vehicle is offline or asleep". The controller sits in a ~10s loop
+// with no backoff of its own, so a single unreachable car draws hundreds of billed failed
+// commands an hour - 3,891 in one night, observed 2026-09-02 - at $0.001 each. On that
+// signal, fail charge commands fast for a short window instead of hammering. Wake is
+// deliberately NOT gated by this (below): waking is exactly how you recover from offline,
+// and the controller already rate-limits its own wake attempts. The thrown message still
+// says "offline or asleep" so the controller's _wakeIfAsleep recovery still triggers.
+let _vehicleOfflineUntil = 0;
+const VEHICLE_OFFLINE_BACKOFF_MS = 3 * 60 * 1000;
+
+function _noteVehicleOfflineIfPresent(body) {
+  // BLE reachability is local (Bluetooth range), not a billed cloud call, so the cost
+  // argument does not apply - let BLE surface its own unreachable errors immediately.
+  if (useBleCommands()) return;
+  if (typeof body === 'string' && /offline or asleep|vehicle unavailable/i.test(body)) {
+    _vehicleOfflineUntil = Date.now() + VEHICLE_OFFLINE_BACKOFF_MS;
+  }
+}
+
+function _assertVehicleNotBackingOff() {
+  if (useBleCommands()) return;
+  if (Date.now() < _vehicleOfflineUntil) {
+    const secs = Math.round((_vehicleOfflineUntil - Date.now()) / 1000);
+    throw new Error(`vehicle unavailable: offline or asleep - backing off, retrying in ${secs}s`);
+  }
+}
+
 function jsonFetch(url, options = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
@@ -237,9 +290,11 @@ async function listVehicles(accessToken) {
  * Get the cloud-reported state of a single vehicle ('online', 'asleep', 'offline').
  */
 async function getVehicleState(vin, accessToken) {
+  _assertAccountNotLocked();
   const res = await jsonFetch(`${fleetBase()}/api/1/vehicles`, {
     headers: authHeader(accessToken),
   });
+  _noteAccountLockIfPresent(res.body);
   if (res.status !== 200) throw new Error(`List vehicles failed with status ${res.status}`);
   const data = JSON.parse(res.body);
   const vehicle = (data.response || []).find((v) => v.vin === vin);
@@ -251,10 +306,12 @@ async function getVehicleState(vin, accessToken) {
  * Returns { chargeState, driveState } - either may be null.
  */
 async function getVehicleData(vin, accessToken) {
+  _assertAccountNotLocked();
   const res = await jsonFetch(
     `${fleetBase()}/api/1/vehicles/${vin}/vehicle_data`,
     { headers: authHeader(accessToken) }
   );
+  _noteAccountLockIfPresent(res.body);
 
   if (res.status !== 200) {
     throw new Error(`Get vehicle data failed with status ${res.status}: ${res.body.slice(0, 200)}`);
@@ -307,6 +364,7 @@ function assertCommandOk(res, label, okReasons = []) {
  * (BLE also auto-wakes on any command); otherwise unchanged - Tesla's cloud API directly.
  */
 async function wakeVehicle(vin, accessToken) {
+  _assertAccountNotLocked();
   const url = useBleCommands()
     ? `${commandBaseUrl()}/api/1/vehicles/${vin}/command/wake_up`
     : `${fleetBase()}/api/1/vehicles/${vin}/wake_up`;
@@ -316,6 +374,7 @@ async function wakeVehicle(vin, accessToken) {
     headers: commandHeaders(accessToken),
     body: '{}',
   });
+  _noteAccountLockIfPresent(res.body);
 
   if (res.status !== 200) {
     throw new Error(`Wake vehicle failed with status ${res.status}`);
@@ -328,6 +387,8 @@ async function wakeVehicle(vin, accessToken) {
  * Set charging amps via the active command backend (local Fleet-signing proxy, or BLE).
  */
 async function setChargingAmps(vin, amps, accessToken) {
+  _assertAccountNotLocked();
+  _assertVehicleNotBackingOff();
   // TeslaBleHttpProxy's documented body uses a string value ({"charging_amps":"5"}); the
   // Fleet-signing proxy follows the Fleet API schema (integer). Send the right type per backend.
   const body = useBleCommands()
@@ -338,6 +399,8 @@ async function setChargingAmps(vin, amps, accessToken) {
     headers: commandHeaders(accessToken),
     body,
   });
+  _noteAccountLockIfPresent(res.body);
+  _noteVehicleOfflineIfPresent(res.body);
 
   return assertCommandOk(res, 'Set charging amps');
 }
@@ -346,11 +409,15 @@ async function setChargingAmps(vin, amps, accessToken) {
  * Start charging via the active command backend (local Fleet-signing proxy, or BLE).
  */
 async function startCharging(vin, accessToken) {
+  _assertAccountNotLocked();
+  _assertVehicleNotBackingOff();
   const res = await jsonFetch(commandUrl(vin, 'charge_start'), {
     method: 'POST',
     headers: commandHeaders(accessToken),
     body: '{}',
   });
+  _noteAccountLockIfPresent(res.body);
+  _noteVehicleOfflineIfPresent(res.body);
 
   return assertCommandOk(res, 'Start charging', ['already_started']);
 }
@@ -359,6 +426,8 @@ async function startCharging(vin, accessToken) {
  * Set the charge limit via the active command backend (local Fleet-signing proxy, or BLE).
  */
 async function setChargeLimit(vin, limitPercent, accessToken) {
+  _assertAccountNotLocked();
+  _assertVehicleNotBackingOff();
   // Same string-vs-integer reasoning as set_charging_amps.
   const body = useBleCommands()
     ? JSON.stringify({ percent: String(limitPercent) })
@@ -368,6 +437,8 @@ async function setChargeLimit(vin, limitPercent, accessToken) {
     headers: commandHeaders(accessToken),
     body,
   });
+  _noteAccountLockIfPresent(res.body);
+  _noteVehicleOfflineIfPresent(res.body);
 
   if (res.status !== 200) {
     throw new Error(`Set charge limit failed with status ${res.status}: ${res.body}`);
@@ -380,11 +451,19 @@ async function setChargeLimit(vin, limitPercent, accessToken) {
  * Stop charging via the active command backend (local Fleet-signing proxy, or BLE).
  */
 async function stopCharging(vin, accessToken) {
+  _assertAccountNotLocked();
+  // NOTE: stop is intentionally still subject to the offline backoff. A stop command to an
+  // offline/asleep car is a no-op anyway (a sleeping car is not charging), so there is nothing
+  // to lose by deferring it, and it keeps the storm shut. A real user STOP press that lands
+  // during a backoff window surfaces the "offline or asleep" message, which is accurate.
+  _assertVehicleNotBackingOff();
   const res = await jsonFetch(commandUrl(vin, 'charge_stop'), {
     method: 'POST',
     headers: commandHeaders(accessToken),
     body: '{}',
   });
+  _noteAccountLockIfPresent(res.body);
+  _noteVehicleOfflineIfPresent(res.body);
 
   return assertCommandOk(res, 'Stop charging', ['not_charging']);
 }

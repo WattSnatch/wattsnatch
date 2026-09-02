@@ -262,13 +262,35 @@ Note the leading `/` - Tesla reads the key from the **root** of the domain. This
 
 The easiest free way to satisfy this is **GitHub Pages**, and it does **not** need to be the same machine or domain your WattSnatch dashboard runs on - this is purely to satisfy Tesla's verification requirement.
 
-1. Create a new **public** GitHub repository named exactly `YOUR_GITHUB_USERNAME.github.io`. The name matters: that exact form makes it a **user site**, served from the domain root. An ordinary repository name gives you a *project site* at `YOUR_GITHUB_USERNAME.github.io/repo-name`, which serves everything one level down and therefore cannot host `/.well-known/...` at the root where Tesla looks.
-2. In **Settings → Pages**, set source to **Deploy from branch → main**.
-3. Add an empty file named `.nojekyll` to the root of the repository. GitHub Pages runs everything through Jekyll by default, which silently ignores files and folders starting with a dot - without this, `.well-known/...` will 404 with no explanation even though the file is there.
-4. Your Pages URL will be `https://YOUR_GITHUB_USERNAME.github.io`, and the key will end up at `https://YOUR_GITHUB_USERNAME.github.io/.well-known/appspecific/com.tesla.3p.public-key.pem`.
-5. You don't need to add the key file yet - the setup wizard will show you the exact key contents to paste in once it's generated (step 7 of the wizard).
+**Host the key before you run the wizard, not after.** This is the one ordering
+mistake that trips people up. In the wizard, the "Authorise with Tesla" step first
+registers your domain with Tesla, and Tesla downloads this key from your domain as
+part of that registration. If the key is not already live at the URL above when you
+click it, registration fails with a `424` and a "Public key download failed" message.
+So the key has to exist and be hosted first, which is what the steps below do.
 
-If you already own a domain, any host that can serve a static file at that exact root path works just as well.
+1. Generate your keypair now, so there is a key to host. From the app directory:
+   ```bash
+   node -e "require('./src/services/tesla').generateKeyPair('.')"
+   ```
+   This writes `keys/private.pem` (keep this private, never publish it) and
+   `keys/public.pem` (the one you publish). The setup wizard would also generate these
+   for you later, but doing it now means the key is ready to host before the wizard
+   needs it. Print the public key to copy it:
+   ```bash
+   cat keys/public.pem
+   ```
+2. Create a new **public** GitHub repository named exactly `YOUR_GITHUB_USERNAME.github.io`. The name matters: that exact form makes it a **user site**, served from the domain root. An ordinary repository name gives you a *project site* at `YOUR_GITHUB_USERNAME.github.io/repo-name`, which serves everything one level down and therefore cannot host `/.well-known/...` at the root where Tesla looks.
+3. In **Settings, then Pages**, set source to **Deploy from branch, then main**.
+4. Add an empty file named `.nojekyll` to the root of the repository. GitHub Pages runs everything through Jekyll by default, which silently ignores files and folders starting with a dot - without this, `.well-known/...` will 404 with no explanation even though the file is there.
+5. Add the public key from step 1 to the repository at the exact path `/.well-known/appspecific/com.tesla.3p.public-key.pem` (the contents of `keys/public.pem`, verbatim).
+6. Confirm it is live before moving on. It can take a minute or two for GitHub Pages to publish:
+   ```bash
+   curl -sI https://YOUR_GITHUB_USERNAME.github.io/.well-known/appspecific/com.tesla.3p.public-key.pem
+   ```
+   A `200` on that line means Tesla will be able to read it. A `404` means it is not published yet (wrong path, missing `.nojekyll`, or Pages still building).
+
+If you already own a domain, any host that can serve a static file at that exact root path works just as well. The bare public key is not a secret, so it is safe to publish; the private key is the one that must never leave your machine.
 
 ---
 
@@ -289,7 +311,7 @@ Open **http://localhost:3001** in a browser on the same machine (or any device o
 | 4 | Choose the **charging backend**: **Tesla** (default) or **OCPP charger** (any EV). Picking OCPP asks for the charge point ID and WebSocket port, then jumps straight to step 10 - steps 5-9 are all Tesla-specific. Picking Tesla then asks for **Fleet API + Fleet Telemetry** or **Bluetooth LE**, which sets how WattSnatch reads and controls your car for the rest of setup |
 | 5 | Paste your Tesla Client ID / Client Secret from the developer app you registered. **Fleet mode** also asks for a Redirect URI and clicking through completes Tesla's OAuth login in your browser; **Bluetooth LE mode** only needs the Client ID/Secret and never leaves this page |
 | 6 | **Fleet mode:** confirms the vehicle detected via your Tesla account (falling back to manual VIN entry if that fails). **Bluetooth LE mode:** enter your VIN directly - there's no token to auto-detect it with |
-| 7 | Copy the generated public key, add it to your GitHub Pages repo at the path above, then click Verify. **Bluetooth LE mode** also has a required "Register domain with Tesla" button here - Fleet mode registers this automatically as part of step 6 if needed |
+| 7 | Confirm the public key you hosted in install step 6 above is live, then click Verify (this checks that the key Tesla will read matches your local key). **Bluetooth LE mode** also has a required "Register domain with Tesla" button here; in Fleet mode the domain was already registered the moment you clicked "Authorise with Tesla" back at step 5, which is why that key has to be hosted first |
 | 8 | Pair a virtual key with the car (see the pairing section below - must be done from your phone, near the car). Required for both paths |
 | 9 | **Bluetooth LE mode only:** enter your BLE proxy URL and test connectivity to the TeslaBleHttpProxy process you built and are running (see below). Fleet mode skips straight to step 10 |
 | 10 | Set your charging preferences (min/max amps, hold timer, charger voltage, electricity rate - see the Settings reference in `README.md` for what each does) |

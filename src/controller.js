@@ -102,12 +102,27 @@ class Controller {
     this.sessionPeakAmps = 0;
     this.sessionAmpsReadings = [];
     this.sessionStartedAt = null;
+    // Phantom-charge watchdog. A real charge always moves SOC; a phantom one (car
+    // asleep/away, telemetry frozen on a stale 'Charging') never does. We track the
+    // highest battery% seen this session and when it last rose, and refuse to log or
+    // act on "charging" once SOC has been frozen too long. Found live 2026-09-02:
+    // sessions ran up to 11h on a frozen 61% battery while the car was parked 5 km away.
+    this._chargeProgressBattery = null;
+    this._chargeProgressAt = 0;
+    // Rate-limits the watchdog's REST confirmation probe so a persistently frozen stream
+    // cannot turn the phantom check into its own poll storm.
+    this._lastPhantomProbeAt = 0;
     this._interval = null;
     this._lastTelemetry = null;
     this._lastError = null;
     this._gatewayOk = false;
     this._teslaOk = false;
     this._lastLatLng = null;
+    // 0, not Date.now(): a freshly-constructed controller has no location fix at all, so
+    // treat it as maximally stale rather than accidentally "fresh" until the first real one
+    // arrives - including the DB-seeded value below, which could be from any previous boot.
+    this._lastLatLngAt = 0;
+    this._lastLocationCheckAt = 0;
     this._isAtHome = true;
     this._lastChargeState = null;
     this._vehicleCloudState = null;
@@ -869,7 +884,11 @@ class Controller {
     try {
       const provider = meters.getActiveProvider();
       const vin = db.getSetting('tesla_vin');
-      if (!provider || !provider.isConfigured() || !vin) return;
+      // Only bail when there is no meter to read at all - nothing to show or do.
+      // Deliberately NOT gated on `vin`: a working inverter with no car paired yet
+      // (or a broken/incomplete Tesla pairing) must still render solar/house data,
+      // not a blank dashboard. The no-vin case is handled below, after the meter read.
+      if (!provider || !provider.isConfigured()) return;
 
       const teslaToken = this._getTeslaToken();
 
@@ -933,6 +952,29 @@ class Controller {
         this._emitSSE({ type: 'error', ts: Date.now(), message: 'No gateway data' });
       }
 
+      // --- No vehicle paired yet ------------------------------------------------
+      // Every vehicle section below assumes a VIN. Without one (Tesla pairing not
+      // finished, or it broke), surface the solar/house metering so the dashboard
+      // shows real data instead of nothing - and record it, so history has coverage
+      // for the period before the car is connected. Mirrors the control-disabled and
+      // away-from-home branches. This is what made a working-inverter-but-no-car
+      // install look completely dead with no error in the logs (issues #17, #19).
+      if (!vin) {
+        const solarExcessW = readings ? readings.solarW - readings.consumptionW : 0;
+        if (readings) {
+          db.logTelemetry({
+            recorded_at: Date.now(),
+            solar_w: readings.solarW, consumption_w: readings.consumptionW, grid_w: readings.gridW,
+            solar_excess_w: solarExcessW, ev_w: 0, eddi_w: myenergi.getState().divertW || 0, charge_amps: 0,
+            battery_pct: null,
+            controller_state: this.state, session_id: this.currentSessionId,
+            diversion_reason: 'no_vehicle',
+          });
+        }
+        this._emitTelemetry(readings, null, 0, 0, solarExcessW, 0);
+        return;
+      }
+
       // --- Vehicle state from Fleet Telemetry ---
       const ts = telemetry.getState();
       this._teslaOk = !telemetry.isStale();
@@ -960,7 +1002,10 @@ class Controller {
 
       if (stateSource !== 'ble' && !telemetry.isStale()) this._carSleeping = false; // ZMQ came back → car awake
 
-      const FALLBACK_INTERVAL = 2 * 60 * 1000;
+      // Rate floor between fallback bursts. Widened alongside STALE_MS/CHARGE_LIMIT_MAX_AGE
+      // below - with those now measured in hours, this rarely binds; it just stops two
+      // conditions tripping at once (e.g. right after boot) from firing two calls back to back.
+      const FALLBACK_INTERVAL = 10 * 60 * 1000;
 
       // Re-confirm the charge limit from Tesla itself at least this often.
       //
@@ -971,24 +1016,48 @@ class Controller {
       // caps the car below what the owner actually set. Nothing else in this
       // loop would ever catch that, so the limit gets its own freshness rule
       // rather than relying on telemetry being stale for the REST path to run.
-      const CHARGE_LIMIT_MAX_AGE = 60 * 60 * 1000;
+      //
+      // This is a background freshness check, not the safety net - the actual moment this
+      // could matter (about to stop for reaching the limit) has its own independent recheck
+      // (VERIFY_LIMIT_BEFORE_STOP_MS, above) regardless of how old the value is here. That
+      // means this interval can be wide without weakening the one case that actually protects
+      // against a stale limit capping the car below what the owner set. Widened from 1 hour:
+      // each firing hits Tesla's metered vehicle_data endpoint, the one telemetry exists to
+      // avoid, and a background check has no reason to compete with the real safety net on cost.
+      const CHARGE_LIMIT_MAX_AGE = 12 * 60 * 60 * 1000;
 
       // Gated on when we last ASKED, not only on how old the answer is. If
       // Tesla returns vehicle data without charge_limit_soc, the age never
       // resets, and keying off age alone would re-poll every FALLBACK_INTERVAL
-      // indefinitely - turning a once-an-hour check into ~720 data calls a day
-      // against the Fleet API. Asking once an hour and accepting that the
+      // indefinitely - turning a once-a-day check into hundreds of data calls
+      // against the Fleet API. Asking once a day and accepting that the
       // answer may not come is the correct behaviour; the controller already
       // refuses to act on an unconfirmed limit, so a missing answer is safe.
       const chargeLimitStale =
         telemetry.getChargeLimitAge() > CHARGE_LIMIT_MAX_AGE &&
         (Date.now() - this._lastChargeLimitCheckAt) > CHARGE_LIMIT_MAX_AGE;
 
+      // Whether the car is home gates every command this controller can issue - stale here
+      // isn't a freshness nicety, it's the difference between correctly standing down and
+      // actively commanding a car that has already driven away on a charging state it hasn't
+      // had since it left. That used to ride on telemetry.isStale() same as everything else,
+      // which was fine while that was 5 minutes and became a real bug once it became 1 hour:
+      // a car that unplugs and leaves stops updating the cached charging state or location at
+      // the same moment, so nothing else in this OR-condition would have caught it either. This
+      // gets its own short leash, same "ask, don't just age-check" guard as the limit above so
+      // a car that genuinely never reports drive_state (seen live - a fresh call came back with
+      // no lat/lon at all) can't turn this into a poll-every-tick loop.
+      const LOCATION_MAX_AGE = 10 * 60 * 1000;
+      const locationStale =
+        (Date.now() - this._lastLatLngAt) > LOCATION_MAX_AGE &&
+        (Date.now() - this._lastLocationCheckAt) > LOCATION_MAX_AGE;
+
       const needsFallback = stateSource !== 'ble' && !this._carSleeping &&
         (telemetry.isStale() || ts.chargingState === null || this._forceBootReconcile
-         || chargeLimitStale);
+         || chargeLimitStale || locationStale);
       if (needsFallback && teslaToken && (Date.now() - this._lastFallbackAt) > FALLBACK_INTERVAL) {
         this._lastFallbackAt = Date.now();
+        if (locationStale) this._lastLocationCheckAt = Date.now();
         // Record the attempt up front. Doing it here rather than after a
         // successful parse means a failed call, an offline car, or a response
         // missing charge_limit_soc all still count as "asked", so none of them
@@ -1084,6 +1153,7 @@ class Controller {
       }
       if (ts2.latitude != null) {
         this._lastLatLng = { lat: ts2.latitude, lon: ts2.longitude };
+        this._lastLatLngAt = Date.now();
         db.setSetting('last_car_latitude',  String(ts2.latitude));
         db.setSetting('last_car_longitude', String(ts2.longitude));
       }
@@ -1217,6 +1287,27 @@ class Controller {
       const pluggedIn      = PLUGGED_IN.has(chargingState);
       const currentlyCharging = chargingState === 'Charging';
 
+      // --- Phantom-charge guard --------------------------------------------
+      // Track SOC progress and decide whether a claimed 'Charging' is real. A live
+      // charge moves SOC within minutes; a stale/frozen 'Charging' (car asleep, away,
+      // or the fleet-telemetry stream gone quiet) does not. `chargeConfirmedLive`
+      // gates every downstream use of "the car is charging" - the excess add-back,
+      // the logged EV watts, and the watchdog below - so a stale flag can neither
+      // fabricate solar-diversion energy nor keep the loop commanding a car that is
+      // not actually there. 25 min guarantees a real charge (even at min amps, which
+      // adds ~1%/15min) has moved SOC well within the window, so this never fires on
+      // a genuine charge.
+      const PHANTOM_NO_PROGRESS_MS = 25 * 60 * 1000;
+      const PHANTOM_PROBE_GAP_MS = 3 * 60 * 1000; // min gap between watchdog REST confirmations
+      if (this.currentSessionId && chargeState) {
+        if (this._chargeProgressBattery == null || batteryPct > this._chargeProgressBattery) {
+          this._chargeProgressBattery = batteryPct;
+          this._chargeProgressAt = Date.now();
+        }
+      }
+      const chargeConfirmedLive =
+        this._chargeProgressAt > 0 && (Date.now() - this._chargeProgressAt) < PHANTOM_NO_PROGRESS_MS;
+
       // --- Departure scheduler ---------------------------------------------
       // Fires within ACTIVATION_HOURS of departure when SOC is still below
       // target, and again the moment the target is reached so the car can be
@@ -1286,7 +1377,7 @@ class Controller {
       if (gatewayDataExpired && this.state === STATES.CHARGING) {
         logger.logEvent('api_error', 'Gateway offline >2 min - treating solar as zero to trigger hold timer');
       }
-      const chargerWatts = currentlyCharging ? chargeAmps * chargerVoltage : 0;
+      const chargerWatts = (currentlyCharging && chargeConfirmedLive) ? chargeAmps * chargerVoltage : 0;
       const rawExcess = gatewayDataExpired
         ? 0
         : readings.solarW - readings.consumptionW + chargerWatts;
@@ -1298,7 +1389,59 @@ class Controller {
       if (targetAmps < effectiveMinAmps) targetAmps = 0;
 
       const solarExcessW = readings.solarW - readings.consumptionW;
-      const evWatts = currentlyCharging ? chargerPower * 1000 : 0;
+      const evWatts = (currentlyCharging && chargeConfirmedLive) ? chargerPower * 1000 : 0;
+
+      // Phantom-charge watchdog. A live session still claiming to charge while SOC has been
+      // frozen past the window is suspicious - but two very different situations look identical
+      // from cached telemetry:
+      //   (a) a genuine phantom: the car is asleep/away and not charging at all, or
+      //   (b) a REAL charge whose telemetry stream has died: the battery is really rising, we
+      //       just are not being told (the exact 2026-09-02 config-wipe failure).
+      // Ending (b) would stop a real charge, so before ending anything we confirm which via a
+      // single direct REST read (rate-limited, so this cannot become its own poll storm). REST
+      // is ground truth: if it says Charging, keep the session and refresh from it (and kick a
+      // telemetry re-registration, since a dead stream during a real charge is the config-wipe
+      // case); only if REST cannot confirm charging do we treat it as phantom and stand down.
+      if (this.currentSessionId && currentlyCharging && !chargeConfirmedLive
+          && (Date.now() - this._lastPhantomProbeAt) > PHANTOM_PROBE_GAP_MS) {
+        this._lastPhantomProbeAt = Date.now();
+        let restConfirmsCharging = false;
+        if (vin && teslaToken) {
+          try {
+            this._trackApiCall('data');
+            const { chargeState: fresh } = await getVehicleData(vin, teslaToken);
+            if (fresh && fresh.charging_state === 'Charging') {
+              restConfirmsCharging = true;
+              // Feed the fresh snapshot back so SOC/limit refresh and the progress clock resets
+              // next tick - a real charge with a dead stream stays alive on these probes.
+              telemetry.updateFromApi({
+                chargingState:  fresh.charging_state,
+                batteryPct:     fresh.battery_level,
+                chargeLimit:    fresh.charge_limit_soc,
+                chargeAmps:     fresh.charge_amps,
+                chargerPowerKw: fresh.charger_power,
+                isOnline:       true,
+              });
+              logger.logEvent('api_error',
+                `Telemetry stream looks dead (SOC frozen at ${this._chargeProgressBattery}%) but REST confirms the car `
+                + `is really charging at ${fresh.battery_level}% - keeping the session and re-registering telemetry.`);
+              try { require('./services/telemetryHealth').checkAndRepair().catch(() => {}); } catch (_e) {}
+            }
+          } catch (_e) {
+            // REST could not confirm (offline/asleep/unreachable) - fall through to end as phantom.
+          }
+        }
+        if (!restConfirmsCharging) {
+          logger.logEvent('api_error',
+            `Phantom charge: session ${this.currentSessionId} still reports charging but battery has been `
+            + `stuck at ${this._chargeProgressBattery}% for over ${Math.round(PHANTOM_NO_PROGRESS_MS / 60000)} min `
+            + `and REST does not confirm charging. Ending session and re-checking the vehicle.`);
+          this._endSession(batteryPct, 'phantom_no_soc_progress');
+          this._carSleeping = false;
+          this._lastFallbackAt = 0;
+          this._setState(STATES.WAITING, 'Phantom charge ended - waiting for a confirmed vehicle state');
+        }
+      }
 
       // Run state machine
       await this._stateMachine({
@@ -1778,6 +1921,9 @@ class Controller {
     this.sessionPeakAmps = 0;
     this.sessionAmpsReadings = [];
     this.sessionStartedAt = Date.now();
+    // Fresh SOC-progress window for the phantom-charge watchdog.
+    this._chargeProgressBattery = batteryPct;
+    this._chargeProgressAt = Date.now();
     this.currentSessionId = db.startSession(batteryPct);
     logger.logEvent('info', `Session ${this.currentSessionId} started at battery ${batteryPct}%`);
   }

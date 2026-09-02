@@ -2,6 +2,80 @@
 
 ---
 
+## 2026-09-02 - v2.3.0: The dashboard works before a car is paired, phantom charges are caught, and Fleet API spend is contained
+
+A run of faults that all traced back to the same weak spot: the app trusting a
+Tesla data feed that had quietly stopped telling the truth, and building too much
+on top of a car that might not be there yet. Each was found on a real install and
+confirmed against the event log and against TeslaMate as an independent record,
+not reasoned about in the abstract.
+
+**Fixed: a working inverter showed no data at all until a car was paired.**
+The control loop stopped at its first line if no Tesla vehicle was stored yet,
+before it ever read the meter. Anyone part way through Tesla setup, or whose
+pairing had not completed, saw a completely blank dashboard with no solar, no
+house figures, and nothing in the logs to explain it, even though the inverter
+was working and TeslaMate was connected. It reads as "the whole app is broken"
+when the only thing missing is the car. Solar and house metering do not depend on
+a car, so the loop now reads the meter and shows that data regardless, and only
+skips the parts that genuinely need a vehicle. Reported in issues #17 and #19.
+
+**Fixed: the Tesla battery capacity in Settings did nothing.** The field saved a
+value but nothing read it back. Trip energy was always worked out against a
+hardcoded Long Range figure, so an owner of a smaller pack, for example a
+Standard Range car, had their trips sized against a battery half again bigger than
+the one they own. Trip planning now uses the configured capacity, and falls back
+to the old figure only when the field is left empty. Reported in issue #16.
+
+**Fixed: a charge could be invented from a stale reading.** Because the streaming
+feed only sends a value when it changes, a car that was charging and then went to
+sleep or drove away could leave the last "Charging" state cached indefinitely. The
+app would keep a session open against it, flapping on the solar it could see and
+logging solar diverted to a car that was not there, with the battery frozen at one
+figure for hours. There is now a watchdog: a session that still claims to charge
+while the battery has not moved for a set period is not a real charge. Before
+ending it the app confirms the true state directly, so a genuine charge whose feed
+has merely gone quiet is kept and refreshed rather than cut off, and only a charge
+that cannot be confirmed is stood down.
+
+**Fixed: an unreachable or rate-limited account was hammered instead of left
+alone.** Two separate cases each retried a failing command every few seconds with
+no let up. When Tesla disabled the account for exceeding its monthly usage
+allowance, the app kept calling anyway, which only added to the very count that
+caused the block. When a command came back because the car was offline or asleep,
+it was resent on the next tick regardless; one install sent several thousand
+failed commands in a single night, each one billable. Both now back off on the
+first sign and fail fast for a short window instead of retrying blindly. Waking
+the car is deliberately never backed off, since that is how an offline car is
+recovered, and Bluetooth mode is never affected, since its reachability is local
+and not a metered call.
+
+**Added: the live data feed repairs itself.** Tesla drops the per-vehicle
+telemetry configuration when a car takes a software update. When that happens the
+stream goes silent and the dashboard shows a charging car as stopped, with correct
+looking but frozen figures, for as long as it takes someone to notice. The app now
+checks whether Tesla still holds the configuration, on start and periodically, and
+re-registers it on its own when it has been dropped, so the feed comes back without
+anyone having to work out what went wrong.
+
+**Changed: the app leans harder on the stream and calls the metered API less.**
+The window before the app treats the stream as stale, and the interval between the
+paid fallback reads it makes when it does, were both widened. The fallback read is
+the expensive one the streaming feed exists to avoid, so this cuts routine Fleet
+API spend. The protections above are what make the longer window safe: a genuinely
+dead feed during a charge is still caught within minutes by the watchdog, and a
+dropped configuration is repaired by the check above. Home and away detection was
+also given its own freshness rule rather than riding on the general staleness
+clock, so a car that drives off is noticed promptly instead of being treated as
+still at home.
+
+The setup guide was also corrected so the public key is generated before the step
+that asks you to host it, rather than after, and the wording no longer suggests
+you can host it later when Fleet API registration needs it in place first. Raised
+in issue #19.
+
+---
+
 ## 2026-08-21 - v2.2.2: CHARGE NOW wakes a sleeping car, and trip charging stops where it should
 
 Two faults in the charging commands, both found by using the app and then

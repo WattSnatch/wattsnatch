@@ -35,7 +35,14 @@ try { zmq = require('zeromq'); } catch (_e) {}
 const db = require('../db');
 
 const ZMQ_ADDR = process.env.FLEET_TELEMETRY_ADDR || 'tcp://127.0.0.1:5678';
-const STALE_MS = 5 * 60 * 1000; // 5 minutes
+// Fleet Telemetry only pushes on change, so a quiet car with nothing changing looks
+// identical to a dead stream from here - there is no way to tell them apart except waiting.
+// This used to be 5 minutes, which meant any car sitting online-but-idle (not charging, not
+// asleep) re-triggered controller.js's REST fallback every few minutes, all day. That fallback
+// hits Tesla's metered vehicle_data endpoint - the expensive one telemetry exists specifically
+// to avoid - so a short staleness window was quietly defeating the entire point of streaming.
+// An hour still catches a genuinely broken connection well within the day.
+const STALE_MS = 60 * 60 * 1000; // 1 hour
 const PERSIST_KEY = 'telemetry_last_state';
 
 // ── Shared state ──────────────────────────────────────────────────────────────

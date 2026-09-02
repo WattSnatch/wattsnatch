@@ -36,6 +36,7 @@ const enphasePanels = require('./services/enphase-panels');
 const dayReplay = require('./services/dayReplay');
 const aiInsights    = require('./services/aiInsights');
 const weatherGrid   = require('./services/weatherGrid');
+const telemetryHealth = require('./services/telemetryHealth');
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const PUBLIC_DIR = path.resolve(__dirname, '../public');
@@ -177,6 +178,7 @@ async function main() {
     dayReplay.startAggregationTask();
     aiInsights.start();
     weatherGrid.start();
+    telemetryHealth.start(); // auto-detect + re-register a Fleet Telemetry config Tesla has dropped
 
     // ── Daily notifications ───────────────────────────────────────────────────
     function scheduleDailyAt(h, m, label, fn) {
@@ -239,6 +241,7 @@ async function main() {
     dayReplay.stopAggregationTask();
     aiInsights.stop();
     weatherGrid.stop();
+    telemetryHealth.stop();
     stopTokenScheduler();
     server.close(() => {
       try { db.close(); } catch (_e) {}

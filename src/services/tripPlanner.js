@@ -10,7 +10,15 @@
 const db = require('../db');
 const notifications = require('./notifications');
 
+// Fallback only. The real value is the user's configured Tesla Battery Capacity (kWh) from
+// Settings - a Model Y LR is 82, but a 2021 M3 SR+ is ~55, so hardcoding 82 mis-sized trip
+// energy for everyone who is not on a Long Range (issue #16). Read per call via
+// `_batteryCapacityKwh()` so a Settings change takes effect without a restart.
 const MODEL_Y_LR_CAPACITY_KWH = 82;
+function _batteryCapacityKwh() {
+  const v = parseFloat(db.getSetting('tesla_battery_kwh'));
+  return Number.isFinite(v) && v > 0 ? v : MODEL_Y_LR_CAPACITY_KWH;
+}
 const FLOOR_SOC_PCT = 20;      // never go below 20%
 const BUFFER_FRACTION = 0;     // floor SoC (20%) already covers the safety margin
 const SENTRY_DEFAULT_KWH_PER_HOUR = 0.20; // fallback if TeslaMate has no data
@@ -33,7 +41,7 @@ async function calculateTripRequirement(destinationKm, destinationHours) {
   const efficiency    = effResult    ? effResult.kwh_per_km           : EFFICIENCY_DEFAULT_KWH_PER_KM;
   const sentryRate    = sentryResult ? sentryResult.kwh_per_hour       : SENTRY_DEFAULT_KWH_PER_HOUR;
   const healthPct     = healthResult ? healthResult.health_pct         : 100;
-  const usableCapacity = MODEL_Y_LR_CAPACITY_KWH * (healthPct / 100);
+  const usableCapacity = _batteryCapacityKwh() * (healthPct / 100);
 
   const driveOut  = destinationKm * efficiency;
   const driveHome = destinationKm * efficiency;
@@ -76,7 +84,7 @@ async function assessTripFeasibility(trip) {
   const teslamate = require('./teslamate');
   const healthResult   = await teslamate.getBatteryHealthPercent();
   const healthPct      = healthResult ? healthResult.health_pct : 100;
-  const usableCapacity = MODEL_Y_LR_CAPACITY_KWH * (healthPct / 100);
+  const usableCapacity = _batteryCapacityKwh() * (healthPct / 100);
 
   const currentSocKwh  = (currentSocPct / 100) * usableCapacity;
   const required       = await calculateTripRequirement(trip.distanceKm, trip.eventDurationHours ?? 2);
@@ -402,7 +410,7 @@ async function runMidnightTripCheck() {
     const efficiency     = effResult    ? effResult.kwh_per_km     : EFFICIENCY_DEFAULT_KWH_PER_KM;
     const sentryRate     = sentryResult ? sentryResult.kwh_per_hour : SENTRY_DEFAULT_KWH_PER_HOUR;
     const healthPct      = healthResult ? healthResult.health_pct   : 100;
-    const usableCapacity = MODEL_Y_LR_CAPACITY_KWH * (healthPct / 100);
+    const usableCapacity = _batteryCapacityKwh() * (healthPct / 100);
 
     let currentSocPct = telemetry.getState().batteryPct;
     if (!currentSocPct) {
