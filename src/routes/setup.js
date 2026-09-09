@@ -14,7 +14,21 @@ const fs = require('fs');
 const https = require('https');
 const db = require('../db');
 const { testGatewayConnection, discoverGateway, generateGatewayToken, fetchMeterReadings } = require('../services/enphase');
-const { generateKeyPair, listVehicles, getPartnerToken, registerPartnerAccount } = require('../services/tesla');
+const { generateKeyPair, listVehicles, getPartnerToken, registerPartnerAccount, getUserRegion, getRegisteredPublicKey } = require('../services/tesla');
+
+// Tesla's partner_accounts/public_key endpoint returns the raw uncompressed EC point as hex
+// (e.g. "0474661d..."). Extract the same 65-byte point from our local PEM so the two can be
+// compared directly - this is what lets the wizard confirm Tesla holds our actual key.
+function _localPublicKeyHex(appDir) {
+  try {
+    const pem = fs.readFileSync(path.join(appDir, 'keys', 'public.pem'), 'utf8');
+    const der = require('crypto').createPublicKey(pem).export({ type: 'spki', format: 'der' });
+    // For prime256v1 SPKI the trailing 65 bytes are 0x04 || X || Y.
+    return der.subarray(der.length - 65).toString('hex');
+  } catch (_e) {
+    return null;
+  }
+}
 const { encrypt } = require('../utils/crypto');
 const { installPlists, getServiceStatus: getLaunchdStatus } = require('../utils/launchd');
 const { installUnits, getServiceStatus: getSystemdStatus } = require('../utils/systemd');
@@ -143,15 +157,53 @@ router.post('/api/setup/register-partner', async (req, res) => {
       return res.json({ ok: false, error: 'Tesla client credentials not saved - go back to step 4' });
     }
 
+    // Confirm the account's real Fleet region from Tesla rather than assuming 'na', so the
+    // partner token audience and the registration call both target the region the vehicle
+    // actually lives in. Best-effort: needs the user OAuth token (present once "Authorise with
+    // Tesla" is done). If it is missing or the lookup fails, keep the current region.
+    try {
+      const tokenRow = db.getToken('tesla');
+      if (tokenRow) {
+        const { decrypt } = require('../utils/crypto');
+        const userToken = JSON.parse(decrypt(tokenRow.token_data)).access_token;
+        const { region } = await getUserRegion(userToken);
+        if (region && region !== db.getSetting('tesla_region')) {
+          logger.logEvent('info', `Tesla region corrected from account lookup: ${db.getSetting('tesla_region') || 'na'} -> ${region}`);
+        }
+        if (region) db.setSetting('tesla_region', region);
+      }
+    } catch (e) {
+      logger.logEvent('info', `Tesla region auto-detect skipped: ${e.message}`);
+    }
+
     const partnerTokenData = await getPartnerToken(clientId, clientSecret);
     const cleanDomain = domain.replace(/^https?:\/\//i, '').split('/')[0].toLowerCase();
     await registerPartnerAccount(partnerTokenData.access_token, cleanDomain);
 
     db.setSetting('tesla_partner_registered', 'true');
     db.setSetting('tesla_public_key_url', domain);
-    logger.logEvent('info', `Tesla partner account registered for domain: ${domain}`);
+    logger.logEvent('info', `Tesla partner account registered for domain: ${cleanDomain}`);
 
-    res.json({ ok: true });
+    // Verify against Tesla itself: does Tesla actually hold a key for this domain, and does it
+    // match ours? Previously this needed a manual curl (issue #17) - now the wizard can say
+    // outright whether registration truly landed, instead of inferring it from a 200.
+    let registrationVerified = null;
+    let teslaHasKey = null;
+    try {
+      const teslaKey = await getRegisteredPublicKey(partnerTokenData.access_token, cleanDomain);
+      teslaHasKey = teslaKey != null;
+      if (teslaKey) {
+        const localHex = _localPublicKeyHex(APP_DIR);
+        registrationVerified = localHex ? (teslaKey.toLowerCase() === localHex.toLowerCase()) : null;
+      } else {
+        registrationVerified = false;
+      }
+      logger.logEvent('info',
+        `Tesla registration check: Tesla ${teslaHasKey ? 'has' : 'has NO'} key for ${cleanDomain}`
+        + (registrationVerified === null ? '' : `, matches local key: ${registrationVerified}`));
+    } catch (_e) { /* verification is a bonus signal, never a gate on success */ }
+
+    res.json({ ok: true, region: db.getSetting('tesla_region') || 'na', teslaHasKey, registrationVerified });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }

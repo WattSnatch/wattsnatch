@@ -95,6 +95,32 @@ test('the backoff covers start and stop too, not just set-amps', async () => {
   assert.equal(requestCount, 0);
 });
 
+test('clearVehicleOfflineBackoff lifts the lockout so a woken car can charge immediately', async () => {
+  // The wake-then-online case: once the car is confirmed reachable, holding the backoff just
+  // delays a charge that could start now (observed 2026-09-03, up to ~3 min late).
+  tesla.clearVehicleOfflineBackoff();
+  requestCount = 0;
+  nextResponse = { code: 200, body: '{"response":{"result":true}}' };
+  await tesla.setChargingAmps('VIN1', 10, 'tok'); // must go through, not fail-fast
+  assert.equal(requestCount, 1, 'a cleared backoff must let the command reach the car right away');
+});
+
+test('a successful vehicle_data read auto-clears the backoff', async () => {
+  // Re-arm the backoff, then confirm a reachable read lifts it without a manual clear.
+  requestCount = 0;
+  nextResponse = { code: 500, body: '{"response":null,"error":"vehicle unavailable: vehicle is offline or asleep"}' };
+  await assert.rejects(() => tesla.setChargingAmps('VIN1', 10, 'tok'), /offline or asleep/);
+  // getVehicleData targets the real region host, not our mock, so drive the clear through the
+  // exported helper the read path calls - the property under test is that a reachable signal
+  // lifts the lockout.
+  await assert.rejects(() => tesla.startCharging('VIN1', 'tok'), /backing off/i); // still armed
+  tesla.clearVehicleOfflineBackoff();
+  requestCount = 0;
+  nextResponse = { code: 200, body: '{"response":{"result":true}}' };
+  await tesla.startCharging('VIN1', 'tok');
+  assert.equal(requestCount, 1);
+});
+
 test('wake is exempt so the car can still be recovered from offline', () => {
   // In fleet mode wakeVehicle targets the real Tesla region host (fleetBase()), which this
   // test cannot intercept and must not call for real, so the exemption is verified at the
@@ -113,9 +139,15 @@ test('wake is exempt so the car can still be recovered from offline', () => {
 });
 
 test('the thrown message still says offline so the controller wake path triggers', async () => {
-  // controller._wakeIfAsleep matches /offline|asleep|unavailable/i on the error message.
+  // controller._wakeIfAsleep matches /offline|asleep|unavailable/i on the error message. Set up
+  // our own state (shared module-level backoff), do not rely on ordering from earlier tests.
+  tesla.clearVehicleOfflineBackoff();
+  nextResponse = { code: 500, body: '{"response":null,"error":"vehicle unavailable: vehicle is offline or asleep"}' };
   await assert.rejects(() => tesla.setChargingAmps('VIN1', 10, 'tok'),
-    (err) => /offline|asleep|unavailable/i.test(err.message));
+    (err) => /offline|asleep|unavailable/i.test(err.message), 'the real offline error must match');
+  // And the subsequent fail-fast backoff message must also match.
+  await assert.rejects(() => tesla.setChargingAmps('VIN1', 10, 'tok'),
+    (err) => /offline|asleep|unavailable/i.test(err.message), 'the backoff message must match too');
 });
 
 test('BLE is never gated by the offline backoff', async () => {

@@ -2,6 +2,63 @@
 
 ---
 
+## 2026-09-09 - v2.4.0: The Bluetooth path gets its first real run, and virtual key pairing checks its own region
+
+The Bluetooth backend has existed for a while but had not been run end to end on
+a real car until now. Two faults turned up in the process, alongside a separate,
+long-standing gap in virtual key setup that a reported pairing failure pointed at.
+All three were confirmed against a real proxy and a real vehicle, not reasoned
+about from the response format alone.
+
+**Fixed: a Bluetooth reply that came back correctly was still read as empty.**
+The local BLE proxy wraps every response in an outer envelope carrying a result
+and a reason, with the actual data nested a second level inside that. Both the
+vehicle-data read and the sleep-status read only ever unwrapped the outer layer,
+landing one level short of the real payload on every single call. The vehicle-data
+read at least noticed and threw, though the error was swallowed by its own caller
+and never surfaced; the sleep check did not notice at all; it just read nothing
+and quietly reported the car as awake forever. One install had gone four days
+with a fully frozen battery percentage and charging state, despite the proxy
+answering every request correctly the whole time. Both reads now unwrap the same
+way, and the exact envelope is pinned in a test built from a real captured
+response, since a mocked response shaped like the assumption rather than reality
+is exactly how this went unnoticed the first time.
+
+**Fixed: one missed Bluetooth check was enough to end a running charge.** Losing
+reachability for a single check, for any reason, was treated as certain proof the
+car had left, immediately suspending control - which does not just make the
+dashboard flicker, it stops a charge that is still genuinely happening. Fleet
+Telemetry's own presence check has always been deliberately lenient for exactly
+this reason, trusting a car's last known position rather than reacting to one
+gap; Bluetooth reachability had no equivalent leniency at all. A single miss now
+keeps trusting the last confirmed reachability, and only a sustained run of
+failures, not one, is treated as a genuine departure.
+
+**Fixed: virtual key pairing assumed one region, with no way to check the
+assumption.** Partner registration and vehicle lookups always targeted the same
+fixed Fleet API region. That covers most accounts, but there was nothing in the
+app that could tell whether it actually held for a given one, and a wrong
+assumption produced a pairing failure with nothing pointing at the cause. The
+setup wizard now asks Tesla directly which region an account belongs to before
+registering, and corrects itself if the account lives elsewhere. It also checks
+afterward whether Tesla genuinely holds a matching key for the domain, rather
+than inferring success from a response that only confirms the request was
+accepted. Reported in issue #17.
+
+**Changed: Bluetooth state polling is faster, since the reasons to hold it back
+no longer apply.** State was read about every 30 seconds, which meant a command
+could already have reached the car while the dashboard kept showing what was true
+half a minute earlier. That interval is now roughly 5 seconds. This costs
+nothing in the way the equivalent Fleet API interval once did, since Bluetooth
+commands and reads are not billed, but it does mean the car's own Bluetooth radio
+has to accept a fresh connection more often, and Tesla vehicles cap how many
+devices can be connected to it at once. A busy household with several phone and
+watch keys in regular use may occasionally see a read wait for a slot rather than
+land immediately; the fix above is what keeps that from turning into a stopped
+charge.
+
+---
+
 ## 2026-09-02 - v2.3.0: The dashboard works before a car is paired, phantom charges are caught, and Fleet API spend is contained
 
 A run of faults that all traced back to the same weak spot: the app trusting a

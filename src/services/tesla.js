@@ -117,6 +117,15 @@ function _assertVehicleNotBackingOff() {
   }
 }
 
+// Lift the offline backoff the instant something confirms the car is reachable again. The
+// backoff exists only to stop hammering an unreachable car; once a read (or a wake) proves it
+// is online, holding the lockout for the rest of the window just delays a charge that could
+// start now. Without this, a wake-then-online sequence sits out the full backoff even though
+// the car is ready (observed 2026-09-03: up to ~3 min late to start).
+function _clearVehicleOfflineBackoff() {
+  _vehicleOfflineUntil = 0;
+}
+
 function jsonFetch(url, options = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
@@ -275,7 +284,10 @@ async function listVehicles(accessToken) {
   });
 
   if (res.status !== 200) {
-    throw new Error(`List vehicles failed with status ${res.status}`);
+    // Keep the body: a 412 here is Tesla saying "account must be registered in the current
+    // region <url>", which names the region the token actually belongs to. Swallowing it (as
+    // this used to) turned a self-explaining error into a blind "status 412". See issue #17.
+    throw new Error(`List vehicles failed with status ${res.status}: ${(res.body || '').slice(0, 300)}`);
   }
 
   const data = JSON.parse(res.body);
@@ -287,6 +299,61 @@ async function listVehicles(accessToken) {
 }
 
 /**
+ * Ask Tesla which region this user's account actually lives in, and the base URL to use for it.
+ * Returns { region, baseUrl } - region is our internal key ('na'|'eu'|'cn'), baseUrl is Tesla's
+ * fleet_api_base_url. The region endpoint is answered from the token subject, but it must be
+ * reached at *a* regional host: if the one we try is wrong, Tesla replies 412 with the correct
+ * base URL in the body, so we parse that and believe it. This removes the hardcoded-'na'
+ * assumption that made a wrong region look like a broken app (issue #17).
+ */
+// Pure parse of a /users/region reply. A 200 carries fleet_api_base_url in JSON; a 412 (or any
+// body) may instead name the correct region URL in prose ("must be registered in <url>"), so we
+// also scan for a fleet-api host. Returns { region, baseUrl } or null when nothing usable is
+// found. Split out from the network call so the tricky cases are unit-testable without Tesla.
+function parseRegionResponse(status, body) {
+  let baseUrl = null;
+  if (status === 200 && body) {
+    try { baseUrl = (JSON.parse(body).response || {}).fleet_api_base_url || null; } catch (_e) { /* fall through */ }
+  }
+  if (!baseUrl && body) {
+    const m = body.match(/https:\/\/fleet-api\.prd\.[a-z]{2}\.vn\.cloud\.tesla\.(?:com|cn)/i);
+    if (m) baseUrl = m[0];
+  }
+  if (!baseUrl) return null;
+  let region = DEFAULT_TESLA_REGION;
+  for (const [key, url] of Object.entries(TESLA_REGIONS)) {
+    if (baseUrl.startsWith(url)) { region = key; break; }
+  }
+  return { region, baseUrl };
+}
+
+async function getUserRegion(accessToken, tryBaseUrl) {
+  const base = tryBaseUrl || fleetBase();
+  const res = await jsonFetch(`${base}/api/1/users/region`, {
+    headers: authHeader(accessToken),
+  });
+  const parsed = parseRegionResponse(res.status, res.body);
+  if (!parsed) {
+    throw new Error(`Region lookup failed with status ${res.status}: ${(res.body || '').slice(0, 200)}`);
+  }
+  return parsed;
+}
+
+/**
+ * Ask Tesla what public key it actually has registered for a domain. Returns the hex key
+ * string, or null if Tesla has none. This is the check that turns "is my partner registration
+ * really there?" from a manual curl (issue #17) into something the app can run itself.
+ */
+async function getRegisteredPublicKey(partnerToken, domain) {
+  const res = await jsonFetch(
+    `${fleetBase()}/api/1/partner_accounts/public_key?domain=${encodeURIComponent(domain)}`,
+    { headers: authHeader(partnerToken) },
+  );
+  if (res.status !== 200) return null;
+  try { return (JSON.parse(res.body).response || {}).public_key || null; } catch (_e) { return null; }
+}
+
+/**
  * Get the cloud-reported state of a single vehicle ('online', 'asleep', 'offline').
  */
 async function getVehicleState(vin, accessToken) {
@@ -295,10 +362,12 @@ async function getVehicleState(vin, accessToken) {
     headers: authHeader(accessToken),
   });
   _noteAccountLockIfPresent(res.body);
-  if (res.status !== 200) throw new Error(`List vehicles failed with status ${res.status}`);
+  if (res.status !== 200) throw new Error(`List vehicles failed with status ${res.status}: ${(res.body || '').slice(0, 300)}`);
   const data = JSON.parse(res.body);
   const vehicle = (data.response || []).find((v) => v.vin === vin);
-  return vehicle ? vehicle.state : null;
+  const state = vehicle ? vehicle.state : null;
+  if (state === 'online') _clearVehicleOfflineBackoff(); // reachable again - stop backing off
+  return state;
 }
 
 /**
@@ -317,6 +386,8 @@ async function getVehicleData(vin, accessToken) {
     throw new Error(`Get vehicle data failed with status ${res.status}: ${res.body.slice(0, 200)}`);
   }
 
+  // A 200 from vehicle_data means the car answered - it is reachable, so lift any backoff.
+  _clearVehicleOfflineBackoff();
   const data = JSON.parse(res.body);
   const response = data.response || {};
   return {
@@ -468,6 +539,23 @@ async function stopCharging(vin, accessToken) {
   return assertCommandOk(res, 'Stop charging', ['not_charging']);
 }
 
+// wimaha/tesla-ble-http-proxy wraps every response in one outer envelope -
+// {response: {result, reason, vin, command, response?: <payload>}} - and read commands
+// (vehicle_data, body_controller_state) carry the actual payload a SECOND level deeper, under
+// another nested "response" key; write commands (wake_up, charge_start, ...) have no second
+// layer at all, since there's no data to return. getVehicleDataBle and getBodyStateBle both
+// used to unwrap only the outer envelope, landing one level short of the real payload for both
+// read endpoints - every poll "succeeded" at the HTTP layer but the parsed fields were always
+// missing, either throwing "no charge_state" (silently swallowed by the caller's catch) or,
+// worse, silently reading an empty sleep status forever. Confirmed live 2026-09-09: WattSnatch's
+// persisted vehicle state had not updated in 4+ days despite the proxy answering correctly on
+// every direct call. Unwrap defensively (peel the second layer only if present) rather than
+// assume a fixed depth, so this keeps working if a future proxy version changes the envelope.
+function _unwrapBleProxyPayload(parsed) {
+  const envelope = parsed.response || parsed;
+  return envelope.response || envelope;
+}
+
 /**
  * Read charge state from the vehicle over BLE (TeslaBleHttpProxy's vehicle_data endpoint,
  * charge_state only). Returned in the same shape the controller feeds telemetry.updateFromApi.
@@ -486,7 +574,7 @@ async function getVehicleDataBle(vin) {
   let parsed;
   try { parsed = JSON.parse(res.body); }
   catch (_e) { throw new Error('BLE vehicle_data returned a non-JSON body'); }
-  const cs = (parsed.response && parsed.response.charge_state) || parsed.charge_state || null;
+  const cs = _unwrapBleProxyPayload(parsed).charge_state || null;
   if (!cs) throw new Error('BLE vehicle_data response had no charge_state');
   return {
     chargingState:  cs.charging_state,
@@ -515,7 +603,7 @@ async function getBodyStateBle(vin) {
   let parsed;
   try { parsed = JSON.parse(res.body); }
   catch (_e) { throw new Error('BLE body_controller_state returned a non-JSON body'); }
-  const body = parsed.response ?? parsed;
+  const body = _unwrapBleProxyPayload(parsed);
   const sleep = body.vehicleSleepStatus || body.vehicle_sleep_status || '';
   return { asleep: /ASLEEP/i.test(String(sleep)), raw: body };
 }
@@ -579,11 +667,15 @@ function generateKeyPair(appDir) {
 module.exports = {
   fleetBase,
   TESLA_REGIONS,
+  clearVehicleOfflineBackoff: _clearVehicleOfflineBackoff,
   getAuthUrl,
   exchangeCode,
   refreshAccessToken,
   getPartnerToken,
   registerPartnerAccount,
+  getUserRegion,
+  parseRegionResponse,
+  getRegisteredPublicKey,
   listVehicles,
   getVehicleState,
   getVehicleData,

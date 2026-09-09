@@ -15,6 +15,7 @@ const meters = require('./services/meters');
 const battery = require('./services/battery');
 const retailerRates = require('./services/retailerRates');
 const { wakeVehicle, setChargingAmps, startCharging, stopCharging, getVehicleState, getVehicleData, useBleCommands, getVehicleDataBle, getBodyStateBle } = require('./services/charging');
+const { clearVehicleOfflineBackoff } = require('./services/tesla');
 const telemetry = require('./services/charging').telemetry;
 const notificationMonitor = require('./services/notificationMonitor');
 const departureScheduler  = require('./services/departureScheduler');
@@ -154,6 +155,14 @@ class Controller {
     this._bleReachable = false;
     this._lastBlePollAt = 0;
     this._lastBleSleepCheckAt = 0;
+    // Grace period before a failed reachability check is trusted as "car has left." A single
+    // missed check (one network hiccup between WattSnatch and the proxy - confirmed live
+    // 2026-09-09 crossing a VLAN boundary) used to flip this to away immediately, which does
+    // not just flicker the dashboard, it actually issues a real charge_stop mid-session. The old
+    // GPS-based at-home check was deliberately lenient for exactly this reason (see _checkAtHome
+    // below); BLE reachability had no equivalent grace period at all. 0 so a genuinely fresh
+    // boot still starts "away" rather than defaulting to home on unproven ground.
+    this._lastBleReachableAt = 0;
     this._lastZmqEmitAt = 0;   // throttle ZMQ-triggered SSE to once per second
     this._lastFinancialLedgerUpdateDate = null;  // track which date was last updated
   }
@@ -402,20 +411,40 @@ class Controller {
   async _blePollState(vin) {
     if (!vin) return;
     const SLEEP_CHECK_INTERVAL = 20 * 1000;
-    const DATA_POLL_INTERVAL   = 30 * 1000; // matches the proxy's ~30s vehicle_data cache
+    // Matches the proxy's own vehicleDataCacheTime (set to the same value in its
+    // docker-compose.yml) - polling faster than the proxy's cache expires would just re-read the
+    // same stale answer, not a fresh one. Tightened from 30s to 5s on request, so the dashboard
+    // reflects a command within seconds instead of up to ~30-55s. Trade-off: each cache-miss read
+    // opens a fresh BLE connection to the car, and this car has a hard limit on simultaneous BLE
+    // connections (hit live as "already connected to the maximum number of BLE devices" during
+    // earlier testing) - polling 6x more often means 6x more chances of that contention. Verified
+    // live after deploying that this held up without new failures; if contention reappears later,
+    // raise this back toward 10-15s before reaching for anything more complex.
+    const DATA_POLL_INTERVAL   = 5 * 1000;
+    // How long a run of failed reachability checks is tolerated before genuinely concluding the
+    // car has left. ~4-5 missed checks at the 20s interval above - long enough to ride out a
+    // transient network hiccup between WattSnatch and the proxy, short enough that a real
+    // departure is still noticed well within a minute and a half.
+    const AWAY_GRACE_MS = 90 * 1000;
 
     if (Date.now() - this._lastBleSleepCheckAt >= SLEEP_CHECK_INTERVAL) {
       this._lastBleSleepCheckAt = Date.now();
       try {
         const body = await getBodyStateBle(vin);
         this._bleReachable = true;          // got a reply → car is in Bluetooth range (at home)
+        this._lastBleReachableAt = Date.now();
         this._carSleeping  = body.asleep;
       } catch (_e) {
-        // No reply: car is out of range (away) or the proxy is down. Treat as away - control is
-        // suspended by _checkAtHome() until it comes back. Not logged as an error; it is expected
-        // whenever the car isn't home.
-        this._bleReachable = false;
-        this._teslaOk = false;
+        // No reply could mean the car genuinely left, or it could be one dropped request between
+        // WattSnatch and the proxy (confirmed live: a request that never even reached the proxy's
+        // own logs). Only declare away once the grace window has passed with nothing but
+        // failures - a single miss keeps trusting the last confirmed reachability, the same
+        // leniency the old GPS-based check already gave a sleeping car. Not logged as an error
+        // within the grace window; genuinely expected whenever the car isn't home yet.
+        if (Date.now() - this._lastBleReachableAt > AWAY_GRACE_MS) {
+          this._bleReachable = false;
+          this._teslaOk = false;
+        }
         return;
       }
     }
@@ -1286,6 +1315,11 @@ class Controller {
       const chargeAmps     = chargeState ? (chargeState.charge_amps    || 0) : 0;
       const pluggedIn      = PLUGGED_IN.has(chargingState);
       const currentlyCharging = chargingState === 'Charging';
+
+      // A fresh, non-stale telemetry frame reporting a real charging state is positive proof
+      // the car is reachable, so lift any command backoff immediately - a car we just woke
+      // should start charging the moment it is online, not wait out the full backoff window.
+      if (chargingState !== null && !telemetry.isStale()) clearVehicleOfflineBackoff();
 
       // --- Phantom-charge guard --------------------------------------------
       // Track SOC progress and decide whether a claimed 'Charging' is real. A live
