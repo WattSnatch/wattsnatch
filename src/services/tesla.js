@@ -145,6 +145,14 @@ function jsonFetch(url, options = {}) {
       timeout: options.timeout || 20000,
     };
 
+    // Whether the TCP connection actually completed, tracked via the socket's own 'connect'
+    // event rather than guessed from an error message afterward. This is what lets a caller
+    // tell "never reached the destination" (a real network problem) apart from "reached it, got
+    // no reply in time" (the destination is up but stuck) - Node's own request-level 'timeout'
+    // event fires identically for both, so the message text alone cannot carry this reliably.
+    // Confirmed live 2026-09-09: a BLE proxy whose own Bluetooth link had wedged looked
+    // indistinguishable from a dead network path until this was added.
+    let connected = false;
     const req = (isHttps ? https : http).request(reqOptions, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
@@ -153,10 +161,24 @@ function jsonFetch(url, options = {}) {
       });
     });
 
-    req.on('error', reject);
+    req.on('socket', (socket) => {
+      // A reused keep-alive socket is already connected by the time we see it; a fresh one
+      // connects asynchronously and tells us via its own 'connect' event.
+      if (!socket.connecting) connected = true;
+      else socket.once('connect', () => { connected = true; });
+    });
+
+    req.on('error', (err) => {
+      err.wattsnatchConnected = connected;
+      reject(err);
+    });
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error('Tesla API request timed out'));
+      const err = new Error(connected
+        ? 'Tesla API request timed out waiting for a response after connecting'
+        : 'Tesla API request timed out trying to connect');
+      err.wattsnatchConnected = connected;
+      reject(err);
     });
 
     if (options.body) {
@@ -222,10 +244,30 @@ async function registerPartnerAccount(partnerToken, domain) {
   });
 
   if (res.status !== 200 && res.status !== 204) {
-    throw new Error(`Partner account registration failed with status ${res.status}: ${res.body}`);
+    throw new Error(partnerRegistrationErrorMessage(res.status, res.body));
   }
 
   return true;
+}
+
+// Turn Tesla's registration rejections into something actionable. Its two most common failures
+// are both about the key served at the domain, and both have tripped real installs (issue #19):
+// publishing the RSA proxy TLS cert instead of the EC key ("too large"), or not publishing the
+// key at all ("got 404"). Pure and exported so these cases are unit-testable.
+function partnerRegistrationErrorMessage(status, body) {
+  const b = body || '';
+  if (/too large/i.test(b)) {
+    return 'Tesla rejected the key at your domain as "too large". That means the wrong file is '
+      + 'published: Tesla needs the EC P-256 key (keys/public.pem, about 90 bytes), but the file '
+      + 'served looks like the RSA proxy TLS certificate (keys/proxy-tls-cert.pem). Publish the '
+      + 'contents of keys/public.pem to /.well-known/appspecific/com.tesla.3p.public-key.pem instead.';
+  }
+  if (/got 404|must return 200/i.test(b)) {
+    return 'Tesla could not find your key (404) at /.well-known/appspecific/com.tesla.3p.public-key.pem. '
+      + 'Publish keys/public.pem to that exact path at your domain root first, then retry - '
+      + 'GitHub Pages can take a minute to go live after you push.';
+  }
+  return `Partner account registration failed with status ${status}: ${b}`;
 }
 
 /**
@@ -668,6 +710,7 @@ module.exports = {
   fleetBase,
   TESLA_REGIONS,
   clearVehicleOfflineBackoff: _clearVehicleOfflineBackoff,
+  jsonFetch, // exposed for direct testing of connection-state tracking (err.wattsnatchConnected)
   getAuthUrl,
   exchangeCode,
   refreshAccessToken,
@@ -676,6 +719,7 @@ module.exports = {
   getUserRegion,
   parseRegionResponse,
   getRegisteredPublicKey,
+  partnerRegistrationErrorMessage,
   listVehicles,
   getVehicleState,
   getVehicleData,

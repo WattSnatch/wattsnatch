@@ -93,6 +93,12 @@ const EV_WANTS_POWER = new Set(['Stopped', 'NoPower', 'Charging']);
 class Controller {
   constructor() {
     this.state = STATES.IDLE;
+    // Anchor for outage-duration reporting when the car has never yet been confirmed reachable
+    // this run - _lastBleReachableAt stays 0 until then, and Date.now() - 0 reads as an outage
+    // stretching back to 1970. Found live the moment this shipped: a fresh boot with the car
+    // unreachable logged "after 29816036 min." Reported duration falls back to time since this
+    // controller started in that case, which is the real, sane answer.
+    this._constructedAt = Date.now();
     this.holdTimerStart = null;
     this.smoothingBuffer = [];
     this.lastWakeAttempt = null;
@@ -163,6 +169,15 @@ class Controller {
     // below); BLE reachability had no equivalent grace period at all. 0 so a genuinely fresh
     // boot still starts "away" rather than defaulting to home on unproven ground.
     this._lastBleReachableAt = 0;
+    // A car genuinely driving off should not spam the log - the state_change to "away" already
+    // covers that. But that fires once, at the transition, then stays silent for however long
+    // the outage lasts, and a real, sustained failure to reach the proxy (a dead network path,
+    // not the car being away) looks identical to "car's just not home" from that point on -
+    // confirmed live 2026-09-09: a 5+ hour gap in every attempt to reach the proxy produced zero
+    // log output, during which a real charge started and had to be stopped by hand. This tracks
+    // when we last reminded the log that the outage is still ongoing, so a long one becomes
+    // visible instead of indistinguishable from a normal departure.
+    this._lastBleOutageReminderAt = 0;
     this._lastZmqEmitAt = 0;   // throttle ZMQ-triggered SSE to once per second
     this._lastFinancialLedgerUpdateDate = null;  // track which date was last updated
   }
@@ -426,6 +441,10 @@ class Controller {
     // transient network hiccup between WattSnatch and the proxy, short enough that a real
     // departure is still noticed well within a minute and a half.
     const AWAY_GRACE_MS = 90 * 1000;
+    // How often to remind the log that a Bluetooth outage is still ongoing, once it has run past
+    // the grace period above. Frequent enough to notice during a real incident without re-reading
+    // logs, rare enough not to become the thing that gets tuned out.
+    const OUTAGE_REMINDER_INTERVAL_MS = 30 * 60 * 1000;
 
     if (Date.now() - this._lastBleSleepCheckAt >= SLEEP_CHECK_INTERVAL) {
       this._lastBleSleepCheckAt = Date.now();
@@ -434,16 +453,67 @@ class Controller {
         this._bleReachable = true;          // got a reply → car is in Bluetooth range (at home)
         this._lastBleReachableAt = Date.now();
         this._carSleeping  = body.asleep;
-      } catch (_e) {
+        this._lastBleOutageReminderAt = 0; // reachable again - next outage starts its own clock
+      } catch (err) {
         // No reply could mean the car genuinely left, or it could be one dropped request between
         // WattSnatch and the proxy (confirmed live: a request that never even reached the proxy's
         // own logs). Only declare away once the grace window has passed with nothing but
         // failures - a single miss keeps trusting the last confirmed reachability, the same
         // leniency the old GPS-based check already gave a sleeping car. Not logged as an error
         // within the grace window; genuinely expected whenever the car isn't home yet.
-        if (Date.now() - this._lastBleReachableAt > AWAY_GRACE_MS) {
+        // A never-yet-confirmed car (_lastBleReachableAt still 0) must still count as long past
+        // the grace window, so a fresh boot with the car unreachable declares away immediately
+        // rather than waiting - Date.now() - 0 already guarantees that on its own.
+        const outageMs = Date.now() - this._lastBleReachableAt;
+        if (outageMs > AWAY_GRACE_MS) {
           this._bleReachable = false;
           this._teslaOk = false;
+          // The state_change to "away" (elsewhere) fires once, at this transition, then stays
+          // silent for however long the outage runs - which is exactly what let a real 5+ hour
+          // network failure between WattSnatch and the proxy look identical to "car's just not
+          // home," with nothing in the log to say otherwise, while an unsupervised charge started
+          // and had to be stopped by hand. Remind periodically for as long as it continues.
+          if (Date.now() - this._lastBleOutageReminderAt >= OUTAGE_REMINDER_INTERVAL_MS) {
+            this._lastBleOutageReminderAt = Date.now();
+            // For display only: a never-yet-confirmed car has no real "last seen" to measure
+            // from, so report how long this controller has been running instead of Date.now()
+            // minus epoch zero, which read as decades on the very first boot this shipped.
+            const displaySinceMs = this._lastBleReachableAt || this._constructedAt;
+            const mins = Math.round((Date.now() - displaySinceMs) / 60000);
+            // Three genuinely different failure points, told apart by err.wattsnatchConnected
+            // (set from real TCP connection state in jsonFetch, not guessed from message text -
+            // a request-level timeout reads identically whether the connection ever succeeded or
+            // not, which is exactly what made these indistinguishable before this existed):
+            //   false     - the connection itself never completed: a real network problem
+            //               between WattSnatch and the machine running the proxy.
+            //   true      - connected fine, but got no reply in time: the proxy itself is stuck,
+            //               most likely its own Bluetooth link - confirmed live 2026-09-09, where
+            //               this looked identical to a network problem until connection state
+            //               was actually tracked. Restarting the proxy is the known fix.
+            //   undefined - jsonFetch got a real HTTP response and our own code threw afterward
+            //               (a bad status, an unparsable body, a missing field) - the proxy is
+            //               fine and reachable, so this points at the car or the Bluetooth link.
+            let explanation;
+            if (err.wattsnatchConnected === false) {
+              explanation = `the connection to the proxy could not even be established `
+                + `(${err.message}), so this looks like a network problem between WattSnatch and `
+                + `the machine running the proxy, not the car being away.`;
+            } else if (err.wattsnatchConnected === true) {
+              explanation = `the proxy accepted the connection but never replied (${err.message}) `
+                + `- that points at the proxy itself being stuck, most likely its own Bluetooth `
+                + `connection to the car, rather than a network problem or the car being out of `
+                + `range. Restarting the proxy is the known fix for this.`;
+            } else {
+              explanation = `the proxy answered but reported a failure (${err.message}), which `
+                + `points at the car or the Bluetooth link rather than the network path to the `
+                + `proxy or the proxy itself being stuck.`;
+            }
+            const sinceClause = this._lastBleReachableAt
+              ? `Still unable to reach the car over Bluetooth after ${mins} min`
+              : `Unable to reach the car over Bluetooth since starting up ${mins} min ago`;
+            logger.logEvent('api_error',
+              `${sinceClause} - ${explanation} No charging control is possible until this clears.`);
+          }
         }
         return;
       }

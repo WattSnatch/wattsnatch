@@ -13,6 +13,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
+const net = require('net');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -22,6 +23,8 @@ process.env.WATTSNATCH_DB_PATH = tmpDbPath;
 
 const db = require('../src/db');
 db.initDb();
+const logger = require('../src/utils/logger');
+logger.setDb(db); // outage-reminder tests below verify persisted events_log rows, not just console output
 const tesla = require('../src/services/tesla');
 const telemetry = require('../src/services/telemetry');
 const controller = require('../src/controller');
@@ -164,4 +167,142 @@ test('_blePollState: a fresh boot (never yet confirmed reachable) starts away, n
   await controller._blePollState('VINTEST');
   assert.equal(controller._bleReachable, false);
   db.setSetting('tesla_ble_proxy_url', base);
+});
+
+// --- Sustained-outage reminder ------------------------------------------------------------
+// Found live 2026-09-02: a 5+ hour failure to reach the proxy produced zero log output, because
+// the "away" transition logs once and then stays silent for however long the outage runs - a
+// real network failure looked identical to "car's just not home," and an unsupervised charge
+// started and had to be stopped by hand during it. These tests are the fix: a sustained outage
+// must become visible in the log, distinct from the deliberately-quiet single-miss case.
+
+function apiErrorCount() {
+  return db.getEvents(1, 50, 'api_error').events
+    .filter((e) => /unable to reach the car over Bluetooth/i.test(e.details || '')).length;
+}
+
+// db.getEvents orders by occurred_at (millisecond Date.now()), and these tests fire in rapid
+// succession with no real delay between them, so two rows can land on the same millisecond -
+// "the latest row" is then ambiguous by timestamp alone. Match on content instead of position.
+function latestApiErrorMatching(pattern) {
+  const hit = db.getEvents(1, 50, 'api_error').events.find((e) => pattern.test(e.details || ''));
+  assert.ok(hit, `expected a recent api_error event matching ${pattern}`);
+  return hit;
+}
+
+test('outage reminder: silent within the grace window, even though a check just failed', async () => {
+  controller._lastBleReachableAt = Date.now() - 5000; // 5s ago - well inside the 90s grace window
+  controller._lastBleOutageReminderAt = 0;
+  const before = apiErrorCount();
+  db.setSetting('tesla_ble_proxy_url', 'http://127.0.0.1:1');
+  controller._lastBleSleepCheckAt = 0;
+  await controller._blePollState('VINTEST');
+  assert.equal(apiErrorCount(), before, 'must not remind about an outage that has not even been declared yet');
+  db.setSetting('tesla_ble_proxy_url', base);
+});
+
+test('outage reminder: fires promptly once the outage is genuinely declared, not after a full 30 minutes', async () => {
+  controller._lastBleReachableAt = Date.now() - 5 * 60 * 1000; // 5 min ago - past the 90s grace window
+  controller._lastBleOutageReminderAt = 0; // never reminded yet
+  const before = apiErrorCount();
+  db.setSetting('tesla_ble_proxy_url', 'http://127.0.0.1:1'); // nothing listening - network-level failure
+  controller._lastBleSleepCheckAt = 0;
+  await controller._blePollState('VINTEST');
+  assert.equal(apiErrorCount(), before + 1, 'the first reminder must not wait for the full 30-minute cadence');
+  latestApiErrorMatching(/network problem between WattSnatch and the machine running the proxy/);
+  db.setSetting('tesla_ble_proxy_url', base);
+});
+
+test('outage reminder: does not repeat again inside the 30-minute cadence', async () => {
+  controller._lastBleReachableAt = Date.now() - 40 * 60 * 1000; // outage has been running 40 min
+  controller._lastBleOutageReminderAt = Date.now() - 5 * 60 * 1000; // but we only reminded 5 min ago
+  const before = apiErrorCount();
+  db.setSetting('tesla_ble_proxy_url', 'http://127.0.0.1:1');
+  controller._lastBleSleepCheckAt = 0;
+  await controller._blePollState('VINTEST');
+  assert.equal(apiErrorCount(), before, 'must not spam a reminder more often than the cadence allows');
+  db.setSetting('tesla_ble_proxy_url', base);
+});
+
+test('outage reminder: fires again once the 30-minute cadence has elapsed', async () => {
+  controller._lastBleReachableAt = Date.now() - 90 * 60 * 1000; // outage running 90 min
+  controller._lastBleOutageReminderAt = Date.now() - 31 * 60 * 1000; // last reminder 31 min ago
+  const before = apiErrorCount();
+  db.setSetting('tesla_ble_proxy_url', 'http://127.0.0.1:1');
+  controller._lastBleSleepCheckAt = 0;
+  await controller._blePollState('VINTEST');
+  assert.equal(apiErrorCount(), before + 1, 'a sustained outage must keep reminding, not just once');
+  db.setSetting('tesla_ble_proxy_url', base);
+});
+
+test('outage reminder: classifies a reply FROM the proxy reporting failure differently than an unreachable one', async () => {
+  // The proxy itself answers (network path to it is fine) but reports an error - this points at
+  // the car/Bluetooth link, not at WattSnatch's connection to the proxy machine, and the message
+  // must say so rather than reusing the network-problem wording.
+  bodyResp = { code: 500, body: 'proxy-side error' };
+  controller._lastBleReachableAt = Date.now() - 5 * 60 * 1000;
+  controller._lastBleOutageReminderAt = 0;
+  const before = apiErrorCount();
+  controller._lastBleSleepCheckAt = 0;
+  await controller._blePollState('VINTEST');
+  assert.equal(apiErrorCount(), before + 1);
+  const hit = latestApiErrorMatching(/points at the car or the Bluetooth link/);
+  assert.doesNotMatch(hit.details, /network problem/,
+    'a response the proxy actually sent must not be blamed on the network path to it');
+  // Restore the working fixture for any later runs.
+  bodyResp = { code: 200, body: JSON.stringify({ response: { result: true, reason: 'ok', vin: 'VINTEST',
+    command: 'body-controller-state', response: { vehicle_sleep_status: 'VEHICLE_SLEEP_STATUS_AWAKE' } } }) };
+});
+
+test('outage reminder: a proxy that accepts the connection but never replies is diagnosed as stuck, not a network problem or the car being away', { timeout: 20000 }, async () => {
+  // This is the actual bug found live 2026-09-09: the proxy's own Bluetooth link had wedged, so
+  // every request connected fine (the network was completely healthy) but got no reply at all -
+  // and the old message-text-guessing classification called that "a network problem between
+  // WattSnatch and the machine running the proxy," which sent troubleshooting in the wrong
+  // direction entirely. A raw TCP server that accepts and never responds reproduces exactly
+  // that: connected, then silence. This genuinely waits out the real 15s BLE-read timeout rather
+  // than faking the clock, since the whole point under test is jsonFetch's own timeout path.
+  const hangServer = net.createServer((socket) => { /* accept, then do nothing - ever */ });
+  await new Promise((r) => hangServer.listen(0, '127.0.0.1', r));
+  const hangUrl = `http://127.0.0.1:${hangServer.address().port}`;
+  try {
+    controller._lastBleReachableAt = Date.now() - 5 * 60 * 1000;
+    controller._lastBleOutageReminderAt = 0;
+    const before = apiErrorCount();
+    db.setSetting('tesla_ble_proxy_url', hangUrl);
+    controller._lastBleSleepCheckAt = 0;
+    await controller._blePollState('VINTEST');
+    assert.equal(apiErrorCount(), before + 1);
+    const hit = latestApiErrorMatching(/proxy itself being stuck/);
+    assert.match(hit.details, /Restarting the proxy is the known fix/);
+    assert.doesNotMatch(hit.details, /network problem between WattSnatch/,
+      'a connection that succeeded must never be blamed on the network path to the proxy');
+  } finally {
+    hangServer.close();
+    db.setSetting('tesla_ble_proxy_url', base);
+  }
+});
+
+test('outage reminder: a fresh boot that has never confirmed reachability reports a sane duration', async () => {
+  // Found live the moment this shipped: _lastBleReachableAt is 0 on a fresh boot, and computing
+  // the reminder's displayed duration as Date.now() - 0 read as "after 29816036 min" (56 years).
+  // The real, sane answer is how long this controller has been running, not since the epoch.
+  controller._lastBleReachableAt = 0; // never confirmed this run
+  controller._constructedAt = Date.now() - 7 * 60 * 1000; // controller "started" 7 min ago
+  controller._lastBleOutageReminderAt = 0;
+  db.setSetting('tesla_ble_proxy_url', 'http://127.0.0.1:1');
+  controller._lastBleSleepCheckAt = 0;
+  await controller._blePollState('VINTEST');
+  const hit = latestApiErrorMatching(/since starting up 7 min ago/);
+  assert.doesNotMatch(hit.details, /Still unable to reach.*after/,
+    'the never-confirmed case has its own wording, distinct from the normal "after N min" case');
+  db.setSetting('tesla_ble_proxy_url', base);
+});
+
+test('outage reminder: the timer resets once reachable again, so a later outage reminds promptly too', async () => {
+  controller._lastBleOutageReminderAt = Date.now(); // pretend we just reminded
+  controller._lastBleSleepCheckAt = 0;
+  await controller._blePollState('VINTEST'); // succeeds against the restored fixture
+  assert.equal(controller._bleReachable, true);
+  assert.equal(controller._lastBleOutageReminderAt, 0, 'a fresh success must clear the reminder clock');
 });
