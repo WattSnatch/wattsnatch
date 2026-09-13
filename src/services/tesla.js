@@ -418,8 +418,20 @@ async function getVehicleState(vin, accessToken) {
  */
 async function getVehicleData(vin, accessToken) {
   _assertAccountNotLocked();
+  // `endpoints` must be explicit, and must name location_data.
+  //
+  // Without the parameter Tesla returns its default bundle, which includes
+  // drive_state but with latitude/longitude omitted - the coordinates only ship
+  // when location_data is requested by name (and the app holds the vehicle_location
+  // scope). The symptom is not an error: drive_state arrives looking normal, just
+  // with no position, so the home geofence silently never resolves and "Set home
+  // from car" reports the GPS as unavailable.
+  //
+  // Naming endpoints narrows the response to exactly these three, which is all
+  // this function returns and all any caller reads.
   const res = await jsonFetch(
-    `${fleetBase()}/api/1/vehicles/${vin}/vehicle_data`,
+    `${fleetBase()}/api/1/vehicles/${vin}/vehicle_data`
+      + `?endpoints=${encodeURIComponent('charge_state;drive_state;location_data')}`,
     { headers: authHeader(accessToken) }
   );
   _noteAccountLockIfPresent(res.body);
@@ -608,13 +620,7 @@ function _unwrapBleProxyPayload(parsed) {
 async function getVehicleDataBle(vin) {
   const res = await jsonFetch(
     `${bleProxyUrl()}/api/1/vehicles/${vin}/vehicle_data?endpoints=charge_state`,
-    // Must exceed the proxy's own scanTimeout (30s in docker-compose.yml) whenever it has to run
-    // a fresh BLE scan rather than reuse an open connection. Found live 2026-09-13: this used to
-    // be 20000, so every cold scan got cancelled by our own client before the proxy could finish -
-    // the proxy then reported "context canceled" (surfacing here as a plain request timeout), and
-    // that got misread as the proxy itself being stuck. It never was; we just never gave it long
-    // enough to answer, which is exactly what stretched out reconnection after the car came home.
-    { method: 'GET', headers: {}, timeout: 35000 },
+    { method: 'GET', headers: {}, timeout: 20000 },
   );
   if (res.status !== 200) {
     throw new Error(`BLE vehicle_data failed with status ${res.status}: ${res.body}`);
@@ -643,12 +649,7 @@ async function getVehicleDataBle(vin) {
 async function getBodyStateBle(vin) {
   const res = await jsonFetch(
     `${bleProxyUrl()}/api/1/vehicles/${vin}/body_controller_state`,
-    // Same reasoning as getVehicleDataBle's timeout: must clear the proxy's own 30s scanTimeout.
-    // This is the reachability check the away/home decision is built on, so cutting a scan short
-    // here was the direct cause of "car arrives home but doesn't reconnect right away" - each
-    // poll was aborting the proxy's in-progress scan before it could find the car, forcing another
-    // full SLEEP_CHECK_INTERVAL wait before the next attempt got a fair chance.
-    { method: 'GET', headers: {}, timeout: 35000 },
+    { method: 'GET', headers: {}, timeout: 15000 },
   );
   if (res.status !== 200) {
     throw new Error(`BLE body_controller_state failed with status ${res.status}`);
