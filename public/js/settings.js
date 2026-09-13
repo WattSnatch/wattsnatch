@@ -16,9 +16,9 @@ const DAY_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
 // _aud-suffixed regardless of country, only what's SHOWN changes here).
 
 const CURRENCY_UNIT_LABELS = {
-  'kwh':         { AU: 'Rate (AUD/kWh)',         US: 'Rate (USD/kWh)' },
-  'kwh-default': { AU: 'Default rate (AUD/kWh)', US: 'Default rate (USD/kWh)' },
-  'day':         { AU: 'Charge (AUD/day)',       US: 'Charge (USD/day)' },
+  'kwh':         { AU: 'Rate (AUD/kWh)',         US: 'Rate (USD/kWh)',         FR: 'Rate (EUR/kWh)' },
+  'kwh-default': { AU: 'Default rate (AUD/kWh)', US: 'Default rate (USD/kWh)', FR: 'Default rate (EUR/kWh)' },
+  'day':         { AU: 'Charge (AUD/day)',       US: 'Charge (USD/day)',       FR: 'Charge (EUR/day)' },
 };
 
 // Fuel Cost Comparison card - the underlying math (history.js fuelComparison())
@@ -31,18 +31,22 @@ const FUEL_FIELD_CONFIG = {
   fuel_ev_kwh_per_100km: {
     AU: { label: 'EV efficiency (kWh / 100 km)', placeholder: '17.0', help: 'Model Y RWD real-world AU average', min: 5, max: 40 },
     US: { label: 'EV efficiency (kWh / 100 mi)', placeholder: '27.0', help: 'Model Y RWD real-world US average', min: 8, max: 65 },
+    FR: { label: 'EV efficiency (kWh / 100 km)', placeholder: '17.0', help: 'Model Y RWD real-world average', min: 5, max: 40 },
   },
   fuel_petrol_price_aud: {
     AU: { label: 'Petrol price (AUD / litre)', placeholder: '2.05', help: 'Your local ULP price', min: 0.50, max: 5.00 },
     US: { label: 'Gas price (USD / gallon)', placeholder: '3.50', help: 'Your local regular unleaded price', min: 1.50, max: 8.00 },
+    FR: { label: 'Petrol price (EUR / litre)', placeholder: '1.75', help: 'Your local SP95 price', min: 0.50, max: 5.00 },
   },
   fuel_petrol_l_per_100km: {
     AU: { label: 'Petrol SUV (L / 100 km)', placeholder: '8.4', help: 'e.g. Toyota RAV4 2.5L - 8.4 L/100km', min: 3, max: 25 },
     US: { label: 'Gas SUV (gal / 100 mi)', placeholder: '3.4', help: 'e.g. Toyota RAV4 2.5L - ~30 mpg combined', min: 1, max: 10 },
+    FR: { label: 'Petrol SUV (L / 100 km)', placeholder: '7.5', help: 'e.g. Peugeot 3008 PureTech - ~7.5 L/100km', min: 3, max: 25 },
   },
   fuel_hybrid_l_per_100km: {
     AU: { label: 'Hybrid SUV (L / 100 km)', placeholder: '4.9', help: 'e.g. Toyota RAV4 Hybrid - 4.9 L/100km', min: 2, max: 15 },
     US: { label: 'Hybrid SUV (gal / 100 mi)', placeholder: '2.5', help: 'e.g. Toyota RAV4 Hybrid - ~40 mpg combined', min: 0.5, max: 8 },
+    FR: { label: 'Hybrid SUV (L / 100 km)', placeholder: '5.0', help: 'e.g. Renault Austral E-Tech - ~5.0 L/100km', min: 2, max: 15 },
   },
 };
 
@@ -63,6 +67,9 @@ const GRID_INTENSITY_PROVIDER_LABELS = {
 const GRID_INTENSITY_PROVIDERS_BY_COUNTRY = {
   AU: ['aemo', 'electricitymaps'],
   US: ['watttime', 'electricitymaps'],
+  // ElectricityMaps only: AEMO models Queensland's grid and WattTime's coverage
+  // is North American. Neither says anything true about RTE's French grid.
+  FR: ['electricitymaps'],
 };
 
 // Which extra inputs each provider needs. AEMO needs none: it is a public
@@ -239,8 +246,12 @@ async function testGridIntensity() {
   btn.textContent = originalLabel;
 }
 
+const KNOWN_COUNTRIES = ['AU', 'US', 'FR'];
+
 function applyCountryUI(country) {
-  const c = country === 'US' ? 'US' : 'AU';
+  // Anything unrecognised falls back to AU, which is what this did for every
+  // non-US value before other countries existed.
+  const c = KNOWN_COUNTRIES.includes(country) ? country : 'AU';
 
   // Currency unit labels on every rate/charge field
   document.querySelectorAll('.currency-unit-label').forEach((el) => {
@@ -285,6 +296,12 @@ function applyCountryUI(country) {
       `<option value="${id}">${GRID_INTENSITY_PROVIDER_LABELS[id]}</option>`).join('');
     gridSelect.value = allowed.includes(previousValue) ? previousValue : allowed[0];
   }
+  // Retailer plan comparison runs off the AER's Consumer Data Right register,
+  // which exists only for Australia's NECF states. Hide its input elsewhere
+  // rather than inviting a value that can never resolve.
+  const distributorGroup = document.getElementById('retailer-distributor-group');
+  if (distributorGroup) distributorGroup.style.display = c === 'AU' ? '' : 'none';
+
   const noteAu = document.getElementById('grid-intensity-note-au');
   const noteUs = document.getElementById('grid-intensity-note-us');
   if (noteAu) noteAu.style.display = c === 'AU' ? '' : 'none';
@@ -370,7 +387,7 @@ function renderWindows(listId, windows) {
 const FIELD_IDS = [
   'country', 'grid_retailer_domain', 'ev_brand_domain', 'retailer_network_distributor',
   'min_charge_amps', 'max_charge_amps', 'hold_minutes',
-  'smoothing_window', 'polling_interval_seconds', 'charger_voltage',
+  'smoothing_window', 'polling_interval_seconds', 'charger_voltage', 'charger_phases',
   'gateway_ip', 'tesla_vin',
   'charging_backend', 'ocpp_charge_point_id', 'ocpp_ws_port', 'ocpp_id_tag',
   'tesla_client_id', 'tesla_redirect_uri', 'tesla_region',

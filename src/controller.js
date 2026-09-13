@@ -1606,7 +1606,13 @@ class Controller {
 
       // Live retailer plan rates (AER Consumer Data Right register) - refreshes
       // at most once per day; retailerRates.refreshIfDue() no-ops otherwise.
-      if (!this._retailerRatesRefreshInProgress) {
+      //
+      // Australia only, and gated on the country setting because the service is
+      // not parameterised by it: the register, the retailer list and the
+      // distributor names are all AER-specific. Without this gate an install
+      // anywhere else spends a daily round of calls on Australian government
+      // endpoints to compare plans it can never buy.
+      if (db.getSetting('country') === 'AU' && !this._retailerRatesRefreshInProgress) {
         this._retailerRatesRefreshInProgress = true;
         retailerRates.refreshIfDue()
           .catch((err) => logger.logEvent('api_error', `Retailer live rates refresh failed: ${err.message}`))
