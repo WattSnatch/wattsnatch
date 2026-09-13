@@ -476,6 +476,26 @@ The second part is **not turnkey out of the box** - the reference implementation
 ### Push notifications - ntfy
 **Needs:** nothing to sign up for. [ntfy.sh](https://ntfy.sh) is free, or self-hostable. Pick any unguessable topic name (it's unauthenticated by default - anyone who knows the topic name can read it, so make it a random string, not "wattsnatch"), enter the ntfy server URL (default `https://ntfy.sh`) and your topic name in **Settings → Notifications**, and install the ntfy app on your phone subscribed to that same topic.
 
+### SolarEdge API V2 (OAuth)
+SolarEdge's legacy Monitoring API - the `api_key` query-string flavour the **SolarEdge** brand uses - is deprecated on **3 November 2026**, and since 2025 the portal no longer lets a site owner generate that key themselves: it has to come from whoever holds admin rights on the site, usually the installer. **SolarEdge (API V2)** replaces both problems. You create your own developer app and authorise your own site, with no installer in the loop.
+
+1. Sign up at [developer.solaredge.com](https://developer.solaredge.com) - the Free tier is provisioned automatically, no card.
+2. Create an application of type **Site Access**, scopes `SITE_DATA` and `DEVICE_DATA`, with redirect URL `http://localhost:3001/auth/solaredge/callback` (match your port if you changed it). Copy the **Client Secret** now - it is shown once.
+3. Save the credentials, then visit `http://localhost:3001/auth/solaredge/start` and approve. Sign in with your **homeowner mySolarEdge** account, which is often not the same login as the developer account. The callback stores the token, picks up the site id SolarEdge returns, and switches `inverter_brand` to `solaredge_v2`.
+
+```bash
+curl -s -X POST http://localhost:3001/api/settings -H "Content-Type: application/json" \
+  -d '{"solaredge_client_id":"...","solaredge_client_secret":"..."}'
+```
+
+**What this API can and cannot give you.** On the Basic tier the finest resolution is `QUARTER_HOUR`, and each value is the *average* over that 15-minute window, stamped at its start. Live instantaneous power (`/sites/{id}/power-flow`) is Advanced Monitoring, Business Pro and above. So diversion here tracks a 15-minute mean rather than present output: on a clear day that is close enough, on a broken-cloud day it will overshoot and import the difference. If you need second-by-second control, a local meter is the better answer.
+
+Because a faster poll cannot return fresher numbers, [`src/services/meters/solaredgeV2.js`](src/services/meters/solaredgeV2.js) polls once per quarter-hour window, shortly after it closes, and serves a cache in between. It also skips polling while the sun is below 7° elevation (using your home latitude/longitude) and stops at a monthly ceiling, both to stay inside the Free tier's 2,000 calls a month - roughly 1,300-1,650 depending on the season. Set your home location, or the elevation gate cannot apply and only the ceiling protects you.
+
+> **Sites with only a grid meter:** many installs have a single meter at the connection point, reporting import and export but no production or consumption series. That is still enough, because `production - consumption` equals `export - import`, so the surplus is measured directly. The cost is cosmetic - the dashboard's solar figure then shows surplus rather than gross production, and falls toward zero once the car is drawing it all. Reading production as well would mean a second endpoint and double the credits, which does not fit the Free tier.
+
+> **Fail-safe:** when there is no fresh window - at night, or after a failed poll - the provider raises an error rather than reporting zeroes. Zeroes would be actively dangerous here: the diversion loop computes `solarW - consumptionW + chargerWatts`, so a fabricated `{0, 0}` while the car is charging reads as several kW of surplus that does not exist.
+
 ### MQTT solar input - any unsupported inverter
 If WattSnatch doesn't natively support your inverter yet, you can feed it live readings over MQTT and it drives charging exactly as it would from a native gateway. In the setup wizard's inverter step, pick **MQTT (other)** and provide:
 

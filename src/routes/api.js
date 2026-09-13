@@ -394,6 +394,8 @@ router.post('/api/settings', (req, res) => {
       'panel_nicknames',
       'fleet_telemetry_hostname', 'fleet_telemetry_port', 'fleet_telemetry_ca_cert',
       'inverter_brand', 'fronius_ip', 'solaredge_api_key', 'solaredge_site_id',
+      'solaredge_client_id', 'solaredge_client_secret', 'solaredge_redirect_uri',
+      'solaredge_monthly_budget',
       'mqtt_in_broker_url', 'mqtt_in_username', 'mqtt_in_password',
       'mqtt_in_topic_solar', 'mqtt_in_second_type', 'mqtt_in_topic_second',
       'mqtt_in_grid_sign', 'mqtt_in_scale', 'mqtt_in_stale_seconds',
