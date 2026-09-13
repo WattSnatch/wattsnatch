@@ -105,6 +105,34 @@ test('getBodyStateBle reports awake vs asleep', async () => {
   assert.equal((await tesla.getBodyStateBle('VINTEST')).asleep, false);
 });
 
+test('getBodyStateBle waits out a slow-but-legitimate scan instead of cancelling it', { timeout: 40000 }, async () => {
+  // Found live 2026-09-13: the proxy's own scanTimeout (30s, docker-compose.yml) is how long a
+  // fresh BLE scan can legitimately take - most notably right as the car comes back into range,
+  // since it only advertises intermittently. The client-side timeout used to be shorter (15s for
+  // this call), so it cancelled the proxy's in-progress scan before it had a fair chance to
+  // succeed, and the resulting "context canceled" on the proxy side came back here as a plain
+  // timeout - misread as the proxy being stuck, when it just needed more time. A server that
+  // waits 32s (past the old 15s timeout, short of the new one) before answering successfully
+  // proves the fix: this must resolve, not throw.
+  const slowServer = http.createServer((req, res) => {
+    setTimeout(() => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ response: { result: true, reason: 'ok', vin: 'VINTEST',
+        command: 'body-controller-state', response: { vehicle_sleep_status: 'VEHICLE_SLEEP_STATUS_AWAKE' } } }));
+    }, 32000);
+  });
+  await new Promise((r) => slowServer.listen(0, '127.0.0.1', r));
+  const slowUrl = `http://127.0.0.1:${slowServer.address().port}`;
+  try {
+    db.setSetting('tesla_ble_proxy_url', slowUrl);
+    const result = await tesla.getBodyStateBle('VINTEST');
+    assert.equal(result.asleep, false);
+  } finally {
+    slowServer.close();
+    db.setSetting('tesla_ble_proxy_url', base);
+  }
+});
+
 test('_blePollState: awake car marks reachable, not sleeping, and updates telemetry', async () => {
   bodyResp = { code: 200, body: JSON.stringify({ response: { result: true, reason: 'ok', vin: 'VINTEST',
     command: 'body-controller-state', response: { vehicle_sleep_status: 'VEHICLE_SLEEP_STATUS_AWAKE' } } }) };
@@ -254,13 +282,13 @@ test('outage reminder: classifies a reply FROM the proxy reporting failure diffe
     command: 'body-controller-state', response: { vehicle_sleep_status: 'VEHICLE_SLEEP_STATUS_AWAKE' } } }) };
 });
 
-test('outage reminder: a proxy that accepts the connection but never replies is diagnosed as stuck, not a network problem or the car being away', { timeout: 20000 }, async () => {
+test('outage reminder: a proxy that accepts the connection but never replies is diagnosed as stuck, not a network problem or the car being away', { timeout: 40000 }, async () => {
   // This is the actual bug found live 2026-09-09: the proxy's own Bluetooth link had wedged, so
   // every request connected fine (the network was completely healthy) but got no reply at all -
   // and the old message-text-guessing classification called that "a network problem between
   // WattSnatch and the machine running the proxy," which sent troubleshooting in the wrong
   // direction entirely. A raw TCP server that accepts and never responds reproduces exactly
-  // that: connected, then silence. This genuinely waits out the real 15s BLE-read timeout rather
+  // that: connected, then silence. This genuinely waits out the real 35s BLE-read timeout rather
   // than faking the clock, since the whole point under test is jsonFetch's own timeout path.
   const hangServer = net.createServer((socket) => { /* accept, then do nothing - ever */ });
   await new Promise((r) => hangServer.listen(0, '127.0.0.1', r));
