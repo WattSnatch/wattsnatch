@@ -26,6 +26,7 @@ const providers = {
   enphase:   require('./enphase'),
   fronius:   require('./fronius'),
   solaredge: require('./solaredge'),
+  solaredge_v2: require('./solaredgeV2'),
   span:      require('./span'),
   sungrow:   require('./sungrow'),
   mqtt:      require('./mqttInput'),

@@ -5,7 +5,7 @@
 Automatically divert excess solar power into your electric car. When your solar system is generating more than your home needs, WattSnatch adjusts the charge rate in real time so you're charging from the sun rather than the grid - and stops or reduces charging when solar drops.
 
 **What you need:**
-- An Enphase IQ Gateway (Envoy) on your local network (Fronius, SolarEdge, SPAN Panel, and Sungrow are also supported - or feed **any** inverter in over MQTT, see below)
+- An Enphase IQ Gateway (Envoy) on your local network (Fronius, SolarEdge - both the legacy API and the newer OAuth-based API V2 - SPAN Panel, and Sungrow are also supported - or feed **any** inverter in over MQTT, see below)
 - Either a **Tesla** (controlled through Tesla's own APIs - the primary, battle-tested path, and it needs a free Tesla Fleet API developer account), or **any EV with a charger that speaks OCPP 1.6J** (see [Charging backends](#charging-backends-tesla-or-ocpp) below - implemented and tested, but *not yet verified against real charger hardware*)
 - A Mac, Windows PC, or Linux machine to run the server (can be always-on, like a Mac mini)
 
@@ -253,7 +253,8 @@ In step 2 of the wizard:
 |---|---|---|
 | **Enphase IQ Gateway** | Gateway IP or hostname | Yes - Enlighten login in step 3 |
 | **Fronius** | Inverter IP or hostname | No, local only |
-| **SolarEdge** | API Key, Site ID | Yes - from your SolarEdge monitoring account |
+| **SolarEdge** *(legacy V1)* | API Key, Site ID | Yes - and SolarEdge stopped issuing these keys self-service in 2025, so an installer has to hand you one. The V1 API it uses is deprecated on 3 November 2026; prefer SolarEdge (API V2) below. |
+| **SolarEdge (API V2)** | Client ID and Secret from your own app at developer.solaredge.com, then one OAuth approval | Yes - but self-service: you create the app and authorise your own site, no installer involved. See [SolarEdge API V2](INSTALL.md#solaredge-api-v2-oauth) |
 | **SPAN Panel** | Panel host or IP, Access Token, Solar Circuit ID | Token from SPAN; unverified against real hardware |
 | **Sungrow (SH-series hybrid + WiNet-S)** | Inverter/dongle host or IP, Modbus port, Unit ID | No, local Modbus TCP; unverified against real hardware |
 | **MQTT (any other inverter)** | Broker URL, username/password, solar topic, a second grid or consumption topic, plus sign/scale/stale options | No - you publish the readings yourself |
