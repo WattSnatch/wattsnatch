@@ -598,6 +598,21 @@ function _unwrapBleProxyPayload(parsed) {
   return envelope.response || envelope;
 }
 
+// The BLE proxy's own scanTimeout, as set in its docker-compose.yml. A cold read has to
+// scan for the car before it can answer, and the car only advertises intermittently, so
+// the proxy can legitimately take this long before it either finds the car or gives up.
+const BLE_PROXY_SCAN_TIMEOUT_MS = 30000;
+
+// How long we wait for the proxy. This MUST stay above the scan timeout above, and
+// test/bleTimeoutInvariant.test.js fails if it ever stops being.
+//
+// Found live 2026-09-13: these were 20s and 15s, both under the proxy's 30s scan, so every
+// cold scan got cancelled by our own client before the proxy could finish. The proxy logged
+// "context canceled", which surfaced here as a plain request timeout and got misread as the
+// proxy being stuck. It never was. We just never gave it long enough to answer, and that is
+// what stretched reconnection out to twelve minutes after the car came home.
+const BLE_READ_TIMEOUT_MS = BLE_PROXY_SCAN_TIMEOUT_MS + 5000;
+
 /**
  * Read charge state from the vehicle over BLE (TeslaBleHttpProxy's vehicle_data endpoint,
  * charge_state only). Returned in the same shape the controller feeds telemetry.updateFromApi.
@@ -608,13 +623,7 @@ function _unwrapBleProxyPayload(parsed) {
 async function getVehicleDataBle(vin) {
   const res = await jsonFetch(
     `${bleProxyUrl()}/api/1/vehicles/${vin}/vehicle_data?endpoints=charge_state`,
-    // Must exceed the proxy's own scanTimeout (30s in docker-compose.yml) whenever it has to run
-    // a fresh BLE scan rather than reuse an open connection. Found live 2026-09-13: this used to
-    // be 20000, so every cold scan got cancelled by our own client before the proxy could finish -
-    // the proxy then reported "context canceled" (surfacing here as a plain request timeout), and
-    // that got misread as the proxy itself being stuck. It never was; we just never gave it long
-    // enough to answer, which is exactly what stretched out reconnection after the car came home.
-    { method: 'GET', headers: {}, timeout: 35000 },
+    { method: 'GET', headers: {}, timeout: BLE_READ_TIMEOUT_MS },
   );
   if (res.status !== 200) {
     throw new Error(`BLE vehicle_data failed with status ${res.status}: ${res.body}`);
@@ -643,12 +652,9 @@ async function getVehicleDataBle(vin) {
 async function getBodyStateBle(vin) {
   const res = await jsonFetch(
     `${bleProxyUrl()}/api/1/vehicles/${vin}/body_controller_state`,
-    // Same reasoning as getVehicleDataBle's timeout: must clear the proxy's own 30s scanTimeout.
-    // This is the reachability check the away/home decision is built on, so cutting a scan short
-    // here was the direct cause of "car arrives home but doesn't reconnect right away" - each
-    // poll was aborting the proxy's in-progress scan before it could find the car, forcing another
-    // full SLEEP_CHECK_INTERVAL wait before the next attempt got a fair chance.
-    { method: 'GET', headers: {}, timeout: 35000 },
+    // This is the reachability check the away/home decision is built on, so cutting a scan
+    // short here is what caused "car arrives home but doesn't reconnect right away".
+    { method: 'GET', headers: {}, timeout: BLE_READ_TIMEOUT_MS },
   );
   if (res.status !== 200) {
     throw new Error(`BLE body_controller_state failed with status ${res.status}`);
@@ -749,4 +755,7 @@ module.exports = {
   testBleConnection,
   getVehicleDataBle,
   getBodyStateBle,
+  // exposed so the read-timeout-clears-the-scan-timeout invariant can be asserted directly
+  BLE_PROXY_SCAN_TIMEOUT_MS,
+  BLE_READ_TIMEOUT_MS,
 };
