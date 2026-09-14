@@ -777,6 +777,30 @@ class Controller {
     // unconfirmed charge limit as a reason to stop. Without this, a stale limit
     // returns early here and scheduled charging silently never starts - the
     // scheduled window looks like it simply did nothing.
+    // A sleeping car reports no charge state at all, and that is not the same
+    // fact as "not plugged in" - we simply do not know yet. The guard below
+    // cannot tell them apart, because PLUGGED_IN.has(null) is false, so it used
+    // to return here and the wake in the command block was never reached: a
+    // window opening while the car slept did nothing at all, silently, until
+    // something else happened to wake it. Wake first, decide next tick on real
+    // data.
+    if (!chargeState) {
+      if (vin && this._canSendCommands(teslaToken)) {
+        const canWake = !this.lastWakeAttempt || (Date.now() - this.lastWakeAttempt > 3 * 60 * 1000);
+        if (canWake) {
+          this.lastWakeAttempt = Date.now();
+          try {
+            this._trackApiCall('wake'); await wakeVehicle(vin, teslaToken);
+            logger.logEvent('command', `${label}: waking vehicle`);
+          } catch (err) {
+            logger.logEvent('api_error', `${label}: wake failed: ${err.message}`);
+          }
+        }
+      }
+      this._emitTelemetry(readings, chargeState, 0, 0, solarExcessW, 0);
+      return;
+    }
+
     const limitConfirmed = telemetry.getChargeLimitAge() !== Infinity;
     if (!pluggedIn || (limitConfirmed && batteryPct > 0 && batteryPct >= chargeLimit)) {
       if (this.currentSessionId) this._endSession(batteryPct, !pluggedIn ? 'disconnected' : 'charge_complete');
@@ -786,14 +810,7 @@ class Controller {
 
     if (vin && this._canSendCommands(teslaToken)) {
       try {
-        if (!chargeState) {
-          const canWake = !this.lastWakeAttempt || (Date.now() - this.lastWakeAttempt > 3 * 60 * 1000);
-          if (canWake) {
-            this.lastWakeAttempt = Date.now();
-            this._trackApiCall('wake'); await wakeVehicle(vin, teslaToken);
-            logger.logEvent('command', `${label}: waking vehicle`);
-          }
-        } else if (chargingState === 'Stopped' || chargingState === 'NoPower') {
+        if (chargingState === 'Stopped' || chargingState === 'NoPower') {
           if (!this.currentSessionId) this._startSession(batteryPct);
           this._trackApiCall('command'); await setChargingAmps(vin, maxAmps, teslaToken);
           this._trackApiCall('command'); await startCharging(vin, teslaToken);
