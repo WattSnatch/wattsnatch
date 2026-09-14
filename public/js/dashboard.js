@@ -1151,6 +1151,7 @@ async function loadForecast() {
     }
 
     // Draw chart: 48 30-min intervals = 1440 minutes
+    const elChart = document.getElementById('forecast-chart');
     if (elChart && forecasts.length > 0) {
       const maxPv = Math.max(...forecasts.map(f => f.pv_estimate_kw), 1);
       const barWidth = 1440 / forecasts.length;
@@ -1177,6 +1178,7 @@ async function loadForecast() {
     }
 
     // Show accuracy tracking if available
+    const elAccuracyBanner = document.getElementById('forecast-accuracy-banner');
     if (elAccuracyBanner && accuracy_ratio) {
       if (accuracy_ratio > 1.15) {
         elAccuracyBanner.textContent = `✨ Generating better than expected (${(accuracy_ratio * 100).toFixed(0)}%) - On track for strong day!`;
