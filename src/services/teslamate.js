@@ -184,7 +184,15 @@ const getBatteryHealthPercent = cached('battery_health', async () => {
   const allTimeMax = parseFloat(r.all_time_max_km);
   const effFactor  = parseFloat(r.efficiency_factor);
   const healthPct  = Math.round((recentMax / allTimeMax) * 1000) / 10;
-  const usableKwh  = Math.round(recentMax * effFactor * 10) / 10;
+  // Absolute usable kWh: prefer the capacity the owner set (Settings > Tesla Battery Capacity),
+  // scaled by measured health, so the figure reflects their actual pack. The fallback multiplies
+  // range by a hardcoded 0.155 kWh/km - a Model Y constant that over-reads badly for other models
+  // (issue #16: a 2021 M3 SR+ showed 60.5 kWh against TeslaMate's ~51, ignoring the 55 the owner
+  // had entered). Falls back to the range-derived estimate only when no capacity is configured.
+  const nameplateKwh = parseFloat(db.getSetting('tesla_battery_kwh') || '');
+  const usableKwh = (Number.isFinite(nameplateKwh) && nameplateKwh > 0)
+    ? Math.round((healthPct / 100) * nameplateKwh * 10) / 10
+    : Math.round(recentMax * effFactor * 10) / 10;
   return {
     health_pct:            healthPct,
     usable_kwh:            usableKwh,
