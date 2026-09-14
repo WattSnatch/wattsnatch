@@ -369,7 +369,7 @@ router.post('/api/settings', (req, res) => {
     const allowed = [
       'country', 'grid_retailer_domain', 'ev_brand_domain', 'retailer_network_distributor',
       'min_charge_amps', 'max_charge_amps', 'hold_minutes',
-      'smoothing_window', 'polling_interval_seconds', 'charger_voltage',
+      'smoothing_window', 'polling_interval_seconds', 'charger_voltage', 'charger_phases',
       'electricity_rate_aud', 'electricity_rate_mode', 'export_rate_mode', 'auto_backup_enabled', 'gateway_ip', 'tesla_vin',
       'tesla_client_id', 'tesla_client_secret', 'tesla_redirect_uri', 'tesla_region',
       'tesla_command_backend', 'tesla_ble_proxy_url', 'tesla_state_source',

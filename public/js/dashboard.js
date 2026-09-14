@@ -19,6 +19,7 @@ let holdTotalSeconds = 180;    // full hold period in seconds (from SSE holdTota
 let holdCountdownInterval = null;
 
 const HOLD_RING_CIRC = 150.8; // matches stroke-dasharray on #hold-ring (r=24, 2π×24≈150.8)
+const PHASE_NAMES = { 1: 'single-phase', 2: 'two-phase', 3: 'three-phase' };
 
 function startHoldCountdown(seconds, total) {
   holdSecondsRemaining = seconds;
@@ -206,6 +207,10 @@ function handleTelemetry(d) {
 
   if (elEvWatts) updateEl(elEvWatts, formatWatts(d.evWatts));
   if (elEvAmps)  updateEl(elEvAmps,  formatAmps(d.evAmps));
+  const elEvPhases = document.getElementById('ev-phases');
+  if (elEvPhases) {
+    elEvPhases.textContent = PHASE_NAMES[d.chargerPhases] || '';
+  }
 
   // Battery
   if (elBatteryPct) elBatteryPct.textContent = formatPercent(d.batteryPct);

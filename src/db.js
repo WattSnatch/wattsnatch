@@ -388,6 +388,7 @@ function initDb() {
     smoothing_window: '3',
     polling_interval_seconds: '15',
     charger_voltage: '240',
+    charger_phases: '1',
     electricity_rate_aud: '0.30',
     electricity_rate_mode: 'flat',
     export_rate_mode: 'flat',
