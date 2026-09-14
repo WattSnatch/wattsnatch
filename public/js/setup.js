@@ -787,7 +787,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ─── Step 10: Charging preferences ───
 async function savePrefsAndNext() {
-  const fields = ['min_charge_amps', 'max_charge_amps', 'hold_minutes', 'smoothing_window', 'polling_interval_seconds', 'charger_voltage', 'electricity_rate_aud'];
+  const fields = ['min_charge_amps', 'max_charge_amps', 'hold_minutes', 'smoothing_window', 'polling_interval_seconds', 'charger_voltage', 'charger_phases', 'electricity_rate_aud'];
   const body = {};
   for (const f of fields) {
     const el = document.getElementById('pref_' + f);
@@ -810,7 +810,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load current prefs
   api('/api/settings').then((data) => {
     if (!data.ok) return;
-    const fields = ['min_charge_amps', 'max_charge_amps', 'hold_minutes', 'smoothing_window', 'polling_interval_seconds', 'charger_voltage', 'electricity_rate_aud'];
+    const fields = ['min_charge_amps', 'max_charge_amps', 'hold_minutes', 'smoothing_window', 'polling_interval_seconds', 'charger_voltage', 'charger_phases', 'electricity_rate_aud'];
     for (const f of fields) {
       const el = document.getElementById('pref_' + f);
       if (el && data.settings[f]) el.value = data.settings[f];
