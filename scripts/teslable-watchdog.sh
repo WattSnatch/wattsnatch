@@ -38,6 +38,9 @@
 #     (it resets the adapter on startup) - that is normal aftermath, not a fault. A watchdog that
 #     restarts on it is its own cause.
 #   - Never trigger on the car being away. "Vehicle is not in range" is normal for most of the day.
+#     It is one of exactly two entries on the benign allowlist in classify_response below, and that
+#     allowlist is the only thing that stops a response being treated as a fault. Unrecognised
+#     means faulty, never healthy - see the note on the eleven-hour outage down there.
 #   - Never grep historical container logs. A fixed error stays in a --since window and retriggers.
 #   - Confirm a fault on 2 consecutive checks before acting.
 #   - Hard cooldown plus an actions-per-hour cap, so even a wrong rule cannot thrash production;
@@ -73,23 +76,61 @@ resolve_hci_container_stopped() {
   hciconfig -a 2>/dev/null | grep -B1 "$ADAPTER_MAC" | head -1 | cut -d: -f1
 }
 
+# Decide whether a proxy response is a fault. Prints the fault name, or nothing when there is
+# nothing to do.
+#
+# Benign responses are an ALLOWLIST and everything else is a fault. That direction is the whole
+# point, and it is the opposite of what this did until 2026-09-16. It used to name the faults it
+# knew about and treat anything unrecognised as healthy, so when the proxy started answering
+#
+#   ble: failed to scan for <VIN>: received scan response <MAC> with no associated
+#   Advertising Data packet
+#
+# which was not in that list, every check read it as healthy and logged the cheerfully wrong
+# "healthy again (HTTP 503)". The car sat one metre from the house for ELEVEN HOURS with no
+# charging control while the watchdog reported nothing wrong. A watchdog that does not recognise
+# an error must assume the worst, because the alternative is exactly that silence.
+#
+# The two benign entries are here on evidence, not guesswork. Both appear in the proxy's own logs
+# over any given week, and acting on either would be actively wrong rather than merely wasteful:
+#   - "Vehicle is not in range": the car is genuinely away, which is most of the day.
+#   - "maximum number of BLE devices": Tesla caps simultaneous BLE connections, so this is
+#     transient contention that clears itself. Restarting into it just adds another reconnect.
+classify_response() {
+  code="$1"
+  body="$2"
+
+  [ "$code" = "200" ] && return 0
+  [ "$code" = "000" ] && { echo "no-response"; return 0; }
+
+  printf '%s' "$body" | grep -q "Vehicle is not in range"     && return 0
+  printf '%s' "$body" | grep -q "maximum number of BLE devices" && return 0
+
+  # Named faults, purely so the log and the escalation below can be specific.
+  printf '%s' "$body" | grep -q "Command Disallowed" && { echo "firmware-wedge"; return 0; }
+  printf '%s' "$body" | grep -qE "hci socket|broken pipe|socket hang up" && { echo "stale-socket"; return 0; }
+
+  # Anything else the proxy reports is a fault we have not seen before. Say so.
+  echo "unhealthy"
+}
+
+# Self-test hook: `teslable-watchdog.sh --classify <http_code> <body>` prints the verdict and
+# exits, touching nothing. test/bleWatchdogClassify.test.js drives the rules above through this
+# against real recorded proxy responses, so the allowlist cannot quietly rot again.
+if [ "$1" = "--classify" ]; then
+  classify_response "$2" "$3"
+  exit 0
+fi
+
 # ── Probe: the proxy's HTTP interface is the sole source of truth ───────────────────────────
 RESP=$(curl -s -m "$PROBE_TIMEOUT" -w $'\n%{http_code}' "$PROXY_URL" 2>/dev/null)
 HTTP_CODE=$(printf '%s' "$RESP" | tail -1)
 BODY=$(printf '%s' "$RESP" | sed '$d')
 
-FAULT=""
-if [ "$HTTP_CODE" = "000" ]; then
-  FAULT="no-response"                     # proxy not answering at all
-elif printf '%s' "$BODY" | grep -q "Command Disallowed"; then
-  FAULT="firmware-wedge"                  # adapter refusing scan commands; needs an adapter reset
-elif printf '%s' "$BODY" | grep -qE "hci socket|broken pipe|socket hang up"; then
-  FAULT="stale-socket"                    # proxy's adapter handle is dead; a restart fixes it
-fi
-# Anything else - including 200 and "Vehicle is not in range" - is healthy.
+FAULT=$(classify_response "$HTTP_CODE" "$BODY")
 
 if [ -z "$FAULT" ]; then
-  [ "$(cat "$STRIKES_FILE" 2>/dev/null || echo 0)" != "0" ] && log "healthy again (HTTP $HTTP_CODE) - clearing strikes"
+  [ "$(cat "$STRIKES_FILE" 2>/dev/null || echo 0)" != "0" ] && log "no fault (HTTP $HTTP_CODE) - clearing strikes"
   echo 0 > "$STRIKES_FILE"; : > "$LASTFAULT_FILE"
   exit 0
 fi
