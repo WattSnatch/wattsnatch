@@ -384,7 +384,7 @@ router.post('/api/settings', (req, res) => {
       'gemini_api_key', 'cf_worker_url', 'cf_worker_secret', 'bill_email_local', 'bill_email_domain', 'gemini_model',
       'mqtt_broker_url', 'mqtt_username', 'mqtt_password',
       'anthropic_api_key',
-      'openrouter_api_key', 'openrouter_model',
+      'openrouter_api_key', 'openrouter_model', 'ai_insight_provider',
       'feed_in_tariff_aud', 'supply_charge_daily_aud', 'solar_install_cost_aud',
       'solcast_api_key', 'solcast_resource_id', 'solcast_configured',
       'ntfy_base_url', 'ntfy_topic', 'notifications_enabled',
@@ -2320,9 +2320,15 @@ router.get('/api/ai-insights', (req, res) => {
 // POST /api/ai-insights/refresh - trigger immediate regeneration
 router.post('/api/ai-insights/refresh', async (req, res) => {
   try {
-    const apiKey = db.getSetting('gemini_api_key');
-    if (!apiKey) return res.status(400).json({ ok: false, error: 'Gemini API key not configured' });
+    // Gate on whichever provider the briefing is actually set to use. This checked
+    // gemini_api_key unconditionally, which never matched what generateInsight() does: an
+    // install using OpenRouter got a 400 from this button while the scheduled 6:30 am and 9 pm
+    // generations worked perfectly well.
     const aiInsights = require('../services/aiInsights');
+    const { provider } = aiInsights.resolveProvider();
+    if (!provider) {
+      return res.status(400).json({ ok: false, error: 'No AI API key configured - add one in Settings' });
+    }
     const text = await aiInsights.generateInsight();
     res.json({ ok: true, text });
   } catch (err) {

@@ -153,14 +153,47 @@ async function callGemini(apiKey, prompt) {
   return (data.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
 }
 
-async function generateInsight() {
-  const openRouterKey = db.getSetting('openrouter_api_key');
-  const claudeKey     = db.getSetting('anthropic_api_key');
-  const geminiKey     = db.getSetting('gemini_api_key');
+// Which provider the briefing should use, and whether its key is actually present.
+//
+// This used to be implicit: whichever key existed first in the order OpenRouter, Claude, Gemini
+// won. That meant an install with an OpenRouter key could never reach Gemini even with a Gemini
+// key sitting right there for bill parsing, and the only way to switch was to delete a key.
+// ai_insight_provider makes the choice explicit and defaults to 'openrouter', so an install that
+// never touches the setting behaves exactly as it did before.
+//
+// The fallback matters as much as the choice. Picking a provider whose key is blank should not
+// mean no briefing at all, so it falls back to any other configured provider rather than failing.
+// Bill parsing is untouched by any of this - it reads gemini_api_key directly and always has.
+const PROVIDERS = ['openrouter', 'claude', 'gemini'];
 
-  if (!openRouterKey && !claudeKey && !geminiKey) {
+function resolveProvider() {
+  const keys = {
+    openrouter: db.getSetting('openrouter_api_key'),
+    claude:     db.getSetting('anthropic_api_key'),
+    gemini:     db.getSetting('gemini_api_key'),
+  };
+
+  const configured = String(db.getSetting('ai_insight_provider') || '').trim().toLowerCase();
+  const chosen = PROVIDERS.includes(configured) ? configured : 'openrouter';
+
+  if (keys[chosen]) return { provider: chosen, key: keys[chosen], fellBack: false };
+
+  const alternative = PROVIDERS.find((p) => keys[p]);
+  if (alternative) return { provider: alternative, key: keys[alternative], fellBack: chosen };
+
+  return { provider: null, key: null, fellBack: false };
+}
+
+async function generateInsight() {
+  const { provider, key, fellBack } = resolveProvider();
+
+  if (!provider) {
     logger.logEvent('info', '[ai-insights] No AI API key configured - skipping');
     return null;
+  }
+  if (fellBack) {
+    logger.logEvent('info',
+      `[ai-insights] ${fellBack} is selected but has no API key - using ${provider} instead`);
   }
 
   const now  = Date.now();
@@ -231,20 +264,19 @@ async function generateInsight() {
     remaining, tomorrow, dailyTotals,
   });
 
-  // Priority: OpenRouter (free) → Claude → Gemini
   let text;
-  if (openRouterKey) {
-    text = await callOpenRouter(openRouterKey, prompt);
-  } else if (claudeKey) {
-    text = await callClaude(claudeKey, prompt);
+  if (provider === 'openrouter') {
+    text = await callOpenRouter(key, prompt);
+  } else if (provider === 'claude') {
+    text = await callClaude(key, prompt);
   } else {
-    text = await callGemini(geminiKey, prompt);
+    text = await callGemini(key, prompt);
   }
 
   db.setSetting('ai_insight_text',         text);
   db.setSetting('ai_insight_generated_at', String(now));
 
-  logger.logEvent('info', '[ai-insights] Generated successfully');
+  logger.logEvent('info', `[ai-insights] Generated successfully using ${provider}`);
   return text;
 }
 
@@ -358,4 +390,4 @@ function stop() {
   if (_timer) { clearTimeout(_timer); _timer = null; }
 }
 
-module.exports = { start, stop, generateInsight, getInsight };
+module.exports = { start, stop, generateInsight, getInsight, resolveProvider };
