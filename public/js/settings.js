@@ -394,6 +394,7 @@ const FIELD_IDS = [
   'ntfy_base_url', 'ntfy_topic',
   'tesla_battery_kwh', 'soc_floor_pct',
   'openrouter_api_key', 'openrouter_model', 'ai_insight_provider',
+  'opportunistic_charge_limit_pct', 'opportunistic_weak_ratio_pct',
   'anthropic_api_key',
   'fleet_telemetry_hostname', 'fleet_telemetry_port', 'fleet_telemetry_ca_cert',
   'google_calendar_client_id', 'google_calendar_client_secret', 'google_calendar_redirect_uri',
@@ -643,6 +644,10 @@ async function loadSettings() {
     if (freePowerToggle) freePowerToggle.checked = data.settings.free_power_enabled === 'true';
     loadFreePowerWindows();
 
+    // Opt-in, so anything other than an explicit 'true' is off.
+    const solarBankingToggle = document.getElementById('opportunistic_charge_limit_enabled_toggle');
+    if (solarBankingToggle) solarBankingToggle.checked = data.settings.opportunistic_charge_limit_enabled === 'true';
+
     // Both switches in this card save the moment they are changed. See
     // saveToggleNow for why. Bound once, on the first load.
     if (autoTripToggle && !autoTripToggle.dataset.bound) {
@@ -658,6 +663,12 @@ async function loadSettings() {
         // The upcoming-windows list is a function of this setting, so refresh
         // it rather than leaving it contradicting the switch above it.
         if (ok) loadFreePowerWindows();
+      });
+    }
+    if (solarBankingToggle && !solarBankingToggle.dataset.bound) {
+      solarBankingToggle.dataset.bound = '1';
+      solarBankingToggle.addEventListener('change', () => {
+        saveToggleNow('opportunistic_charge_limit_enabled', solarBankingToggle.checked, 'Solar banking');
       });
     }
   } catch (err) {
@@ -731,6 +742,9 @@ async function saveSettings(e) {
 
   const freePowerToggle = document.getElementById('free_power_enabled_toggle');
   if (freePowerToggle) body.free_power_enabled = freePowerToggle.checked ? 'true' : 'false';
+
+  const solarBankingToggle = document.getElementById('opportunistic_charge_limit_enabled_toggle');
+  if (solarBankingToggle) body.opportunistic_charge_limit_enabled = solarBankingToggle.checked ? 'true' : 'false';
 
   try {
     const data = await api('/api/settings', { method: 'POST', body });

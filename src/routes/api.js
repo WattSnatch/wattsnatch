@@ -387,6 +387,7 @@ router.post('/api/settings', (req, res) => {
       'openrouter_api_key', 'openrouter_model', 'ai_insight_provider',
       'feed_in_tariff_aud', 'supply_charge_daily_aud', 'solar_install_cost_aud',
       'solcast_api_key', 'solcast_resource_id', 'solcast_configured',
+      'opportunistic_charge_limit_enabled', 'opportunistic_charge_limit_pct', 'opportunistic_weak_ratio_pct',
       'ntfy_base_url', 'ntfy_topic', 'notifications_enabled',
       'check_for_updates',
       'app_base_url',

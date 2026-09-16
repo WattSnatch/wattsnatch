@@ -1337,6 +1337,38 @@
         </div>
       </div>
 
+      <!-- Solar Banking (opportunistic charge limit) -->
+      <div class="card mb-2">
+        <div class="card-header">
+          <div class="card-label">Solar Banking</div>
+        </div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
+          On a strong solar day followed by a poor stretch, temporarily raise the car's charge limit so
+          surplus that would have been exported for a few cents is stored in the car instead of bought
+          back at retail over the cloudy days. Your normal limit is put back when the car is unplugged
+          or at the end of the day, whichever comes first. Needs Solcast forecasting configured above.
+        </p>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
+          <label class="toggle-switch" style="flex-shrink:0">
+            <input type="checkbox" id="opportunistic_charge_limit_enabled_toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:0.85rem;font-weight:600">Bank solar ahead of poor weather</span>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="setting_opportunistic_charge_limit_pct">Raise the limit to</label>
+            <input type="number" id="setting_opportunistic_charge_limit_pct" min="50" max="100" step="1" placeholder="90">
+            <span class="text-secondary text-xs mt-1">Percent. 90 captures most of the extra energy while being kinder to the battery than 100.</span>
+          </div>
+          <div class="form-group">
+            <label for="setting_opportunistic_weak_ratio_pct">Treat days ahead as weak below</label>
+            <input type="number" id="setting_opportunistic_weak_ratio_pct" min="1" max="99" step="1" placeholder="60">
+            <span class="text-secondary text-xs mt-1">Percent of today's generation. Triggers when the next 4 days average below this.</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Notifications & Alerts -->
       <div class="card mb-2">
         <div class="card-header">
