@@ -474,6 +474,19 @@ function initDb() {
     // full rate, so it only ever runs because somebody switched it on.
     free_power_enabled:         'false',
     free_power_keywords:        'free power',
+    // Opportunistic charge-limit banking. Off by default: it changes a value the
+    // owner set on their own car, so it only ever runs because somebody switched
+    // it on. The ceiling is what the limit is raised to on a strong day, and the
+    // weak ratio is how far below today the next few days must average before
+    // that is worth doing. See services/solarBanking.js.
+    opportunistic_charge_limit_enabled: 'false',
+    opportunistic_charge_limit_pct:     '90',
+    opportunistic_weak_ratio_pct:       '60',
+    // Set while a boost is in effect so the owner's original limit survives a
+    // restart. Empty means no boost is active.
+    opportunistic_boost_baseline_pct:   '',
+    opportunistic_boost_day:            '',
+    opportunistic_boost_started_at:     '',
     battery_brand:               'none',
     battery_priority:            'battery_first',
     sigenergy_host:              '',

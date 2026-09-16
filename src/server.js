@@ -36,6 +36,7 @@ const enphasePanels = require('./services/enphase-panels');
 const dayReplay = require('./services/dayReplay');
 const aiInsights    = require('./services/aiInsights');
 const weatherGrid   = require('./services/weatherGrid');
+const solarBanking  = require('./services/solarBanking');
 const telemetryHealth = require('./services/telemetryHealth');
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -178,6 +179,7 @@ async function main() {
     dayReplay.startAggregationTask();
     aiInsights.start();
     weatherGrid.start();
+    solarBanking.start(); // raises the charge limit on a strong day before a weak spell, off by default
     telemetryHealth.start(); // auto-detect + re-register a Fleet Telemetry config Tesla has dropped
 
     // ── Daily notifications ───────────────────────────────────────────────────
@@ -241,6 +243,7 @@ async function main() {
     dayReplay.stopAggregationTask();
     aiInsights.stop();
     weatherGrid.stop();
+    solarBanking.stop();
     telemetryHealth.stop();
     stopTokenScheduler();
     server.close(() => {
