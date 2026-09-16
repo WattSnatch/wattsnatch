@@ -393,7 +393,7 @@ const FIELD_IDS = [
   'solcast_api_key', 'solcast_resource_id',
   'ntfy_base_url', 'ntfy_topic',
   'tesla_battery_kwh', 'soc_floor_pct',
-  'openrouter_api_key', 'openrouter_model',
+  'openrouter_api_key', 'openrouter_model', 'ai_insight_provider',
   'anthropic_api_key',
   'fleet_telemetry_hostname', 'fleet_telemetry_port', 'fleet_telemetry_ca_cert',
   'google_calendar_client_id', 'google_calendar_client_secret', 'google_calendar_redirect_uri',

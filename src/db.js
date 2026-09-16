@@ -434,6 +434,11 @@ function initDb() {
     // See DEFAULT_GEMINI_MODEL at the top of this file. Overridable in Settings
     // so a future model retirement is a one-field fix, not an app update.
     gemini_model:               DEFAULT_GEMINI_MODEL,
+    // Which provider writes the dashboard briefing: openrouter, claude or gemini. Defaults to
+    // openrouter because that is what the briefing used before this became selectable, so an
+    // install that never touches it keeps the behaviour it already had. Gemini reuses
+    // gemini_api_key above, the same key bill parsing uses, rather than needing its own.
+    ai_insight_provider:        'openrouter',
     solcast_api_key:            '',
     solcast_resource_id:        '',
     solcast_configured:         '0',

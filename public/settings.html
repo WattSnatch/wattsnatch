@@ -758,8 +758,20 @@
           <div class="card-label">AI Energy Briefing</div>
         </div>
         <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
-          The AI briefing on the dashboard is generated at 6:30 am and 9 pm. Uses OpenRouter (free tier) by default - add your key below.
+          The AI briefing on the dashboard is generated at 6:30 am and 9 pm. Choose which provider writes it below.
+          Gemini reuses the same key as Bill Analysis, so if that is already set up there is nothing further to add.
         </p>
+        <div class="form-group" style="margin-bottom:1rem">
+          <label for="setting_ai_insight_provider">Briefing provider</label>
+          <select id="setting_ai_insight_provider">
+            <option value="openrouter">OpenRouter (free tier)</option>
+            <option value="gemini">Google Gemini (same key as Bill Analysis)</option>
+            <option value="claude">Claude</option>
+          </select>
+          <span class="text-secondary text-xs mt-1">
+            If the provider you pick has no key saved, another configured one is used instead, so the briefing still gets written.
+          </span>
+        </div>
         <div class="grid-2">
           <div class="form-group">
             <label for="setting_openrouter_api_key">OpenRouter API Key</label>
