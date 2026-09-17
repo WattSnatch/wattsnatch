@@ -28,6 +28,15 @@ const mqttPublisher = require('./services/mqttPublisher');
 // about to stop, which is rare and is exactly when being wrong is costly.
 const VERIFY_LIMIT_BEFORE_STOP_MS = 2 * 60 * 1000;
 
+// Minimum gap between attempts to restart a charge the car says is not running.
+// Short, because every tick spent in this condition is surplus going to the grid
+// instead of the car, and the loop ticks far faster than this. Not zero, because
+// a car that will not start for some reason we cannot see must not be sent a
+// command on every tick: that is a command storm against a car that is already
+// unhappy. The cases that would refuse indefinitely (at the charge limit, or
+// disconnected) return above the state machine and never reach this path.
+const CHARGE_RESTART_MIN_GAP_MS = 60 * 1000;
+
 /**
  * Whether a charge_state snapshot's charge_limit_soc can be believed.
  *
@@ -155,6 +164,9 @@ class Controller {
     // it last answered). Keeps a non-answering API from causing a poll storm -
     // see the chargeLimitStale check in _loop().
     this._lastChargeLimitCheckAt = 0;
+    // When we last re-issued a start for a charge the car reported as stopped while
+    // this controller believed it was charging. See CHARGE_RESTART_MIN_GAP_MS.
+    this._lastChargeRestartAt = 0;
     // BLE state-source mode (tesla_state_source === 'ble'): reachability doubles as geofencing
     // (BLE only carries a few metres, so "reachable" means "at home"). Starts false so we never
     // act on the car until a BLE read confirms it is present.
@@ -1948,7 +1960,43 @@ class Controller {
             this._setState(STATES.HOLDING, 'Solar dropped - entering hold period');
           }
         } else {
-          if (targetAmps !== this._lastCommandedAmps) {
+          // Being in CHARGING is this controller's belief, not the car's. The two can
+          // disagree, and when they do, everything below is a no-op: setting amps on a
+          // stopped car changes nothing at all.
+          //
+          // Found live 2026-09-17. The loop intercepted a grid charge on plug-in, which
+          // stopped the car. The two vehicle_data polls that followed both timed out, so
+          // the ten-second-old state still read 'Charging' - describing the charge this
+          // same loop had just ended. MONITORING read that as "vehicle already charging,
+          // take control" and moved to CHARGING, whose only action is trimming amps. The
+          // start command lives in MONITORING and nothing here returns to it. The result
+          // was 46 minutes of set_charging_amps against a stopped car, roughly 2.8 kWh of
+          // surplus exported, and a session sitting open at a measured 0 W throughout.
+          //
+          // So reconcile against what the car reports rather than what this machine
+          // assumes. Only an explicit Stopped or NoPower counts: chargingState === null
+          // means asleep or not yet reported, which is not evidence of anything, and
+          // acting on it would command a car that might not even be plugged in. That is
+          // the same distinction the scheduled-wake and phantom-charge fixes turn on.
+          const carSaysNotCharging = chargingState === 'Stopped' || chargingState === 'NoPower';
+          if (carSaysNotCharging && pluggedIn
+              && (now - this._lastChargeRestartAt) >= CHARGE_RESTART_MIN_GAP_MS) {
+            this._lastChargeRestartAt = now;
+            try {
+              this._trackApiCall('command'); await setChargingAmps(vin, targetAmps, teslaToken);
+              this._trackApiCall('command'); await startCharging(vin, teslaToken);
+              this._lastCommandedAmps = targetAmps;
+              logger.logEvent('command',
+                `Car reported ${chargingState} while charging was believed active - restarted at ${targetAmps}A`);
+            } catch (err) {
+              logger.logEvent('api_error', `Charge restart failed: ${err.message}`);
+              if (err.message && err.message.includes('401')) {
+                this._triggerTeslaTokenRefresh();
+              } else {
+                await this._wakeIfAsleep(err, vin, teslaToken, 'Charge restart');
+              }
+            }
+          } else if (targetAmps !== this._lastCommandedAmps) {
             try {
               this._trackApiCall('command'); await setChargingAmps(vin, targetAmps, teslaToken);
               this._lastCommandedAmps = targetAmps;
