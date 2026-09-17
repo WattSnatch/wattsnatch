@@ -37,6 +37,13 @@ const VERIFY_LIMIT_BEFORE_STOP_MS = 2 * 60 * 1000;
 // disconnected) return above the state machine and never reach this path.
 const CHARGE_RESTART_MIN_GAP_MS = 60 * 1000;
 
+// Minimum gap between re-attempts of the hold step-down. The hold itself is only
+// a few minutes, and every tick spent above the minimum is grid import at the old
+// rate, so this is short. It is not zero because the usual reason the step-down
+// failed is a car that is offline, asleep or behind a proxy that is restarting,
+// and none of those are improved by asking faster.
+const HOLD_STEP_DOWN_RETRY_MS = 30 * 1000;
+
 /**
  * Whether a charge_state snapshot's charge_limit_soc can be believed.
  *
@@ -167,6 +174,9 @@ class Controller {
     // When we last re-issued a start for a charge the car reported as stopped while
     // this controller believed it was charging. See CHARGE_RESTART_MIN_GAP_MS.
     this._lastChargeRestartAt = 0;
+    // When we last tried to drop the car to minimum amps for a hold period.
+    // See HOLD_STEP_DOWN_RETRY_MS.
+    this._lastHoldStepDownAt = 0;
     // BLE state-source mode (tesla_state_source === 'ble'): reachability doubles as geofencing
     // (BLE only carries a few metres, so "reachable" means "at home"). Starts false so we never
     // act on the car until a BLE read confirms it is present.
@@ -1943,6 +1953,9 @@ class Controller {
         if (!hasSolar) {
           if (!this.holdTimerStart) {
             this.holdTimerStart = now;
+            // The attempt below is the first try; the retry clock starts here so a
+            // failure is re-attempted on a bounded schedule rather than immediately.
+            this._lastHoldStepDownAt = now;
             // Step down to minimum amps immediately - don't keep drawing at the old high rate
             // while waiting to see if solar recovers. The hold timer protects against stop-cycling,
             // but there's no reason to pull from the grid at full speed during the wait.
@@ -2016,6 +2029,10 @@ class Controller {
           this._setState(STATES.CHARGING, 'Solar returned - resuming charge');
           try {
             this._trackApiCall('command'); await setChargingAmps(vin, targetAmps, teslaToken);
+            // Record what was actually commanded. Without this the field still reads
+            // the hold minimum after a resume, which is simply untrue, and the retry
+            // below keys off it being accurate.
+            this._lastCommandedAmps = targetAmps;
           } catch (err) {
             logger.logEvent('api_error', `Set amps on resume failed: ${err.message}`);
             if (err.message && err.message.includes('401')) this._triggerTeslaTokenRefresh();
@@ -2026,6 +2043,31 @@ class Controller {
           await this._safeStop(vin, teslaToken, 'Hold timer expired - stopped charging');
           // Stay in WAITING (car still plugged in) so we restart when sun returns
           this._setState(STATES.WAITING, 'Hold expired - waiting for solar');
+        } else if (pluggedIn && this._lastCommandedAmps !== minAmps
+                   && (now - this._lastHoldStepDownAt) >= HOLD_STEP_DOWN_RETRY_MS) {
+          // The step-down into the hold is sent exactly once, on the tick that starts
+          // the timer, and nothing here used to re-attempt it. So a single failed
+          // command left the car drawing at its old rate - up to the full maximum -
+          // straight from the grid for the entire hold, with the log showing the
+          // failure and the state machine carrying on as though it had worked.
+          //
+          // That is not hypothetical: it has happened 52 times on this install, the
+          // causes being a car offline or asleep and a request timing out while the
+          // Bluetooth proxy was restarting. At the maximum rate a three minute hold
+          // is roughly 0.3 kWh imported, every time.
+          //
+          // Same shape as the charge reconciliation above: a command that failed is
+          // worth re-sending, because the state machine's belief about the car is
+          // not evidence the car ever received anything.
+          this._lastHoldStepDownAt = now;
+          try {
+            this._trackApiCall('command'); await setChargingAmps(vin, minAmps, teslaToken);
+            this._lastCommandedAmps = minAmps;
+            logger.logEvent('command', `Hold step-down retried - now holding at ${minAmps}A`);
+          } catch (err) {
+            logger.logEvent('api_error', `Hold step-down retry failed: ${err.message}`);
+            if (err.message && err.message.includes('401')) this._triggerTeslaTokenRefresh();
+          }
         }
         break;
       }
