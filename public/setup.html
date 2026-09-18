@@ -203,6 +203,18 @@
           <input type="number" id="sungrow-unit-id-input" value="1">
         </div>
       </div>
+      <div class="form-group">
+        <label for="sungrow-family-input">Inverter family</label>
+        <select id="sungrow-family-input">
+          <option value="sh">SH series - hybrid (has a battery)</option>
+          <option value="sg">SG series - string inverter (no battery)</option>
+        </select>
+        <span class="text-secondary text-xs mt-1">
+          The two product lines do not share a Modbus register map, so the wrong choice here reads
+          nothing at all. An SG10RS, SG5.0RS or similar is SG series. If the connection test times
+          out or reports <code>Illegal data address</code>, this is the setting to change.
+        </span>
+      </div>
     </div>
 
     <!-- MQTT fields -->
