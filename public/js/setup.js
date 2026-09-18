@@ -204,6 +204,11 @@ function collectInverterFields() {
       sungrow_host:    host,
       sungrow_port:    document.getElementById('sungrow-port-input')?.value?.trim() || '502',
       sungrow_unit_id: document.getElementById('sungrow-unit-id-input')?.value?.trim() || '1',
+      // Without this the wizard silently left the default SH register map in place, so an
+      // SG string inverter read nothing and the connection simply timed out. The only
+      // selector lived under the Sungrow home-battery settings, which is the last place
+      // an SG owner with no battery would look. Reported as issue #20.
+      sungrow_inverter_family: document.getElementById('sungrow-family-input')?.value || 'sh',
     };
   }
   if (selectedInverterBrand === 'mqtt') {
