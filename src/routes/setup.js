@@ -180,15 +180,21 @@ router.post('/api/setup/register-partner', async (req, res) => {
     const cleanDomain = domain.replace(/^https?:\/\//i, '').split('/')[0].toLowerCase();
     await registerPartnerAccount(partnerTokenData.access_token, cleanDomain);
 
-    db.setSetting('tesla_partner_registered', 'true');
     db.setSetting('tesla_public_key_url', domain);
-    logger.logEvent('info', `Tesla partner account registered for domain: ${cleanDomain}`);
 
-    // Verify against Tesla itself: does Tesla actually hold a key for this domain, and does it
-    // match ours? Previously this needed a manual curl (issue #17) - now the wizard can say
-    // outright whether registration truly landed, instead of inferring it from a 200.
+    // A 200 from the registration POST is not evidence that Tesla stored anything.
+    //
+    // Issue #17: the wizard showed "Registered" while Tesla held no key at all for the
+    // domain. The reporter only found out by running the read-back by hand, after days
+    // of chasing a virtual-key pairing failure that the green tick had ruled out. The
+    // registered flag was written immediately after the POST returned, the read-back was
+    // treated as an optional extra, and the response said ok whatever it found.
+    //
+    // So the read-back is the success condition now, not a bonus signal, and the stored
+    // flag is only written once Tesla confirms it holds this installation's key.
     let registrationVerified = null;
     let teslaHasKey = null;
+    let verifyError = null;
     try {
       const teslaKey = await getRegisteredPublicKey(partnerTokenData.access_token, cleanDomain);
       teslaHasKey = teslaKey != null;
@@ -201,9 +207,48 @@ router.post('/api/setup/register-partner', async (req, res) => {
       logger.logEvent('info',
         `Tesla registration check: Tesla ${teslaHasKey ? 'has' : 'has NO'} key for ${cleanDomain}`
         + (registrationVerified === null ? '' : `, matches local key: ${registrationVerified}`));
-    } catch (_e) { /* verification is a bonus signal, never a gate on success */ }
+    } catch (e) {
+      // Could not ask Tesla. That is not the same as Tesla saying no, so this is not
+      // reported as a failed registration - but it is not reported as success either.
+      verifyError = e.message;
+      logger.logEvent('info', `Tesla registration check could not be completed: ${e.message}`);
+    }
 
-    res.json({ ok: true, region: db.getSetting('tesla_region') || 'na', teslaHasKey, registrationVerified });
+    if (registrationVerified === true) {
+      db.setSetting('tesla_partner_registered', 'true');
+      logger.logEvent('info', `Tesla partner account registered and confirmed for domain: ${cleanDomain}`);
+      return res.json({
+        ok: true, region: db.getSetting('tesla_region') || 'na', teslaHasKey, registrationVerified: true,
+      });
+    }
+
+    if (registrationVerified === false) {
+      // Tesla answered, and what it holds is not what this installation uses. Pairing
+      // cannot work in this state, so advancing the wizard would only hide it again.
+      db.setSetting('tesla_partner_registered', 'false');
+      const why = teslaHasKey
+        ? `Tesla has a public key registered for ${cleanDomain}, but it is not this installation's key. `
+          + `That usually means the keypair was regenerated after Tesla stored the original one. `
+          + `Tesla publishes no endpoint for replacing a stored key, so the fix is to restore the `
+          + `original keys/private.pem and keys/public.pem pair, or to register a different domain.`
+        : `Tesla accepted the request but has no public key stored for ${cleanDomain}, so the `
+          + `registration did not take effect and virtual key pairing will fail. Check that `
+          + `${cleanDomain} is the Allowed Origin on your Tesla app, and that your key is served at `
+          + `https://${cleanDomain}/.well-known/appspecific/com.tesla.3p.public-key.pem`;
+      logger.logEvent('api_error',
+        `Tesla partner registration did not take effect for ${cleanDomain} `
+        + `(Tesla ${teslaHasKey ? 'holds a different key' : 'holds no key'})`);
+      return res.json({ ok: false, error: why, teslaHasKey, registrationVerified: false });
+    }
+
+    // Neither confirmed nor refuted: Tesla could not be asked, or the local key could not
+    // be read to compare. The user is not blocked, but nothing here claims success.
+    return res.json({
+      ok: true, region: db.getSetting('tesla_region') || 'na', teslaHasKey, registrationVerified: null,
+      warning: verifyError
+        ? `Registration was accepted, but WattSnatch could not confirm it with Tesla (${verifyError}).`
+        : `Registration was accepted, but WattSnatch could not compare Tesla's stored key with the local one.`,
+    });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
