@@ -25,6 +25,7 @@ function goToStep(n) {
   if (n === 5) initStep5DevApp();
   if (n === 6) initStep6Vehicle();
   if (n === 7) initStep7PublicKey();
+  if (n === 8) initStep8Pairing();
   if (n === 9) initStep9Ble();
   if (n === 11) initStep11Service();
   if (n === 12) initStep12Complete();
@@ -432,17 +433,20 @@ document.addEventListener('DOMContentLoaded', () => {
 // the public-key domain with Tesla - no user login involved) and never leaves this page.
 function initStep5DevApp() {
   const isBle = selectedVehicleMode === 'ble';
-  document.getElementById('tesla-redirect-uri-group')?.classList.toggle('hidden', isBle);
-  // Bluetooth LE never sends the user through Tesla's login, so there is no
-  // authorisation for an unregistered domain to block. That mode registers the
-  // domain later, at the public-key step, where it is genuinely needed.
+  // The redirect URI is needed in both modes. Bluetooth mode does not sign in on this
+  // step, but Tesla still refuses to pair a virtual key for an application the account
+  // has not authorised (issue #17), and its login cannot run without a redirect URI.
+  document.getElementById('tesla-redirect-uri-group')?.classList.remove('hidden');
+  // The domain is registered later in Bluetooth mode, at the public-key step, so it is
+  // not asked for here. Fleet mode needs it now, before it hands off to Tesla's login.
   document.getElementById('tesla-domain-group')?.classList.toggle('hidden', isBle);
   const desc = document.getElementById('step5-desc');
   if (desc) {
     desc.innerHTML = isBle
-      ? `Enter your Tesla Fleet API application's Client ID and Secret. You need a registered developer application at
-         <a href="https://developer.tesla.com" target="_blank" rel="noopener">developer.tesla.com</a> - these are used only to
-         register your public key with Tesla in a later step. No login or redirect URI is needed for Bluetooth LE mode.`
+      ? `Enter your Tesla Fleet API application's Client ID, Secret and redirect URI. You need a registered developer
+         application at <a href="https://developer.tesla.com" target="_blank" rel="noopener">developer.tesla.com</a>.
+         Bluetooth LE mode does not sign in here, but Tesla requires a one-time sign-in before it will pair a virtual key
+         with your car, a few steps from now. Charging itself still runs locally over Bluetooth afterwards.`
       : `Enter your Tesla Fleet API application credentials. You need a registered developer application at
          <a href="https://developer.tesla.com" target="_blank" rel="noopener">developer.tesla.com</a>.
          The redirect URI must match exactly what you registered.`;
@@ -450,7 +454,7 @@ function initStep5DevApp() {
   const infoAlert = document.getElementById('step5-info-alert');
   if (infoAlert) {
     infoAlert.textContent = isBle
-      ? 'Clicking "Save and Continue" stores your credentials here - it does not redirect anywhere or log in to your Tesla account.'
+      ? 'Clicking "Save and Continue" only stores these details. The Tesla sign-in comes later, just before you pair the virtual key.'
       : 'Clicking "Authorise with Tesla" will redirect you to Tesla\'s login page. You\'ll be sent back here automatically.';
   }
   const authBtn = document.getElementById('tesla-auth-btn');
@@ -462,11 +466,17 @@ async function saveTeslaCredsAndRedirect() {
   const clientSecret = document.getElementById('tesla-client-secret')?.value?.trim();
 
   if (selectedVehicleMode === 'ble') {
-    if (!clientId || !clientSecret) {
-      showStepError('step5', 'Client ID and Client Secret are required');
+    // Stored now even though this mode does not sign in here, because the sign-in at the
+    // pairing step cannot run without it.
+    const bleRedirectUri = document.getElementById('tesla-redirect-uri')?.value?.trim();
+    if (!clientId || !clientSecret || !bleRedirectUri) {
+      showStepError('step5', 'Client ID, Client Secret and redirect URI are required');
       return;
     }
-    await api('/api/settings', { method: 'POST', body: { tesla_client_id: clientId, tesla_client_secret: clientSecret } });
+    await api('/api/settings', {
+      method: 'POST',
+      body: { tesla_client_id: clientId, tesla_client_secret: clientSecret, tesla_redirect_uri: bleRedirectUri },
+    });
     goToStep(6);
     return;
   }
@@ -746,7 +756,33 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ─── Step 8: Virtual key pairing ───
+//
+// Pairing fails with "have not granted this app access to your account" if the Tesla
+// account never authorised the application. Bluetooth LE mode used to skip the sign-in
+// entirely and said so on screen, so every Bluetooth setup arrived here unable to pair
+// (issue #17). The reporter only got past it by switching to Fleet API mode, signing in,
+// and switching back.
+//
+// The check runs in both modes rather than only Bluetooth: Fleet users have signed in
+// long before this point, so the notice stays hidden for them, and anyone who arrives
+// here unauthorised for any other reason is told now - before walking out to the car,
+// which is what this step asks them to do.
+async function initStep8Pairing() {
+  const gate = document.getElementById('step8-auth-gate');
+  if (!gate) return;
+  try {
+    const data = await api('/api/setup/tesla-auth-status');
+    gate.classList.toggle('hidden', !!(data && data.authorized));
+  } catch (_err) {
+    // Could not tell. Do not block the step on a failed check.
+    gate.classList.add('hidden');
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('step8-authorise-btn')?.addEventListener('click', () => {
+    window.location.href = '/auth/tesla/start';
+  });
   document.getElementById('step8-next')?.addEventListener('click', () => {
     goToStep(selectedVehicleMode === 'ble' ? 9 : 10);
   });
