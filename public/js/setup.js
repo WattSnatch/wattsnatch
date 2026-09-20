@@ -498,7 +498,7 @@ async function saveTeslaCredsAndRedirect() {
     const reg = await api('/api/setup/register-partner', { method: 'POST', body: { domain: keyDomain } });
     if (!reg.ok) {
       showStepError('step5',
-        `Tesla rejected the domain registration: ${reg.error || 'unknown error'}. `
+        `Domain registration did not complete: ${reg.error || 'unknown error'}. `
         + `Check that "${keyDomain}" matches the Allowed Origin on your Tesla app, `
         + `and that your public key is reachable at `
         + `https://${keyDomain}/.well-known/appspecific/com.tesla.3p.public-key.pem`);
@@ -583,7 +583,10 @@ async function registerPartnerFromVehicleStep() {
     if (data.ok) {
       statusEl.textContent = '';
       const el = document.getElementById('vehicle-info');
-      if (el) el.innerHTML = `<div style="color:var(--text-secondary)">Registered! Fetching vehicle list…</div>`;
+      const regLabel = data.registrationVerified === true
+        ? 'Registered and confirmed by Tesla. Fetching vehicle list…'
+        : 'Registration sent, but Tesla did not confirm it. Fetching vehicle list…';
+      if (el) el.innerHTML = `<div style="color:var(--text-secondary)">${regLabel}</div>`;
       await initStep6Vehicle();
     } else {
       statusEl.textContent = 'Error: ' + (data.error || 'Registration failed');
@@ -676,9 +679,14 @@ async function registerPartnerFromKeyStep() {
   if (statusEl) statusEl.textContent = 'Registering…';
   try {
     const data = await api('/api/setup/register-partner', { method: 'POST', body: { domain } });
-    if (data.ok) {
+    if (data.ok && data.registrationVerified === true) {
       blePartnerRegistered = true;
-      if (statusEl) statusEl.textContent = '✓ Registered';
+      if (statusEl) statusEl.textContent = '✓ Registered and confirmed by Tesla';
+    } else if (data.ok) {
+      // Accepted, but Tesla could not be asked to confirm it holds the key. Calling that
+      // "Registered" is exactly what cost issue #17 several days, so say what is known.
+      blePartnerRegistered = false;
+      if (statusEl) statusEl.textContent = '⚠ Sent, but not confirmed by Tesla';
     } else if (statusEl) {
       statusEl.textContent = 'Error: ' + (data.error || 'Registration failed');
     }
