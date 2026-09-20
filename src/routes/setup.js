@@ -254,6 +254,20 @@ router.post('/api/setup/register-partner', async (req, res) => {
   }
 });
 
+// GET /api/setup/tesla-auth-status - has this Tesla account authorised the app?
+//
+// Tesla will not pair a virtual key for an application the account has not granted
+// access to, even in Bluetooth mode where charging commands never touch the Fleet
+// API afterwards. Nothing in settings records whether that sign-in happened, so the
+// stored token row is the signal. See the pairing step in the setup wizard.
+router.get('/api/setup/tesla-auth-status', (req, res) => {
+  try {
+    res.json({ ok: true, authorized: !!db.getToken('tesla') });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
 // GET /api/setup/fetch-vehicles - retry vehicle list using stored token
 router.get('/api/setup/fetch-vehicles', async (req, res) => {
   try {
