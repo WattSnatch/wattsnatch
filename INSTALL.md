@@ -128,7 +128,7 @@ The first thing to decide, because it determines whether most of this guide appl
 | Status | Primary, battle-tested in daily use | Implemented and tested, but **not yet verified against real charger hardware** |
 | Battery percentage | Yes | **No** - see the caveat below |
 | Sections of this guide you need | 4, 5, 6, 7, 8 | **Skip 4-6 and 8 entirely** - no proxy to build, no Tesla developer app, no key pairing. Just section 7 (the wizard) |
-| Extra setup | Tesla developer app, EC keypair, virtual key pairing | Point your charger's OCPP server URL at this machine |
+| Extra setup | Tesla developer app, EC keypair, virtual key pairing - unless Bluetooth is paired locally, which needs none of them | Point your charger's OCPP server URL at this machine |
 
 **How OCPP is wired up.** WattSnatch acts as the **Central System (CSMS)**, which means it *listens* and the charger connects in to it - that is the standard OCPP topology, not an inversion of it. It listens on `ocpp_ws_port` (default 9220), so in your charger's own configuration set the OCPP/backend URL to:
 
@@ -150,10 +150,10 @@ If you chose OCPP, skip ahead to [section 7, the setup wizard](#7-run-the-setup-
 
 **Tesla backend only.** Before building anything, decide how WattSnatch should talk to your car - the setup wizard asks this too (step 4, after the backend choice above), and it changes which proxy you build below and what the rest of setup looks like.
 
-| | Fleet API + Fleet Telemetry (default) | Bluetooth LE (fully cloud-free) |
+| | Fleet API + Fleet Telemetry (default) | Bluetooth LE (no cloud once running) |
 |---|---|---|
-| Vehicle commands (start/stop/amps/limit) | Sent via Tesla's cloud Fleet API | Sent directly to the car over Bluetooth, no cloud hop |
-| Vehicle state (battery, charging status) | Live push from Fleet Telemetry (needs its own always-on streaming server - see [Real-time telemetry](#real-time-telemetry---tesla-fleet-telemetry-advanced-optional)) | Polled over Bluetooth every ~30 seconds |
+| Vehicle commands (start/stop/amps) | Sent via Tesla's cloud Fleet API | Sent directly to the car over Bluetooth, no cloud hop. Setting the charge limit needs the proxy's Owner key role; the recommended Charging Manager role cannot |
+| Vehicle state (battery, charging status) | Live push from Fleet Telemetry (needs its own always-on streaming server - see [Real-time telemetry](#real-time-telemetry---tesla-fleet-telemetry-advanced-optional)) | Polled over Bluetooth every ~5 seconds (was ~30 before v2.4.0) |
 | Range | Anywhere the car has signal | Only while the car is within Bluetooth range of whichever machine runs TeslaBleHttpProxy (a few metres, i.e. at home) |
 | Geofencing | GPS-based (home lat/lon + radius) | Automatic - Bluetooth range itself is the geofence |
 | Requires a live Tesla OAuth token | Yes | No - only for the one-time developer app registration below |
