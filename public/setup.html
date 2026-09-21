@@ -389,11 +389,13 @@
           </div>
         </button>
         <button type="button" class="btn btn-secondary mode-pill" data-mode="ble" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
-          <strong>Bluetooth LE</strong> <span class="text-secondary" style="font-weight:400">(fully cloud-free)</span>
+          <strong>Bluetooth LE</strong> <span class="text-secondary" style="font-weight:400">(cloud-free once running)</span>
           <div class="text-secondary text-xs" style="margin-top:0.35rem;font-weight:400">
-            No Fleet Telemetry, no Fleet API calls, no Tesla OAuth login - everything happens over local Bluetooth.
-            Only works while the car is in range (a few metres, i.e. at home), and state updates are polled every
-            ~30s rather than pushed live. Requires building and running
+            No Fleet Telemetry and no Fleet API calls once set up - commands and vehicle state both travel over local
+            Bluetooth. Setup itself still needs a one-time Tesla sign-in, because Tesla will not pair a virtual key to
+            your car for an application your account has not authorised. Only works while the car is in range (a few
+            metres, i.e. at home), and state is polled every few seconds rather than pushed live. Requires building and
+            running
             <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener" onclick="event.stopPropagation()">TeslaBleHttpProxy</a> yourself.
           </div>
         </button>

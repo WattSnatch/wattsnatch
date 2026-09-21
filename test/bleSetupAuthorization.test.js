@@ -125,6 +125,19 @@ test('the pairing step has a hidden notice and a way to sign in', () => {
     'the notice should quote the error Tesla actually shows');
 });
 
+test('the mode picker does not promise there is no Tesla login', () => {
+  // The claim that Bluetooth mode needs no OAuth login survived in the step 4 mode
+  // picker after the rest of this fix landed, which would have gone on telling people
+  // the opposite of what the pairing step now requires of them.
+  const picker = htmlSrc.slice(htmlSrc.indexOf('id="vehicle-mode-picker"'),
+                               htmlSrc.indexOf('id="vehicle-mode-picker"') + 2200);
+  assert.ok(picker.length > 0, 'the mode picker must be found');
+  assert.ok(!/no Tesla OAuth login/.test(picker),
+    'Bluetooth mode does need a one-time sign-in before pairing');
+  assert.match(picker, /one-time Tesla sign-in/,
+    'and the picker should say so where the choice is actually made');
+});
+
 test('the sign-in button goes through the normal OAuth start', () => {
   assert.match(uiSrc, /step8-authorise-btn[\s\S]{0,200}\/auth\/tesla\/start/,
     'it must reuse the existing OAuth entry point rather than a second implementation');
