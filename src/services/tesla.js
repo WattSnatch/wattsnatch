@@ -43,6 +43,17 @@ function fleetBase() {
 }
 
 const TESLA_AUTH = 'https://auth.tesla.com';
+
+// Partner (client credentials) tokens are documented against Tesla's Fleet Auth host,
+// while the user login flow still uses the account host above. Only getPartnerToken is
+// moved: the user OAuth exchange and refresh are working against auth.tesla.com for
+// every existing install, and changing those would risk locking people out to satisfy
+// a documentation change nobody has reported a problem with.
+//
+// This is a standards correction, not a fix for issue #6. That reporter tested both
+// hosts and saw the same invalid_audience failure on newly created applications, so
+// nothing here should be presented to them as a resolution.
+const TESLA_FLEET_AUTH = 'https://fleet-auth.prd.vn.cloud.tesla.com';
 const PROXY_URL = process.env.TESLA_PROXY_URL || 'https://localhost:4443';
 const DEFAULT_BLE_PROXY_URL = 'http://localhost:8080';
 
@@ -220,7 +231,7 @@ async function getPartnerToken(clientId, clientSecret) {
     audience: fleetBase(),
   }).toString();
 
-  const res = await jsonFetch(`${TESLA_AUTH}/oauth2/v3/token`, {
+  const res = await jsonFetch(`${TESLA_FLEET_AUTH}/oauth2/v3/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
