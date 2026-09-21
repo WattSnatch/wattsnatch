@@ -11,7 +11,7 @@ Automatically divert excess solar power into your electric car. When your solar 
 
 Works in Australia and the United States out of the box (Settings → Region drives currency/unit labels, one-click US utility rate templates, and NEM 3.0-style time-varying export credit for California) - and anywhere else with a supported inverter, minus the region-specific extras.
 
-Beyond the core solar-to-EV diversion, WattSnatch also has optional support for a home battery (Sigenergy, Sungrow, or Tesla Powerwall), air-conditioning monitoring (MELCloud or MelView), hot water diversion (myenergi Eddi), calendar-aware trip planning, electricity bill parsing, and Home Assistant integration - see [FEATURES.md](FEATURES.md) for the complete list, or [INSTALL.md](INSTALL.md#11-optional-integrations) for setup instructions on each.
+Beyond the core solar-to-EV diversion, WattSnatch also has optional support for a home battery (Sigenergy, Sungrow, or Tesla Powerwall), air-conditioning monitoring (MELCloud or MelView), hot water diversion (myenergi Eddi), calendar-aware trip planning, electricity bill parsing, three-phase chargers, banking solar into the car ahead of a poor forecast, and Home Assistant integration - see [FEATURES.md](FEATURES.md) for the complete list, or [INSTALL.md](INSTALL.md#11-optional-integrations) for setup instructions on each.
 
 The setup wizard asks how WattSnatch should charge your car, and reshapes itself around the answer. See [Charging backends](#charging-backends-tesla-or-ocpp) below.
 
@@ -235,7 +235,7 @@ The wizard has 12 steps. Two of them are skipped depending on choices you make, 
 1. **Welcome** - overview, nothing to enter.
 2. **Connect your solar inverter** - pick your brand, then fill in its fields (see the table below). Enphase has a "Find automatically" button that discovers the gateway over your local network.
 3. **Authenticate with Enphase** - **Enphase only.** Your Enlighten email and password, plus the gateway serial number from the sticker on the unit. The password is used once to generate a local token and is never stored. Every other brand skips this step entirely.
-4. **How should WattSnatch charge your car?** - first choose the backend: **Tesla** (the default) or **OCPP charger** (any EV). Choosing OCPP asks for your charge point ID and WebSocket port and then skips straight to step 10 - every step from 5 to 9 is Tesla-specific and does not apply. Choosing Tesla then asks for **Fleet API + Fleet Telemetry** (Tesla's cloud, the default) or **Bluetooth LE** (fully cloud-free, but the machine must be in Bluetooth range of the car). Both choices reshape the remaining steps.
+4. **How should WattSnatch charge your car?** - first choose the backend: **Tesla** (the default) or **OCPP charger** (any EV). Choosing OCPP asks for your charge point ID and WebSocket port and then skips straight to step 10 - every step from 5 to 9 is Tesla-specific and does not apply. Choosing Tesla then offers three: **Fleet API + Fleet Telemetry** (Tesla's cloud, the default), **Bluetooth LE** paired through Tesla, or **Bluetooth LE, fully local**, where the proxy generates its own key and pairs it by tapping an NFC key card at the car, with no Tesla account involved at any point. Both Bluetooth options need the machine to be within range of the car. Each choice reshapes the remaining steps: local pairing skips the developer app, the hosted key and the Tesla pairing steps entirely.
 5. **Tesla Developer App** - paste the Client ID and Client Secret from Step 4 above. Fleet API mode also asks for the Redirect URI and the **public key domain** (the bare hostname from Step 5 above, matching your app's Allowed Origin), registers that domain with Tesla, and then sends you through Tesla's login. Registering first is deliberate: Tesla refuses to authorise users for an app whose domain it does not know, and reports it only as "No policy rules" on its own login page, which says nothing about the actual cause. Bluetooth LE mode asks for none of this and registers the domain later, at the public-key step.
 6. **Vehicle Connected** - Fleet API confirms the car detected on your Tesla account. Bluetooth LE asks you to type the VIN, since there is no token to look it up with.
 7. **Register Public Key with Tesla** - the wizard shows your public key. Put it at `.well-known/appspecific/com.tesla.3p.public-key.pem` on the domain you gave Tesla, then click Verify.
@@ -479,8 +479,9 @@ misconfigured. There is no workaround yet. See
 status, how to confirm you are affected, and what has been ruled out.
 
 Applications created before this started are unaffected, so existing installs
-keep working. Bluetooth LE mode does not use partner tokens and is also
-unaffected.
+keep working. Bluetooth LE paired locally never uses partner tokens and is
+unaffected. Bluetooth LE paired through Tesla does register a partner domain during
+setup, so it is affected at setup time, though not during normal running.
 
 **"Something went wrong. Try again later. No policy rules" on Tesla's login page**
 This is Tesla saying it will not authorise users for an app whose domain it has
