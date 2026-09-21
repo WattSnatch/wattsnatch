@@ -177,6 +177,10 @@ class Controller {
     // When we last tried to drop the car to minimum amps for a hold period.
     // See HOLD_STEP_DOWN_RETRY_MS.
     this._lastHoldStepDownAt = 0;
+    // When the stop-time charge-limit re-verify last ATTEMPTED, not when it last
+    // succeeded. A failed attempt leaves the limit's age untouched, so without this the
+    // condition stays true and the check fires on every tick. See the block in _loop().
+    this._lastLimitVerifyAt = 0;
     // BLE state-source mode (tesla_state_source === 'ble'): reachability doubles as geofencing
     // (BLE only carries a few metres, so "reachable" means "at home"). Starts false so we never
     // act on the car until a BLE read confirms it is present.
@@ -1835,28 +1839,57 @@ class Controller {
     // established - so rather than trust the cache at the moment it matters
     // most, confirm it. This costs one API call, only when we are about to
     // stop, and only if the value is older than a couple of minutes.
+    //
+    // In BLE state-source mode this asks the car over Bluetooth instead of Tesla's cloud.
+    // It used to call the Fleet API regardless, which is how a supposedly cloud-free
+    // install kept hitting a metered endpoint: 63,146 of these in one install's log, all
+    // failing against an account Tesla had already disabled for exceeding its allowance.
+    // The local read answers the same question for free and works when there is no token
+    // at all, which is the whole point of that mode.
+    //
+    // The attempt is also stamped. A failed call leaves the limit's age untouched, so the
+    // condition that triggered it stays true and it fires again on the very next tick.
+    // That is what turned one guard into tens of thousands of calls, roughly one every
+    // ten seconds, for weeks.
+    const verifyOverBle = (db.getSetting('tesla_state_source') || 'telemetry') === 'ble';
+    const canVerifyLimit = !!vin && (verifyOverBle || !!teslaToken);
     if (!knownDisconnected && limitConfirmed && batteryPct > 0 && batteryPct >= chargeLimit
-        && vin && teslaToken && telemetry.getChargeLimitAge() > VERIFY_LIMIT_BEFORE_STOP_MS) {
+        && canVerifyLimit && telemetry.getChargeLimitAge() > VERIFY_LIMIT_BEFORE_STOP_MS
+        && (Date.now() - this._lastLimitVerifyAt) >= VERIFY_LIMIT_BEFORE_STOP_MS) {
+      this._lastLimitVerifyAt = Date.now();
       try {
-        this._trackApiCall('data');
-        const { chargeState: fresh } = await getVehicleData(vin, teslaToken);
-        const freshLimit = fresh?.charge_limit_soc;
+        let freshLimit;
+        let snapshot;
+        if (verifyOverBle) {
+          // Local, unmetered, and deliberately not counted as an API call.
+          const bleData = await getVehicleDataBle(vin);
+          freshLimit = bleData.chargeLimit;
+          snapshot = `limit=${bleData.chargeLimit} battery=${bleData.batteryPct} `
+                   + `state=${bleData.chargingState}`;
+        } else {
+          this._trackApiCall('data');
+          const { chargeState: fresh } = await getVehicleData(vin, teslaToken);
+          freshLimit = fresh?.charge_limit_soc;
+          snapshot = fresh
+            ? `limit=${fresh.charge_limit_soc} min=${fresh.charge_limit_soc_min} `
+              + `std=${fresh.charge_limit_soc_std} battery=${fresh.battery_level} `
+              + `state=${fresh.charging_state}`
+            : 'no charge_state returned';
+        }
         if (typeof freshLimit === 'number' && Number.isFinite(freshLimit)) {
           if (freshLimit !== chargeLimit) {
             logger.logEvent('api_error',
               `Charge limit mismatch caught before stopping: cached ${chargeLimit}%, `
-              + `Tesla reports ${freshLimit}%. Using Tesla's value. `
-              + `charge_state snapshot: limit=${fresh.charge_limit_soc} `
-              + `min=${fresh.charge_limit_soc_min} std=${fresh.charge_limit_soc_std} `
-              + `battery=${fresh.battery_level} state=${fresh.charging_state}`);
+              + `car reports ${freshLimit}%. Using the car's value. `
+              + `charge_state snapshot: ${snapshot}`);
           }
           telemetry.updateFromApi({ chargeLimit: freshLimit });
           chargeLimit = freshLimit;
           limitConfirmed = true;
         }
       } catch (err) {
-        // Could not reach Tesla. Fall through and use what we have rather than
-        // leaving the car charging unsupervised.
+        // Could not reach the car. Fall through and use what we have rather than
+        // leaving it charging unsupervised.
         logger.logEvent('api_error', `Charge limit re-verify before stop failed: ${err.message}`);
       }
     }
