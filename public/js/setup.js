@@ -824,12 +824,22 @@ async function initStep9Ble() {
   // The copy-the-key step is also the only one that says to start the proxy, so local mode
   // needs its own or it is told to build a binary and then open a dashboard that is not running.
   document.getElementById('step9-run-item')?.classList.toggle('hidden', !local);
+  // The Docker option needs the same local/cloud split: one mode copies WattSnatch's key
+  // into the volume, the other must be told explicitly that it does not.
+  document.getElementById('step9-docker-local-note')?.classList.toggle('hidden', !local);
+  document.getElementById('step9-docker-cloud-note')?.classList.toggle('hidden', local);
   const desc = document.getElementById('step9-desc');
-  if (desc && local) {
-    desc.innerHTML = `WattSnatch talks to your car over Bluetooth through
-      <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener">TeslaBleHttpProxy</a>.
-      In this mode the proxy generates its own key and pairs it with your car directly, so there is no Tesla
-      developer app, no hosted key and no sign-in anywhere in the process.`;
+  if (desc) {
+    // Stash the original once, so going back to step 4 and choosing the other Bluetooth
+    // option restores it. Rewriting in one direction only left the local wording in place
+    // for a cloud setup, telling them no sign-in was needed when the next steps ask for one.
+    if (desc.dataset.cloudHtml === undefined) desc.dataset.cloudHtml = desc.innerHTML;
+    desc.innerHTML = local
+      ? `WattSnatch talks to your car over Bluetooth through
+         <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener">TeslaBleHttpProxy</a>.
+         In this mode the proxy generates its own key and pairs it with your car directly, so there is no Tesla
+         developer app, no hosted key and no sign-in anywhere in the process.`
+      : desc.dataset.cloudHtml;
   }
 }
 
