@@ -622,7 +622,56 @@
       that machine's LAN address. WattSnatch itself can stay on macOS; only this one proxy needs to be elsewhere.
     </div>
 
-    <div class="checklist" style="margin-top:1rem">
+    <div style="margin-top:1.25rem;font-size:0.85rem;font-weight:700;color:var(--text-primary)">
+      Option A - Docker <span class="text-secondary" style="font-weight:400">(recommended, and the least to go wrong)</span>
+    </div>
+    <p class="text-secondary text-xs" style="margin:0.4rem 0 0.75rem">
+      On the machine that will run it, create the key folder and a compose file, then start it. Bluetooth needs the
+      host's own network stack and dbus socket, which is what the privileged and host-network settings below are for.
+    </p>
+    <pre style="background:var(--bg-base);border:1px solid var(--border);border-radius:8px;padding:0.75rem;overflow-x:auto;font-family:monospace;font-size:0.78rem;line-height:1.5;margin:0 0 0.6rem">mkdir -p ~/TeslaBleHttpProxy/key
+cd ~/TeslaBleHttpProxy
+
+cat &gt; docker-compose.yml &lt;&lt;'EOF'
+services:
+  tesla-ble-http-proxy:
+    image: wimaha/tesla-ble-http-proxy
+    container_name: tesla-ble-http-proxy
+    volumes:
+      - ~/TeslaBleHttpProxy/key:/key
+      - /var/run/dbus:/var/run/dbus
+    environment:
+      scanTimeout: "30"
+      vehicleDataCacheTime: "5"
+    restart: always
+    privileged: true
+    network_mode: host
+EOF
+
+docker compose up -d</pre>
+    <p class="text-secondary text-xs" style="margin:0 0 0.4rem">
+      <code style="font-family:monospace;font-size:0.8rem">restart: always</code> means it comes back after a reboot
+      on its own. The two environment values are not optional extras: WattSnatch waits slightly longer than
+      <code style="font-family:monospace;font-size:0.8rem">scanTimeout</code> before giving up on a read, so a
+      different value here makes a car that is simply slow to answer look like a broken proxy.
+    </p>
+    <div id="step9-docker-local-note" class="hidden">
+      <p class="text-secondary text-xs" style="margin:0 0 0.75rem">
+        The proxy creates and keeps its own key in that folder. Nothing is copied from WattSnatch in this mode.
+      </p>
+    </div>
+    <div id="step9-docker-cloud-note">
+      <p class="text-secondary text-xs" style="margin:0 0 0.75rem">
+        Copy the <code style="font-family:monospace;font-size:0.8rem">keys/private.pem</code> WattSnatch generated into
+        <code style="font-family:monospace;font-size:0.8rem">~/TeslaBleHttpProxy/key</code> before starting it, so the
+        proxy signs with the key your car already trusts.
+      </p>
+    </div>
+
+    <div style="margin-top:1rem;font-size:0.85rem;font-weight:700;color:var(--text-primary)">
+      Option B - Build from source <span class="text-secondary" style="font-weight:400">(if you would rather not use Docker)</span>
+    </div>
+    <div class="checklist" style="margin-top:0.6rem">
       <div class="checklist-item">
         <div class="checklist-icon">1</div>
         <div>On the Linux machine that will run it: install Go from <a href="https://go.dev/dl" target="_blank" rel="noopener">go.dev/dl</a> (or <code style="font-family:monospace;font-size:0.85rem">apt install golang-go</code>) if you don't already have it</div>
@@ -647,10 +696,10 @@
     </div>
 
     <div class="alert alert-info" style="margin-top:1rem">
-      <strong>Make it start on boot.</strong> WattSnatch cannot install a service on another machine, so set this up
-      there yourself - a systemd unit on Linux, or <code style="font-family:monospace;font-size:0.85rem">pm2</code>.
-      If the proxy is not running, WattSnatch loses contact with the car entirely, and the most likely time for that
-      to happen unnoticed is after a power cut or a reboot.
+      <strong>Make it start on boot.</strong> Docker's <code style="font-family:monospace;font-size:0.85rem">restart: always</code>
+      already does this. If you built from source instead, add a systemd unit on that machine, because WattSnatch
+      cannot install a service on another host. If the proxy is not running, WattSnatch loses contact with the car
+      entirely, and the most likely time for that to happen unnoticed is after a power cut.
     </div>
 
     <div id="step9-local-pairing" class="hidden" style="margin-top:1rem">

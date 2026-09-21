@@ -139,6 +139,54 @@ test('the dashboard address is tied to the field the user fills in', () => {
     'the step needs an ending that says what to do next');
 });
 
+test('Docker is offered first, with the source build kept as the alternative', () => {
+  const step9 = setupHtml.slice(setupHtml.indexOf('id="step-9"'), setupHtml.indexOf('id="step-10"'));
+  const docker = step9.indexOf('Option A - Docker');
+  const source = step9.indexOf('Option B - Build from source');
+  assert.ok(docker >= 0, 'a Docker path must exist: it is how the proxy is actually distributed');
+  assert.ok(source > docker, 'the source build must remain, after it');
+  assert.match(step9, /go build/, 'the source instructions must survive intact');
+});
+
+test('the documented compose is the one that actually works', () => {
+  const step9 = setupHtml.slice(setupHtml.indexOf('id="step-9"'), setupHtml.indexOf('id="step-10"'));
+  assert.match(step9, /image: wimaha\/tesla-ble-http-proxy/, 'the published image');
+  assert.match(step9, /\/var\/run\/dbus:\/var\/run\/dbus/, 'Bluetooth needs the host dbus socket');
+  assert.match(step9, /network_mode: host/, 'and the host network stack');
+  assert.match(step9, /privileged: true/);
+  assert.match(step9, /restart: always/, 'so it survives a reboot without a separate service');
+  assert.match(step9, /TeslaBleHttpProxy\/key:\/key/, 'keys must persist outside the container');
+});
+
+test('the scan timeout is documented, because our read timeout depends on it', () => {
+  // A cold read cannot answer until the proxy finishes scanning. WattSnatch waits slightly
+  // longer than scanTimeout on purpose, so a different value here makes a slow car look
+  // like a broken proxy - which is exactly how it was misdiagnosed twice before.
+  const step9 = setupHtml.slice(setupHtml.indexOf('id="step-9"'), setupHtml.indexOf('id="step-10"'));
+  assert.match(step9, /scanTimeout: "30"/, 'the value must be pinned, not left to the default');
+  assert.match(step9, /not optional extras/,
+    'and the reason stated, or someone will trim it as noise');
+});
+
+test('the Docker key note differs by pairing mode', () => {
+  const step9 = setupHtml.slice(setupHtml.indexOf('id="step-9"'), setupHtml.indexOf('id="step-10"'));
+  assert.match(step9, /id="step9-docker-local-note" class="hidden"/,
+    'local mode note starts hidden');
+  assert.match(step9, /id="step9-docker-cloud-note"/, 'cloud mode note exists');
+  assert.match(setupJs, /step9-docker-local-note'\)\?\.classList\.toggle\('hidden', !local\)/);
+  assert.match(setupJs, /step9-docker-cloud-note'\)\?\.classList\.toggle\('hidden', local\)/,
+    'telling a local user to copy a key that does not exist would strand them');
+});
+
+test('the proxy step description is restored when switching back to cloud', () => {
+  // Rewriting it in one direction only left the local wording on screen for a cloud
+  // setup, promising no sign-in two steps before the wizard asks for one.
+  assert.match(setupJs, /desc\.dataset\.cloudHtml === undefined\) desc\.dataset\.cloudHtml = desc\.innerHTML/,
+    'the original wording must be stashed before it is replaced');
+  assert.match(setupJs, /: desc\.dataset\.cloudHtml;/,
+    'and put back when the mode is not local');
+});
+
 test('cloud mode still walks the original step order', () => {
   // Each of these is the false branch of a ternary added above. If any of them changed,
   // an existing Fleet or Bluetooth setup would take a different path through the wizard.
