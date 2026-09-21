@@ -821,6 +821,9 @@ async function initStep9Ble() {
   const local = isLocalPairing();
   document.getElementById('step9-local-pairing')?.classList.toggle('hidden', !local);
   document.getElementById('step9-copy-key-item')?.classList.toggle('hidden', local);
+  // The copy-the-key step is also the only one that says to start the proxy, so local mode
+  // needs its own or it is told to build a binary and then open a dashboard that is not running.
+  document.getElementById('step9-run-item')?.classList.toggle('hidden', !local);
   const desc = document.getElementById('step9-desc');
   if (desc && local) {
     desc.innerHTML = `WattSnatch talks to your car over Bluetooth through

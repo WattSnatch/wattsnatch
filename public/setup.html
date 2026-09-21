@@ -635,6 +635,22 @@
         <div class="checklist-icon">3</div>
         <div>Copy the same <code style="font-family:monospace;font-size:0.85rem">keys/private.pem</code> WattSnatch generated onto that machine, and run the proxy pointing at it, on the port you enter below</div>
       </div>
+      <div class="checklist-item hidden" id="step9-run-item">
+        <div class="checklist-icon">3</div>
+        <div>
+          Start it: <code style="font-family:monospace;font-size:0.85rem">./TeslaBleHttpProxy</code>
+          (it listens on port <strong>8080</strong> by default). Leave it running - WattSnatch talks to it
+          continuously. Nothing needs copying from WattSnatch in this mode: the proxy creates and keeps its own
+          key. Note the machine's LAN address now, because you will need it twice below.
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-info" style="margin-top:1rem">
+      <strong>Make it start on boot.</strong> WattSnatch cannot install a service on another machine, so set this up
+      there yourself - a systemd unit on Linux, or <code style="font-family:monospace;font-size:0.85rem">pm2</code>.
+      If the proxy is not running, WattSnatch loses contact with the car entirely, and the most likely time for that
+      to happen unnoticed is after a power cut or a reboot.
     </div>
 
     <div id="step9-local-pairing" class="hidden" style="margin-top:1rem">
@@ -647,7 +663,12 @@
       <div class="checklist" style="margin-top:1rem">
         <div class="checklist-item">
           <div class="checklist-icon">1</div>
-          <div>Open the proxy's own dashboard in a browser: <code style="font-family:monospace;color:var(--accent-solar);font-size:0.85rem">http://YOUR-PROXY-ADDRESS:8080/dashboard</code></div>
+          <div>
+            In a browser, open the proxy's own dashboard:
+            <code style="font-family:monospace;color:var(--accent-solar);font-size:0.85rem">http://YOUR-PROXY-ADDRESS:8080/dashboard</code>
+            - the same machine and port you will enter in the <strong>BLE Proxy URL</strong> box below, with
+            <code style="font-family:monospace;font-size:0.85rem">/dashboard</code> on the end.
+          </div>
         </div>
         <div class="checklist-item">
           <div class="checklist-icon">2</div>
@@ -670,6 +691,12 @@
         choosing it. It also cannot change the charge limit, so that control is unavailable in this mode - set it in
         the Tesla app instead. Generating an Owner key restores it, but grants full vehicle access and means another
         trip to the car to pair.
+      </div>
+
+      <div class="alert alert-info" style="margin-top:1rem">
+        <strong>When the key is paired,</strong> come back here, enter that same proxy address in the box below and
+        press <strong>Test Connection</strong>. A successful test means WattSnatch can reach the proxy; the proxy
+        reaching your car is what the pairing above establishes.
       </div>
     </div>
 
