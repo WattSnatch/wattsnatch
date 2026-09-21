@@ -398,6 +398,20 @@ function initDb() {
     gateway_ip: '',
     tesla_vin: '',
     tesla_state_source: 'telemetry', // 'telemetry' (Fleet Telemetry + cloud) or 'ble' (local BLE proxy, cloud-free)
+    // How the car came to trust this installation's key, which decides whether any
+    // Tesla account involvement is needed at all.
+    //
+    // 'cloud'  - WattSnatch generates the keypair, the public half is hosted on a domain
+    //            registered with Tesla, and the key is paired through Tesla's own virtual
+    //            key flow. Needs a developer app, a domain and a one-time sign-in. The
+    //            BLE proxy then signs with a copy of that same private key.
+    // 'local'  - TeslaBleHttpProxy generates its own keypair and sends it to the car over
+    //            Bluetooth, confirmed by tapping an NFC key card on the console. No Tesla
+    //            account, no developer app, no domain, no sign-in, ever.
+    //
+    // Defaults to 'cloud' so every existing install keeps the behaviour it was set up
+    // with. Only relevant when tesla_command_backend is 'ble'.
+    tesla_pairing_mode: 'cloud',
     tesla_display_name: '',
     tesla_client_id: '',
     tesla_client_secret: '',

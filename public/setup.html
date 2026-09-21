@@ -399,6 +399,15 @@
             <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener" onclick="event.stopPropagation()">TeslaBleHttpProxy</a> yourself.
           </div>
         </button>
+        <button type="button" class="btn btn-secondary mode-pill" data-mode="ble" data-pairing="local" style="text-align:left;height:auto;padding:0.85rem 1rem;white-space:normal">
+          <strong>Bluetooth LE, fully local</strong> <span class="text-secondary" style="font-weight:400">(no Tesla account at all)</span>
+          <div class="text-secondary text-xs" style="margin-top:0.35rem;font-weight:400">
+            The same local Bluetooth control as above, but the proxy generates its own key and pairs it with your car by
+            tapping your NFC key card on the console. No Tesla developer app, no hosted public key, no sign-in, and
+            nothing of yours reaches Tesla's servers at any point. Same Bluetooth range limits as above. Setting the
+            charge limit is not available on the recommended key role - everything else works identically.
+          </div>
+        </button>
       </div>
     </div>
 
@@ -597,7 +606,7 @@
     <div class="step-header">
       <div class="step-number">Step 9 of 12</div>
       <div class="step-title">Bluetooth LE Proxy</div>
-      <div class="step-desc">
+      <div class="step-desc" id="step9-desc">
         WattSnatch talks to your car over Bluetooth through Tesla's own open-source
         <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener">TeslaBleHttpProxy</a>.
         It doesn't have to run on this same machine - anywhere on your LAN within Bluetooth range of the car works,
@@ -622,9 +631,45 @@
         <div class="checklist-icon">2</div>
         <div><code style="font-family:monospace;font-size:0.85rem">git clone https://github.com/wimaha/TeslaBleHttpProxy.git && cd TeslaBleHttpProxy && go build</code></div>
       </div>
-      <div class="checklist-item">
+      <div class="checklist-item" id="step9-copy-key-item">
         <div class="checklist-icon">3</div>
         <div>Copy the same <code style="font-family:monospace;font-size:0.85rem">keys/private.pem</code> WattSnatch generated onto that machine, and run the proxy pointing at it, on the port you enter below</div>
+      </div>
+    </div>
+
+    <div id="step9-local-pairing" class="hidden" style="margin-top:1rem">
+      <div class="alert alert-info">
+        <strong>Pairing happens here, not through Tesla.</strong>
+        The proxy generates its own key and sends it to the car over Bluetooth. You approve it by tapping your NFC key
+        card on the centre console, the same way you would add a key for another driver. Tesla is not involved.
+      </div>
+
+      <div class="checklist" style="margin-top:1rem">
+        <div class="checklist-item">
+          <div class="checklist-icon">1</div>
+          <div>Open the proxy's own dashboard in a browser: <code style="font-family:monospace;color:var(--accent-solar);font-size:0.85rem">http://YOUR-PROXY-ADDRESS:8080/dashboard</code></div>
+        </div>
+        <div class="checklist-item">
+          <div class="checklist-icon">2</div>
+          <div>Under <strong>Key Management</strong>, generate a <strong>Charging Manager</strong> key</div>
+        </div>
+        <div class="checklist-item">
+          <div class="checklist-icon">3</div>
+          <div>Wake the car first (open a door, or use the Tesla app), then under <strong>Setup Vehicle</strong> enter your VIN and press <strong>Send Key to Vehicle</strong></div>
+        </div>
+        <div class="checklist-item">
+          <div class="checklist-icon">4</div>
+          <div>Tap your NFC key card on the centre console reader to approve it. You need to be at the car for this step</div>
+        </div>
+      </div>
+
+      <div class="alert alert-warn" style="margin-top:1rem">
+        <strong>What the Charging Manager key can and cannot do.</strong>
+        It covers waking the car, starting and stopping charging, and setting the charge rate, which is everything
+        WattSnatch needs to divert solar. It deliberately cannot unlock or drive the car, which is the point of
+        choosing it. It also cannot change the charge limit, so that control is unavailable in this mode - set it in
+        the Tesla app instead. Generating an Owner key restores it, but grants full vehicle access and means another
+        trip to the car to pair.
       </div>
     </div>
 

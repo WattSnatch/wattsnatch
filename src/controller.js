@@ -421,7 +421,13 @@ class Controller {
 
   _getTeslaToken() {
     const row = db.getToken('tesla');
-    if (!row) { this._logTokenProblem('not authenticated'); return null; }
+    if (!row) {
+      // In local pairing mode there is deliberately no Tesla account in the picture, so a
+      // missing token is the expected steady state rather than a fault. Reporting it would
+      // mean a warning every minute, for ever, on an install working exactly as intended.
+      if (db.getSetting('tesla_pairing_mode') !== 'local') this._logTokenProblem('not authenticated');
+      return null;
+    }
     let parsed;
     try {
       parsed = JSON.parse(decrypt(row.token_data));

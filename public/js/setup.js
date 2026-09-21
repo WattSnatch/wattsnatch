@@ -360,6 +360,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // afterward from Settings, but a combined choice is the sane default for setup.
 let selectedChargingBackend = 'tesla';
 let selectedVehicleMode = 'fleet';
+// Deliberately a separate flag rather than a third selectedVehicleMode value. Both
+// Bluetooth paths are 'ble' everywhere else in this file and in the saved settings, so a
+// third value would quietly break every existing `=== 'ble'` branch. Only the steps that
+// genuinely differ consult this.
+let selectedPairingMode = 'cloud';
+function isLocalPairing() { return selectedVehicleMode === 'ble' && selectedPairingMode === 'local'; }
 
 function setChargingBackend(backend) {
   selectedChargingBackend = backend;
@@ -370,10 +376,13 @@ function setChargingBackend(backend) {
   document.getElementById('ocpp-backend-section')?.classList.toggle('hidden', backend !== 'ocpp');
 }
 
-function setVehicleMode(mode) {
+function setVehicleMode(mode, pairing) {
   selectedVehicleMode = mode;
+  selectedPairingMode = pairing || 'cloud';
   document.querySelectorAll('.mode-pill').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.mode === mode);
+    const sameMode = btn.dataset.mode === mode;
+    const samePairing = (btn.dataset.pairing || 'cloud') === selectedPairingMode;
+    btn.classList.toggle('active', sameMode && samePairing);
   });
 }
 
@@ -406,9 +415,17 @@ async function saveVehicleModeAndNext() {
   try {
     await api('/api/settings', {
       method: 'POST',
-      body: { charging_backend: 'tesla', tesla_command_backend: selectedVehicleMode, tesla_state_source: selectedVehicleMode },
+      body: {
+        charging_backend: 'tesla',
+        tesla_command_backend: selectedVehicleMode,
+        tesla_state_source: selectedVehicleMode,
+        tesla_pairing_mode: selectedPairingMode,
+      },
     });
-    goToStep(5);
+    // Local pairing needs no developer app, no hosted key and no Tesla sign-in, so steps
+    // 5, 7 and 8 do not apply. The key is generated and paired at the proxy instead,
+    // which is step 9.
+    goToStep(isLocalPairing() ? 6 : 5);
   } catch (err) {
     showStepError('step4', 'Save failed: ' + err.message);
   }
@@ -419,7 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => setChargingBackend(btn.dataset.backend));
   });
   document.querySelectorAll('.mode-pill').forEach((btn) => {
-    btn.addEventListener('click', () => setVehicleMode(btn.dataset.mode));
+    btn.addEventListener('click', () => setVehicleMode(btn.dataset.mode, btn.dataset.pairing));
   });
   document.getElementById('step4-next')?.addEventListener('click', saveVehicleModeAndNext);
   document.getElementById('step4-back')?.addEventListener('click', () => {
@@ -652,8 +669,8 @@ async function initStep6Vehicle() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('step6-next')?.addEventListener('click', () => goToStep(7));
-  document.getElementById('step6-back')?.addEventListener('click', () => goToStep(5));
+  document.getElementById('step6-next')?.addEventListener('click', () => goToStep(isLocalPairing() ? 9 : 7));
+  document.getElementById('step6-back')?.addEventListener('click', () => goToStep(isLocalPairing() ? 4 : 5));
 });
 
 // ─── Step 7: Public key (+ explicit partner registration for Bluetooth LE mode) ───
@@ -797,6 +814,20 @@ async function initStep9Ble() {
     const input = document.getElementById('ble-proxy-url-input');
     if (input && saved) input.value = saved;
   } catch (_err) {}
+
+  // Local pairing does its key generation at the proxy, so this step carries the
+  // instructions that would otherwise have been steps 7 and 8. The cloud-mode note about
+  // reusing WattSnatch's own private key is hidden, because in this mode there isn't one.
+  const local = isLocalPairing();
+  document.getElementById('step9-local-pairing')?.classList.toggle('hidden', !local);
+  document.getElementById('step9-copy-key-item')?.classList.toggle('hidden', local);
+  const desc = document.getElementById('step9-desc');
+  if (desc && local) {
+    desc.innerHTML = `WattSnatch talks to your car over Bluetooth through
+      <a href="https://github.com/wimaha/TeslaBleHttpProxy" target="_blank" rel="noopener">TeslaBleHttpProxy</a>.
+      In this mode the proxy generates its own key and pairs it with your car directly, so there is no Tesla
+      developer app, no hosted key and no sign-in anywhere in the process.`;
+  }
 }
 
 async function testBleProxyInSetup() {
@@ -831,7 +862,7 @@ async function saveBleProxyAndNext() {
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('step9-test-btn')?.addEventListener('click', testBleProxyInSetup);
   document.getElementById('step9-next')?.addEventListener('click', saveBleProxyAndNext);
-  document.getElementById('step9-back')?.addEventListener('click', () => goToStep(8));
+  document.getElementById('step9-back')?.addEventListener('click', () => goToStep(isLocalPairing() ? 6 : 8));
 });
 
 // ─── Step 10: Charging preferences ───

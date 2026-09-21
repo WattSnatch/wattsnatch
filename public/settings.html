@@ -1357,6 +1357,11 @@
           back at retail over the cloudy days. Your normal limit is put back when the car is unplugged
           or at the end of the day, whichever comes first. Needs Solcast forecasting configured above.
         </p>
+        <div class="alert alert-warn" style="margin-bottom:1rem;font-size:0.82rem">
+          Not available with fully local Bluetooth pairing. This feature works by changing the car's charge limit,
+          and the proxy's Charging Manager key cannot do that - the same restriction that stops it unlocking or
+          driving the car. It stays switched off in that mode rather than failing quietly.
+        </div>
         <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
           <label class="toggle-switch" style="flex-shrink:0">
             <input type="checkbox" id="opportunistic_charge_limit_enabled_toggle">

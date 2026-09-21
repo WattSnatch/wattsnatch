@@ -167,6 +167,18 @@ router.post('/api/charge/limit', async (req, res) => {
     if (typeof limit !== 'number' || limit < 50 || limit > 100) {
       return res.json({ ok: false, error: 'Limit must be a number between 50 and 100' });
     }
+    // The proxy's Charging Manager key authorises waking, starting, stopping and setting
+    // the charge rate, and deliberately nothing else. Refusing here with a reason beats
+    // relaying whatever the proxy says when it declines to sign a command it has no
+    // authority for, which tells the owner nothing about why.
+    if (db.getSetting('tesla_pairing_mode') === 'local') {
+      return res.json({
+        ok: false,
+        error: 'Setting the charge limit is not available with local pairing. The Charging Manager '
+             + 'key the proxy uses cannot change it, which is the trade for a key that also cannot '
+             + 'unlock or drive the car. Set the limit in the Tesla app instead.',
+      });
+    }
     const { setChargeLimit } = require('../services/tesla');
     const { decrypt } = require('../utils/crypto');
     const vin = db.getSetting('tesla_vin');
@@ -372,7 +384,7 @@ router.post('/api/settings', (req, res) => {
       'smoothing_window', 'polling_interval_seconds', 'charger_voltage', 'charger_phases',
       'electricity_rate_aud', 'electricity_rate_mode', 'export_rate_mode', 'auto_backup_enabled', 'gateway_ip', 'tesla_vin',
       'tesla_client_id', 'tesla_client_secret', 'tesla_redirect_uri', 'tesla_region',
-      'tesla_command_backend', 'tesla_ble_proxy_url', 'tesla_state_source',
+      'tesla_command_backend', 'tesla_ble_proxy_url', 'tesla_state_source', 'tesla_pairing_mode',
       'enphase_serial', 'enphase_email', 'tesla_display_name',
       'home_latitude', 'home_longitude', 'home_radius_km', 'google_maps_api_key', 'ha_link_key',
       'schedule_enabled', 'schedule_windows',
