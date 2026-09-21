@@ -117,6 +117,28 @@ test('the proxy step carries the pairing instructions in local mode', () => {
 
 // ── Cloud mode must be undisturbed ───────────────────────────────────────────
 
+test('local mode tells the user to actually start the proxy', () => {
+  // The copy-the-private-key step is also the only one that says to run the proxy, and
+  // local mode hides it. Without a replacement the path builds a binary, never says to
+  // start it, and then asks the user to open a dashboard that is not running.
+  assert.match(setupJs, /step9-run-item'\)\?\.classList\.toggle\('hidden', !local\)/,
+    'the run step must be shown exactly when the copy step is hidden');
+  const step9 = setupHtml.slice(setupHtml.indexOf('id="step-9"'), setupHtml.indexOf('id="step-10"'));
+  assert.match(step9, /id="step9-run-item"/, 'there must be a run step for local mode');
+  assert.match(step9, /Start it:/, 'it must say to start it');
+  assert.match(step9, /Leave it running/, 'and that it stays running');
+  assert.match(step9, /Nothing needs copying from WattSnatch/,
+    'and correct the expectation set by the step it replaces');
+});
+
+test('the dashboard address is tied to the field the user fills in', () => {
+  const step9 = setupHtml.slice(setupHtml.indexOf('id="step-9"'), setupHtml.indexOf('id="step-10"'));
+  assert.match(step9, /the same machine and port you will enter in the <strong>BLE Proxy URL<\/strong> box below/,
+    'two unexplained addresses on one screen is how people get stuck');
+  assert.match(step9, /When the key is paired,/,
+    'the step needs an ending that says what to do next');
+});
+
 test('cloud mode still walks the original step order', () => {
   // Each of these is the false branch of a ternary added above. If any of them changed,
   // an existing Fleet or Bluetooth setup would take a different path through the wizard.
