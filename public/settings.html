@@ -146,6 +146,13 @@
           <span id="current-rate-badge" style="font-size:0.875rem;font-weight:600;color:var(--accent-solar)">-</span>
         </div>
 
+        <div class="alert alert-info" style="margin-bottom:1rem;font-size:0.82rem">
+          These rates are used for cost and savings figures only. They never decide when the car charges.
+          To control that, use <strong>Allowed Grid Charging Windows</strong> and
+          <strong>Blocked Grid Charging</strong> further down this page. The times do not have to match:
+          a demand-charge period or an EV-only tariff can legitimately differ from your billing windows.
+        </div>
+
         <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
           <label class="toggle-switch" style="flex-shrink:0">
             <input type="checkbox" id="electricity_rate_mode_toggle">
@@ -1276,18 +1283,19 @@
       <!-- Scheduled Charging -->
       <div class="card mb-2">
         <div class="card-header">
-          <div class="card-label">Scheduled Charging</div>
+          <div class="card-label">Allowed Grid Charging Windows</div>
         </div>
         <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
-          Charge at maximum amps during defined time windows - useful for cheap overnight off-peak rates.
-          TOU peak periods take priority and will block scheduled charging.
+          During these windows WattSnatch charges at maximum amps from the grid, whatever the solar is doing.
+          Useful for cheap overnight off-peak rates. Where they overlap, the blocked windows below win.
+          Previously called Scheduled Charging.
         </p>
         <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
           <label class="toggle-switch" style="flex-shrink:0">
             <input type="checkbox" id="schedule_enabled">
             <span class="toggle-slider"></span>
           </label>
-          <span style="font-size:0.85rem;font-weight:600">Enable Scheduled Charging</span>
+          <span style="font-size:0.85rem;font-weight:600">Allow grid charging in these windows</span>
         </div>
         <div id="schedule-windows-list" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem"></div>
         <button type="button" id="add-schedule-window" class="btn btn-secondary btn-sm">+ Add Window</button>
@@ -1296,18 +1304,19 @@
       <!-- Time-of-Use / Peak Tariff -->
       <div class="card mb-2">
         <div class="card-header">
-          <div class="card-label">Time-of-Use (Peak Tariff)</div>
+          <div class="card-label">Blocked Grid Charging (Peak Tariff)</div>
         </div>
         <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 1rem">
-          Define your peak tariff periods. During these windows, grid charging is blocked and only solar excess is used.
-          Solar charging proceeds normally - this only prevents drawing from the grid.
+          During these windows WattSnatch will not draw from the grid, so only surplus solar goes to the car.
+          Solar charging carries on as normal. These take priority over the allowed windows above.
+          Previously called Time-of-Use (Peak Tariff).
         </p>
         <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
           <label class="toggle-switch" style="flex-shrink:0">
             <input type="checkbox" id="tou_enabled">
             <span class="toggle-slider"></span>
           </label>
-          <span style="font-size:0.85rem;font-weight:600">Enable TOU / Peak Blocking</span>
+          <span style="font-size:0.85rem;font-weight:600">Block grid charging in these windows</span>
         </div>
         <div id="tou-windows-list" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem"></div>
         <button type="button" id="add-tou-window" class="btn btn-secondary btn-sm">+ Add Peak Window</button>
