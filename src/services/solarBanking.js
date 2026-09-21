@@ -163,6 +163,7 @@ function decideBoost({
 function planAction({
   enabled,
   backendIsOcpp,
+  localPairing,
   chargingState,
   activeBoost,
   today,
@@ -176,6 +177,13 @@ function planAction({
   // An OCPP charge point has no vehicle charge limit to move. Nothing to do,
   // and nothing to restore, because nothing was ever set.
   if (backendIsOcpp) return { action: 'none', reason: 'OCPP backend has no vehicle charge limit' };
+
+  // Local pairing uses the proxy's Charging Manager key, which cannot set a charge limit.
+  // This whole feature is charge-limit manipulation, so it cannot run at all. Saying so is
+  // better than attempting a command that will be refused twice a day for ever.
+  if (localPairing) {
+    return { action: 'none', reason: 'local pairing cannot set the charge limit' };
+  }
 
   if (!enabled) {
     return activeBoost
@@ -349,6 +357,7 @@ async function tick() {
     const plan = planAction({
       enabled:          isEnabled(),
       backendIsOcpp:    db.getSetting('charging_backend') === 'ocpp',
+      localPairing:     db.getSetting('tesla_pairing_mode') === 'local',
       chargingState:    state.chargingState,
       activeBoost:      activeBoost(),
       today,
