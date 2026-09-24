@@ -169,27 +169,38 @@ const getEfficiencyByDriveType = cached('efficiency_by_type', async () => {
 });
 
 // Battery health - recent usable capacity vs all-time best
-const getBatteryHealthPercent = cached('battery_health', async () => {
-  const rows = await query(`
-    SELECT
-      MAX(cp.start_ideal_range_km) FILTER (WHERE cp.start_date > NOW() - INTERVAL '90 days') AS recent_max_km,
-      MAX(cp.start_ideal_range_km) AS all_time_max_km,
-      0.155 AS efficiency_factor
-    FROM charging_processes cp
-    WHERE cp.start_battery_level >= 97
-  `);
-  if (!rows || !rows[0] || !rows[0].all_time_max_km) return null;
-  const r = rows[0];
-  const recentMax  = parseFloat(r.recent_max_km   || r.all_time_max_km);
-  const allTimeMax = parseFloat(r.all_time_max_km);
-  const effFactor  = parseFloat(r.efficiency_factor);
+// Battery health, from charge sessions that FINISHED at or near full.
+//
+// This used to filter on start_battery_level >= 97 and read start_ideal_range_km, so it
+// only counted charges that began nearly full. That almost never happens. On one install
+// 0 of 779 sessions qualified while 12 had finished at 97% or more, so the health card was
+// empty for as long as the app had been running and could never have shown anything. The
+// range that reflects pack capacity is the one at the end of a full charge.
+//
+// Each reading is normalised to 100% before it is compared. Ideal range at 97% and at 100%
+// differs by about three percent, the same order as a year of genuine degradation, so
+// comparing them raw reports noise as health: a 98% charge reading 416.9 km looks like wear
+// until it is scaled to the 425.5 km it represents.
+//
+// "Recent" is the best reading in the last 90 days, or failing that the most recent one,
+// and never the all-time best. Falling back to the all-time best compared that reading with
+// itself, so health read exactly 100% the moment the last full charge aged out of the
+// window: a confident wrong answer that would arrive on a schedule.
+const BATTERY_HEALTH_MIN_END_SOC = 97;
+
+function computeBatteryHealth(row, nameplateKwh) {
+  if (!row || row.all_time_max_km == null) return null;
+  const allTimeMax = parseFloat(row.all_time_max_km);
+  const recentRaw  = row.recent_max_km != null ? row.recent_max_km : row.latest_km;
+  const recentMax  = parseFloat(recentRaw);
+  if (!Number.isFinite(allTimeMax) || allTimeMax <= 0 || !Number.isFinite(recentMax)) return null;
+  const effFactor  = parseFloat(row.efficiency_factor);
   const healthPct  = Math.round((recentMax / allTimeMax) * 1000) / 10;
   // Absolute usable kWh: prefer the capacity the owner set (Settings > Tesla Battery Capacity),
   // scaled by measured health, so the figure reflects their actual pack. The fallback multiplies
   // range by a hardcoded 0.155 kWh/km - a Model Y constant that over-reads badly for other models
   // (issue #16: a 2021 M3 SR+ showed 60.5 kWh against TeslaMate's ~51, ignoring the 55 the owner
   // had entered). Falls back to the range-derived estimate only when no capacity is configured.
-  const nameplateKwh = parseFloat(db.getSetting('tesla_battery_kwh') || '');
   const usableKwh = (Number.isFinite(nameplateKwh) && nameplateKwh > 0)
     ? Math.round((healthPct / 100) * nameplateKwh * 10) / 10
     : Math.round(recentMax * effFactor * 10) / 10;
@@ -199,6 +210,26 @@ const getBatteryHealthPercent = cached('battery_health', async () => {
     recent_max_range_km:   Math.round(recentMax),
     all_time_max_range_km: Math.round(allTimeMax),
   };
+}
+
+const getBatteryHealthPercent = cached('battery_health', async () => {
+  const rows = await query(`
+    WITH full_charges AS (
+      SELECT start_date,
+             end_ideal_range_km * 100.0 / end_battery_level AS norm_km
+      FROM charging_processes
+      WHERE end_battery_level >= ${BATTERY_HEALTH_MIN_END_SOC}
+        AND end_ideal_range_km IS NOT NULL
+    )
+    SELECT
+      MAX(norm_km) FILTER (WHERE start_date > NOW() - INTERVAL '90 days') AS recent_max_km,
+      (SELECT norm_km FROM full_charges ORDER BY start_date DESC LIMIT 1)  AS latest_km,
+      MAX(norm_km)                                                        AS all_time_max_km,
+      0.155                                                               AS efficiency_factor
+    FROM full_charges
+  `);
+  const nameplateKwh = parseFloat(db.getSetting('tesla_battery_kwh') || '');
+  return computeBatteryHealth(rows && rows[0], nameplateKwh);
 });
 
 // Frequent destinations - top 10 by visit count in last 12 months
@@ -645,6 +676,7 @@ module.exports = {
   getSentryDrainRateKwhPerHour,
   getEfficiencyByDriveType,
   getBatteryHealthPercent,
+  computeBatteryHealth,
   getFrequentDestinations,
   getChargeSessions,
   getTypicalArrivalSoc,
