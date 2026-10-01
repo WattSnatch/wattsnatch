@@ -163,7 +163,9 @@ You should see three entries:
 
 This is a one-time step that tells the Tesla what fields to stream and where to send them.
 
-First, get your stored Tesla credentials from the database:
+The simplest way is from the dashboard: **Settings → Fleet Telemetry (Advanced)**, fill in the hostname, port and CA certificate, then click **Send Config to Tesla**. After that WattSnatch checks the config Tesla holds every 6 hours and re-sends it automatically if it has been dropped or no longer matches what the app needs (see [TELEMETRY.md section 8](TELEMETRY.md#8-tell-tesla-to-start-streaming---the-wattsnatch-side)).
+
+To do it by hand instead, first get your stored Tesla credentials from the database:
 
 ```bash
 cd /Users/youruser/solarcharge
@@ -184,7 +186,7 @@ Copy the full VIN and token, then run (replace the placeholders):
 VIN="YOUR_VIN_HERE"
 TOKEN="YOUR_FULL_TOKEN_HERE"
 
-curl -k -X POST "https://localhost:4443/api/1/vehicles/${VIN}/fleet_telemetry_config" \
+curl -k -X POST "https://localhost:4443/api/1/vehicles/fleet_telemetry_config" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d "{
@@ -197,10 +199,10 @@ curl -k -X POST "https://localhost:4443/api/1/vehicles/${VIN}/fleet_telemetry_co
         \"ChargeAmps\":          { \"interval_seconds\": 1  },
         \"DetailedChargeState\": { \"interval_seconds\": 1  },
         \"Soc\":                 { \"interval_seconds\": 30 },
-        \"ChargeLimit\":         { \"interval_seconds\": 60 },
+        \"ChargeLimitSoc\":      { \"interval_seconds\": 60 },
         \"ChargerVoltage\":      { \"interval_seconds\": 30 },
-        \"ChargerPower\":        { \"interval_seconds\": 5  },
-        \"Location\":            { \"interval_seconds\": 60 }
+        \"ACChargingPower\":     { \"interval_seconds\": 5  },
+        \"Location\":            { \"interval_seconds\": 1  }
       }
     }
   }"
@@ -209,6 +211,8 @@ curl -k -X POST "https://localhost:4443/api/1/vehicles/${VIN}/fleet_telemetry_co
 Expected response: `{"response":{"result":true},"error":null}`
 
 > `-k` skips TLS verification for localhost - safe here, you're talking to your own proxy.
+
+> These field names and intervals must match `DESIRED_FIELDS` in `src/services/telemetryHealth.js`. If they don't, WattSnatch's own check will re-send its version within 6 hours anyway.
 
 ### Verify the config synced to the car
 

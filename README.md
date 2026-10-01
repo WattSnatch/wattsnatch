@@ -21,6 +21,8 @@ WattSnatch can control **the car** (Tesla) or **the charger** (OCPP). This is th
 
 **Tesla** *(primary, battle-tested)* - controls the vehicle directly through Tesla's own APIs. Within this there are three options. Tesla's cloud Fleet API/Telemetry (the default). Bluetooth LE paired through Tesla, which needs a one-time developer app, a hosted public key and a sign-in, after which there are no ongoing cloud calls. Or Bluetooth LE paired locally, where the proxy generates its own key and pairs it by tapping an NFC key card at the car, with no Tesla account, developer app, hosted key or sign-in involved at any point. The local option cannot change the charge limit, because the key role it uses deliberately cannot - the same restriction that stops it unlocking or driving the car. See [INSTALL.md](INSTALL.md#tesla-vehicle-connection-fleet-api-vs-bluetooth-le).
 
+Where commands go and where vehicle state comes from are two separate settings, so they can be mixed. If you run Fleet Telemetry and also have the Bluetooth proxy, the recommended combination is **Fleet Telemetry for state and Bluetooth LE for commands**: the car streams its state and GPS location live, so arriving and leaving home reach Home Assistant within a second or two, while every command and every direct check WattSnatch makes on the car goes over Bluetooth, so normal running makes no billed vehicle data or command requests. Whatever the combination, billed Tesla Fleet API requests are capped per day (see [Settings reference](#charging-backend-settings)).
+
 **OCPP 1.6J** *(any EV - unverified against real hardware)* - controls a charger instead of a car, so the vehicle brand stops mattering. WattSnatch acts as the **Central System (CSMS)**: it listens on a WebSocket port (`ocpp_ws_port`, default 9220) and your charger connects in to it, which is the standard OCPP topology - point your charger's OCPP server URL at `ws://<this-machine>:9220/ocpp/<charge-point-id>`. Solar diversion is sent as `SetChargingProfile`, start/stop as `RemoteStartTransaction`/`RemoteStopTransaction`, and live power is read from the charger's `MeterValues`.
 
 Two things to know before choosing OCPP:
@@ -415,7 +417,7 @@ set PORT=8085 && npm start
 | Polling interval | 15 s | How often to read solar output and check car state. |
 | Charger voltage | 240 V | Your home charger voltage. 240V in Australia, UK, and Europe. US homes are typically 240V for EV chargers. |
 | Electricity rate | $0.30/kWh | Used only for the "Est. Saved" display - enter your grid import rate. |
-| Home radius | 0.1 km | GPS geofence radius. Solar charging control is suspended when your car is outside this radius (e.g. at a Supercharger). |
+| Home radius | 0.5 km | GPS geofence radius. Solar charging control is suspended when your car is outside this radius (e.g. at a Supercharger). |
 
 These are the core charging settings. Everything else is configured in the dashboard's Settings page - solar meter brand, home battery, air conditioning, time-of-use rates, calendar, notifications, and Home Assistant. See [FEATURES.md](FEATURES.md) for what each one does.
 
@@ -427,6 +429,7 @@ These are the core charging settings. Everything else is configured in the dashb
 | OCPP WebSocket port | 9220 | OCPP only. The port WattSnatch listens on for your charger to connect in to. Point the charger's OCPP server URL at `ws://<this-machine>:<port>/ocpp/<charge-point-id>`. |
 | OCPP charge point ID | *(blank)* | OCPP only. Must match the last path segment your charger connects with. Leave blank to accept the first charger that connects. |
 | OCPP session ID tag | `WATTSNATCH` | OCPP only. Sent with `RemoteStartTransaction`; only matters if your charger's authorization list checks it. |
+| Daily Tesla cloud request limit | automatic | Tesla backend only. The most billed Tesla Fleet API requests WattSnatch will make in a day. Automatic means 50 when commands go over Bluetooth (normal running makes about 4) and 1000 when they go through the Fleet API. Once reached, further cloud requests are blocked until midnight and you get a notification. Bluetooth commands and Fleet Telemetry are never affected, and stopping a charge or running setup is always allowed. Today's count is shown next to the setting. `0` turns the limit off. |
 | EV icon | *(blank)* | Your car manufacturer's domain (`byd.com`, `hyundai.com`, …) - the dashboard shows that site's favicon on the EV node, the same trick the Grid icon uses for your retailer. Blank means Tesla's logo on the Tesla backend, or a generic EV icon on OCPP. Purely cosmetic. |
 
 ### Free power windows
@@ -444,6 +447,9 @@ Turn it on in **Settings → Calendar → Free power windows**. It is off by def
 - For local-network meters (Enphase, Fronius, SPAN, Sungrow), make sure your server is on the same LAN as the device
 - **Enphase:** try regenerating the token in Settings (you'll need your Enlighten email and password again)
 - **MQTT input:** check the broker is reachable and that readings are still arriving - the reading goes stale after the timeout you configured, which is treated as an error rather than as zero solar
+
+**"Tesla cloud request limit reached" notification**
+WattSnatch made more billed Tesla Fleet API requests today than the daily limit allows, so it has stopped making them until midnight. Bluetooth commands and Fleet Telemetry keep working, and stopping a charge is always allowed. This should never happen in normal running, so treat it as a sign something is calling the cloud far more than it should: the first blocked request is named in the notification and in the event log. Today's count is shown in **Settings → Vehicle Command Backend**, next to the limit.
 
 **`npm run update` runs but the version never changes**
 Look for lines like `! [rejected] v1.21.1 -> v1.21.1 (would clobber existing tag)`.
@@ -539,7 +545,8 @@ region as the cause.
 
 All data is stored locally in a SQLite database at `~/.solarcharge/solarcharge.db` in your home directory (the internal folder/file name predates the WattSnatch rebrand and hasn't been migrated yet - this is a known cosmetic inconsistency, not a functional issue). Nothing is sent to any third-party cloud service during normal operation, except:
 
-- **Tesla Fleet API** - to read your car's state and send charging commands
+- **Tesla Fleet API** - to send charging commands and read your car's state, unless both go over Bluetooth. Billed requests are counted and capped per day (see [Settings reference](#charging-backend-settings))
+- **Tesla Fleet Telemetry**, if you set it up - the car streams its state straight to a server you run yourself, not through a third party. Tesla bills these updates per signal, and only sends one when a value changes, so a parked car costs essentially nothing
 - **Your solar meter** - Enphase contacts Enphase's cloud only once during setup to mint a local token, after which all readings come straight from the gateway on your LAN. Fronius, SPAN, Sungrow and MQTT input are local-network only and never leave your network. SolarEdge is the exception: it has no local API, so readings are polled from SolarEdge's cloud monitoring service for as long as you use it.
 
 Every stored secret - Tesla and Enphase tokens, API keys, and the MELCloud, MelView and iCloud calendar credentials - is encrypted at rest with AES-256-GCM, under a random key generated once per install. **If you are running a version before v1.26.0 on Linux or Windows, update.** The key used to be derived from the Mac's hardware UUID and silently fell back to a hardcoded constant elsewhere, so those installs were not meaningfully encrypted; upgrading re-encrypts them automatically. Telemetry history is retained for 5 years (the Data page's last-quarter and last-year views read from it), event logs for 90 days, and charge session records indefinitely. On a real install, telemetry grows the database by roughly 1.7 MB per day, or about 600 MB per year - worth knowing if you're running from a small SD card.
@@ -563,8 +570,9 @@ Tesla proxy (local, port 4443) → signs with EC private key → Tesla cloud →
 ```
 
 Reading vehicle state and sending commands are separate paths that share nothing, so
-either can fail while the other keeps working. By default state comes from polling the
-Fleet API. If you also run Fleet Telemetry (optional, see
+either can fail while the other keeps working, and each can use the cloud or Bluetooth
+independently. Without Fleet Telemetry or Bluetooth, state comes from polling the Fleet API
+about every 10 minutes while it is needed. If you also run Fleet Telemetry (optional, see
 [INSTALL.md](INSTALL.md#real-time-telemetry---tesla-fleet-telemetry-advanced-optional)),
 the car pushes to your own server instead:
 
