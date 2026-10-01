@@ -153,6 +153,7 @@ class Controller {
     this._touPeakActive = false;
     this._freePowerActive = false;
     this._lastFallbackAt = 0;
+    this._bleRefreshInFlight = false;
     this._lastCommandedAmps = null;
     this._lastGatewaySuccessAt = Date.now();
     this._teslaTokenRefreshAt = 0;
@@ -372,7 +373,68 @@ class Controller {
 
   /** Tag every real Tesla Fleet API call for cost tracking. category: 'command'|'data'|'wake' */
   _trackApiCall(category) {
+    // Commands and wakes go over Bluetooth when the BLE command backend is active, so they
+    // never reach Tesla's metered API. Counting them anyway made the usage history show
+    // hundreds of "calls" a day on an install that was costing nothing, which buries the
+    // real signal this exists for: a climb in genuine cloud data calls.
+    if ((category === 'command' || category === 'wake') && useBleCommands()) return;
     logger.logEvent('api_cost', category);
+  }
+
+  // Whether direct vehicle reads (background refresh, phantom-charge confirmation, the
+  // limit check before stopping) should ask the car over Bluetooth instead of Tesla's cloud.
+  // True in full BLE mode, and also when telemetry supplies state but commands go over BLE:
+  // a paired proxy is already there, so the same question can be answered for free. Without
+  // this, that mixed setup quietly fell back to metered vehicle_data calls, the exact
+  // pattern behind the September 2026 account lockout.
+  _directReadsOverBle() {
+    return (db.getSetting('tesla_state_source') || 'telemetry') === 'ble' || useBleCommands();
+  }
+
+  /**
+   * Background state refresh over Bluetooth, for telemetry state + BLE commands.
+   *
+   * Fire and forget, never awaited: a BLE read to a car that is out of range only fails after
+   * the proxy's full scan timeout (~35s), and the control loop also publishes presence to
+   * Home Assistant every tick, so awaiting here would freeze garage door automations for that
+   * long. One read in flight at a time. Checks the wake-free body state first and skips the
+   * data read if the car is asleep. Deliberately never sets _carSleeping: in this mode the
+   * Fleet Telemetry stream owns that signal, and latching it from a local read is how a
+   * sleeping flag could outlive the car actually waking.
+   */
+  _bleBackgroundRefresh(vin, { limitOnly }) {
+    if (this._bleRefreshInFlight) return;
+    this._bleRefreshInFlight = true;
+    (async () => {
+      try {
+        const body = await getBodyStateBle(vin);
+        if (body.asleep) return; // telemetry will report the wake; nothing to read now
+        const d = await getVehicleDataBle(vin);
+        // An unplugged car can report the 50% floor instead of the owner's limit, and this
+        // shape has no min/std fields to tell the two apart, so only take the limit while
+        // plugged in, where Tesla reports the real value.
+        const limitOk = typeof d.chargeLimit === 'number'
+          && !!d.chargingState && d.chargingState !== 'Disconnected';
+        telemetry.updateFromApi(limitOnly ? {
+          chargeLimit:    limitOk ? d.chargeLimit : undefined,
+        } : {
+          chargingState:  d.chargingState,
+          batteryPct:     d.batteryPct,
+          chargeLimit:    limitOk ? d.chargeLimit : undefined,
+          chargeAmps:     d.chargeAmps,
+          chargerPowerKw: d.chargerPowerKw,
+        });
+        if (this._forceBootReconcile && !limitOnly) {
+          logger.logEvent('info', `Boot reconciliation over Bluetooth: car is ${d.chargingState}`);
+          this._forceBootReconcile = false;
+        }
+      } catch (err) {
+        // Expected whenever the car is out of Bluetooth range. Retried on the next window.
+        logger.logEvent('info', `Bluetooth state refresh skipped: ${err.message}`);
+      } finally {
+        this._bleRefreshInFlight = false;
+      }
+    })();
   }
 
   _triggerTeslaTokenRefresh() {
@@ -1221,7 +1283,25 @@ class Controller {
         (Date.now() - this._lastLatLngAt) > LOCATION_MAX_AGE &&
         (Date.now() - this._lastLocationCheckAt) > LOCATION_MAX_AGE;
 
-      const needsFallback = stateSource !== 'ble' && !this._carSleeping &&
+      // Telemetry state with BLE commands: refresh over Bluetooth, never the cloud. Location
+      // is left out on purpose. BLE has no GPS, presence keeps using the last streamed
+      // position, and the car streams a new one the moment it wakes to drive. Skipped while
+      // the geofence says the car is away, since Bluetooth cannot reach it there anyway.
+      const bleFallback = stateSource !== 'ble' && this._directReadsOverBle();
+      if (bleFallback) {
+        const needsBleRefresh = telemetry.isStale() || ts.chargingState === null
+          || this._forceBootReconcile || chargeLimitStale;
+        if (needsBleRefresh && vin && this._checkAtHome()
+            && (Date.now() - this._lastFallbackAt) > FALLBACK_INTERVAL) {
+          this._lastFallbackAt = Date.now();
+          if (chargeLimitStale) this._lastChargeLimitCheckAt = Date.now();
+          const limitOnly = chargeLimitStale && !this._forceBootReconcile
+            && !telemetry.isStale() && ts.chargingState !== null;
+          this._bleBackgroundRefresh(vin, { limitOnly });
+        }
+      }
+
+      const needsFallback = stateSource !== 'ble' && !bleFallback && !this._carSleeping &&
         (telemetry.isStale() || ts.chargingState === null || this._forceBootReconcile
          || chargeLimitStale || locationStale);
       if (needsFallback && teslaToken && (Date.now() - this._lastFallbackAt) > FALLBACK_INTERVAL) {
@@ -1580,7 +1660,33 @@ class Controller {
           && (Date.now() - this._lastPhantomProbeAt) > PHANTOM_PROBE_GAP_MS) {
         this._lastPhantomProbeAt = Date.now();
         let restConfirmsCharging = false;
-        if (vin && teslaToken) {
+        if (vin && this._directReadsOverBle()) {
+          // Ask the car over Bluetooth instead of the cloud. Only while the geofence says it
+          // is home: a car that has left cannot answer, and waiting out a ~35s scan timeout
+          // would stall the loop (and the presence updates it publishes) for nothing.
+          if (this._isAtHome) {
+            try {
+              const fresh = await getVehicleDataBle(vin);
+              if (fresh.chargingState === 'Charging') {
+                restConfirmsCharging = true;
+                telemetry.updateFromApi({
+                  chargingState:  fresh.chargingState,
+                  batteryPct:     fresh.batteryPct,
+                  chargeLimit:    fresh.chargeLimit,
+                  chargeAmps:     fresh.chargeAmps,
+                  chargerPowerKw: fresh.chargerPowerKw,
+                  isOnline:       true,
+                });
+                logger.logEvent('api_error',
+                  `Telemetry stream looks dead (SOC frozen at ${this._chargeProgressBattery}%) but the car confirms `
+                  + `over Bluetooth it is really charging at ${fresh.batteryPct}% - keeping the session and re-registering telemetry.`);
+                try { require('./services/telemetryHealth').checkAndRepair().catch(() => {}); } catch (_e) {}
+              }
+            } catch (_e) {
+              // Could not confirm over Bluetooth - fall through to end as phantom.
+            }
+          }
+        } else if (vin && teslaToken) {
           try {
             this._trackApiCall('data');
             const { chargeState: fresh } = await getVehicleData(vin, teslaToken);
@@ -1846,7 +1952,8 @@ class Controller {
     // most, confirm it. This costs one API call, only when we are about to
     // stop, and only if the value is older than a couple of minutes.
     //
-    // In BLE state-source mode this asks the car over Bluetooth instead of Tesla's cloud.
+    // In BLE state-source mode, or whenever commands go over BLE, this asks the car over
+    // Bluetooth instead of Tesla's cloud.
     // It used to call the Fleet API regardless, which is how a supposedly cloud-free
     // install kept hitting a metered endpoint: 63,146 of these in one install's log, all
     // failing against an account Tesla had already disabled for exceeding its allowance.
@@ -1857,7 +1964,7 @@ class Controller {
     // condition that triggered it stays true and it fires again on the very next tick.
     // That is what turned one guard into tens of thousands of calls, roughly one every
     // ten seconds, for weeks.
-    const verifyOverBle = (db.getSetting('tesla_state_source') || 'telemetry') === 'ble';
+    const verifyOverBle = this._directReadsOverBle();
     const canVerifyLimit = !!vin && (verifyOverBle || !!teslaToken);
     if (!knownDisconnected && limitConfirmed && batteryPct > 0 && batteryPct >= chargeLimit
         && canVerifyLimit && telemetry.getChargeLimitAge() > VERIFY_LIMIT_BEFORE_STOP_MS
