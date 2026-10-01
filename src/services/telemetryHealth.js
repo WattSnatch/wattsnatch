@@ -19,6 +19,7 @@ const db = require('../db');
 const logger = require('../utils/logger');
 const { decrypt } = require('../utils/crypto');
 const tesla = require('./tesla');
+const cloudBudget = require('./teslaCloudBudget');
 
 // Let's Encrypt E7 intermediate (valid until Mar 2027). Only used when the install has not
 // stored its own fleet_telemetry_ca_cert. Kept identical to the setup wizard's default.
@@ -94,6 +95,9 @@ async function getConfigStatus() {
   const vin = db.getSetting('tesla_vin');
   const token = _accessToken();
   if (!vin || !token) return null;
+  // Counted against the daily cap. A refusal reads as "could not ask", which is already a
+  // safe no-op here - it never turns into a re-register.
+  try { cloudBudget.beforeRequest('GET fleet_telemetry_config'); } catch (_e) { return null; }
   return new Promise((resolve) => {
     const url = `${tesla.fleetBase()}/api/1/vehicles/${vin}/fleet_telemetry_config`;
     const req = https.get(url, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 }, (res) => {
@@ -115,7 +119,7 @@ async function getConfigStatus() {
 
 // POST the telemetry config to Tesla via the local signing proxy (localhost:4443).
 // Returns { ok, status, response } or { ok:false, error }. Shared with the setup wizard.
-async function sendConfig() {
+async function sendConfig({ essential = false } = {}) {
   const vin = db.getSetting('tesla_vin');
   if (!vin) return { ok: false, error: 'No VIN stored - complete setup first' };
   const hostname = db.getSetting('fleet_telemetry_hostname');
@@ -127,6 +131,11 @@ async function sendConfig() {
 
   const port = parseInt(db.getSetting('fleet_telemetry_port') || '443', 10);
   const caCert = db.getSetting('fleet_telemetry_ca_cert') || DEFAULT_LE_CA;
+  // Counted against the daily cap. Essential when the owner sends it from setup or Settings,
+  // so they can always fix a broken stream; the automatic repair is not.
+  try { cloudBudget.beforeRequest('POST fleet_telemetry_config', { essential }); }
+  catch (err) { return { ok: false, error: err.message }; }
+
   const payload = JSON.stringify({
     vins: [vin],
     config: {
