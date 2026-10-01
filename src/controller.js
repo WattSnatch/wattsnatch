@@ -154,6 +154,7 @@ class Controller {
     this._freePowerActive = false;
     this._lastFallbackAt = 0;
     this._bleRefreshInFlight = false;
+    this._lastUnconfirmedLimitLogAt = 0;
     this._lastCommandedAmps = null;
     this._lastGatewaySuccessAt = Date.now();
     this._teslaTokenRefreshAt = 0;
@@ -1960,7 +1961,20 @@ class Controller {
     // overcharge - it only defers to the car until Tesla confirms the number,
     // which the freshness rule above makes happen within a couple of minutes.
     let limitConfirmed = telemetry.getChargeLimitAge() !== Infinity;
-    if (!limitConfirmed && !knownDisconnected && batteryPct > 0 && batteryPct >= chargeLimit) {
+
+    // The car saying Complete is the car itself confirming it has reached its own limit, which
+    // is a better answer than any cached number. Without this, a restart while the car slept
+    // left the limit unconfirmed, and MONITORING (which has no branch for Complete) sat there
+    // indefinitely showing "starting charge" and doing nothing. Found live 2026-10-01. It also
+    // ends a session the car finished on its own instead of trimming amps on a full car.
+    const carReportsComplete = chargingState === 'Complete';
+
+    // Logged at most every 30 minutes: this condition can hold for hours while the car
+    // sleeps, and logging it every tick buried everything else (258 lines in 40 minutes).
+    if (!limitConfirmed && !knownDisconnected && !carReportsComplete && batteryPct > 0
+        && batteryPct >= chargeLimit
+        && (now - this._lastUnconfirmedLimitLogAt) >= 30 * 60 * 1000) {
+      this._lastUnconfirmedLimitLogAt = now;
       logger.logEvent('info',
         `Battery ${batteryPct.toFixed(0)}% is at the unconfirmed charge limit `
         + `(${chargeLimit}%) - deferring to the car until Tesla confirms it`);
@@ -2032,7 +2046,8 @@ class Controller {
       }
     }
 
-    if (knownDisconnected || (limitConfirmed && batteryPct > 0 && batteryPct >= chargeLimit)) {
+    if (knownDisconnected || carReportsComplete
+        || (limitConfirmed && batteryPct > 0 && batteryPct >= chargeLimit)) {
       if ([STATES.CHARGING, STATES.HOLDING].includes(this.state)) {
         this._endSession(batteryPct, knownDisconnected ? 'disconnected' : 'charge_complete');
       }

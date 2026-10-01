@@ -473,6 +473,8 @@ function updateStatusStrip(d) {
     msg = `Scheduled window active - charging ${name} at maximum rate`; cls = 'charging';
   } else if (d.chargingState === 'Disconnected') {
     msg = `${name} is not plugged in`;
+  } else if (d.chargingState === 'Complete') {
+    msg = `${name} is charged to its limit`;
   } else if (d.controllerState === 'WAITING') {
     msg = `${name} is plugged in - waiting for solar before charging`;
   } else if (['Asleep','Offline'].includes(d.chargingState)) {
