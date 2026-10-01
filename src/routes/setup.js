@@ -428,7 +428,7 @@ router.post('/api/setup/send-telemetry-config', async (req, res) => {
     // Shared with the automatic health monitor (services/telemetryHealth) so the wizard and
     // the auto-repair path build and send byte-identical configs.
     const telemetryHealth = require('../services/telemetryHealth');
-    const result = await telemetryHealth.sendConfig();
+    const result = await telemetryHealth.sendConfig({ essential: true }); // owner-initiated
     if (result.error) return res.json({ ok: false, error: result.error });
     res.json({ ok: result.ok, status: result.status, response: result.response });
   } catch (err) {

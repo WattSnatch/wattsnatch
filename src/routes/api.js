@@ -385,6 +385,7 @@ router.post('/api/settings', (req, res) => {
       'electricity_rate_aud', 'electricity_rate_mode', 'export_rate_mode', 'auto_backup_enabled', 'gateway_ip', 'tesla_vin',
       'tesla_client_id', 'tesla_client_secret', 'tesla_redirect_uri', 'tesla_region',
       'tesla_command_backend', 'tesla_ble_proxy_url', 'tesla_state_source', 'tesla_pairing_mode',
+      'tesla_cloud_daily_limit',
       'enphase_serial', 'enphase_email', 'tesla_display_name',
       'home_latitude', 'home_longitude', 'home_radius_km', 'google_maps_api_key', 'ha_link_key',
       'schedule_enabled', 'schedule_windows',
@@ -1340,6 +1341,13 @@ router.get('/api/stats/bills/comparison', (req, res) => {
 const teslamate = require('../services/teslamate');
 
 // GET /api/teslamate/stats - efficiency, battery health, arrival SoC
+// GET /api/tesla/cloud-usage - billed Tesla Fleet API requests made today and the daily cap.
+router.get('/api/tesla/cloud-usage', (req, res) => {
+  const budget = require('../services/teslaCloudBudget');
+  const u = budget.getUsage();
+  res.json({ ok: true, date: u.date, count: u.count, refused: u.refused, limit: budget.getLimit() });
+});
+
 router.get('/api/teslamate/stats', async (req, res) => {
   try {
     const [efficiency, health, arrivalSoc] = await Promise.all([

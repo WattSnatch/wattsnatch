@@ -970,6 +970,14 @@
             </select>
           </div>
           <div class="form-group">
+            <label for="setting_tesla_cloud_daily_limit">Daily Tesla cloud request limit</label>
+            <input type="number" id="setting_tesla_cloud_daily_limit" min="0" step="1" placeholder="Automatic (50 with BLE commands, 1000 with Fleet API)">
+            <span class="text-secondary text-xs mt-1">Billed Fleet API requests today: <strong id="tesla-cloud-usage">-</strong>.
+            Once the limit is reached, cloud requests are blocked until midnight and you get a notification.
+            Bluetooth commands and Fleet Telemetry are never affected, and stopping a charge or running setup is always allowed.
+            Leave blank for the automatic limit; 0 turns the limit off.</span>
+          </div>
+          <div class="form-group">
             <label for="setting_tesla_ble_proxy_url">BLE Proxy URL</label>
             <input type="url" id="setting_tesla_ble_proxy_url" placeholder="e.g. http://192.168.1.50:8080 (a Linux machine on your LAN)">
           </div>

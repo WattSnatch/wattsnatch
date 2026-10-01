@@ -73,6 +73,6 @@ test('the monitor is wired into server start and stop', () => {
 
 test('the setup wizard route shares the same sendConfig implementation', () => {
   const setup = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'setup.js'), 'utf8');
-  assert.match(setup, /telemetryHealth\.sendConfig\(\)/,
+  assert.match(setup, /telemetryHealth\.sendConfig\([^)]*\)/,
     'the wizard must call the shared sender, not a divergent copy');
 });

@@ -13,6 +13,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const db = require('../db');
+const cloudBudget = require('./teslaCloudBudget');
 
 // Tesla runs the Fleet API from separate regional deployments, and an account
 // registered in one region is not reachable through another - calls fail with
@@ -137,7 +138,23 @@ function _clearVehicleOfflineBackoff() {
   _vehicleOfflineUntil = 0;
 }
 
+// Billed Fleet API traffic: a regional Fleet API host, or the local signing proxy that
+// forwards to one. Sign-in hosts and the Bluetooth proxy are not billed and not counted.
+function _isBilledFleetUrl(url) {
+  return url.startsWith(PROXY_URL) || Object.values(TESLA_REGIONS).some((b) => url.startsWith(b));
+}
+
 function jsonFetch(url, options = {}) {
+  // Every billed request is counted against the daily cap before it is sent (see
+  // teslaCloudBudget.js). The label keeps the endpoint but never the VIN.
+  if (_isBilledFleetUrl(url)) {
+    try {
+      const label = `${options.method || 'GET'} ${new URL(url).pathname.replace(/\/vehicles\/[^/]+/, '/vehicles/{vin}')}`;
+      cloudBudget.beforeRequest(label, { essential: !!options.essential });
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const isProxy = url.startsWith(PROXY_URL);
@@ -249,6 +266,7 @@ async function getPartnerToken(clientId, clientSecret) {
  */
 async function registerPartnerAccount(partnerToken, domain) {
   const res = await jsonFetch(`${fleetBase()}/api/1/partner_accounts`, {
+    essential: true, // setup step - must work even on a capped day
     method: 'POST',
     headers: { Authorization: `Bearer ${partnerToken}` },
     body: JSON.stringify({ domain }),
@@ -333,6 +351,7 @@ async function refreshAccessToken(refreshToken, clientId, clientSecret) {
  */
 async function listVehicles(accessToken) {
   const res = await jsonFetch(`${fleetBase()}/api/1/vehicles`, {
+    essential: true, // setup / sign-in step
     headers: authHeader(accessToken),
   });
 
@@ -383,6 +402,7 @@ function parseRegionResponse(status, body) {
 async function getUserRegion(accessToken, tryBaseUrl) {
   const base = tryBaseUrl || fleetBase();
   const res = await jsonFetch(`${base}/api/1/users/region`, {
+    essential: true, // setup step
     headers: authHeader(accessToken),
   });
   const parsed = parseRegionResponse(res.status, res.body);
@@ -400,7 +420,7 @@ async function getUserRegion(accessToken, tryBaseUrl) {
 async function getRegisteredPublicKey(partnerToken, domain) {
   const res = await jsonFetch(
     `${fleetBase()}/api/1/partner_accounts/public_key?domain=${encodeURIComponent(domain)}`,
-    { headers: authHeader(partnerToken) },
+    { headers: authHeader(partnerToken), essential: true }, // setup step
   );
   if (res.status !== 200) return null;
   try { return (JSON.parse(res.body).response || {}).public_key || null; } catch (_e) { return null; }
@@ -582,6 +602,9 @@ async function stopCharging(vin, accessToken) {
   // during a backoff window surfaces the "offline or asleep" message, which is accurate.
   _assertVehicleNotBackingOff();
   const res = await jsonFetch(commandUrl(vin, 'charge_stop'), {
+    // Never refused by the daily cap: blocking a stop could leave the car charging from
+    // the grid unsupervised, which is worse than the cost of one request.
+    essential: true,
     method: 'POST',
     headers: commandHeaders(accessToken),
     body: '{}',

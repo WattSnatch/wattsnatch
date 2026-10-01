@@ -374,7 +374,7 @@ const FIELD_IDS = [
   'gateway_ip', 'tesla_vin',
   'charging_backend', 'ocpp_charge_point_id', 'ocpp_ws_port', 'ocpp_id_tag',
   'tesla_client_id', 'tesla_redirect_uri', 'tesla_region',
-  'tesla_command_backend', 'tesla_ble_proxy_url', 'tesla_state_source',
+  'tesla_command_backend', 'tesla_ble_proxy_url', 'tesla_state_source', 'tesla_cloud_daily_limit',
   'enphase_serial', 'enphase_email',
   'home_latitude', 'home_longitude', 'home_radius_km',
   'google_maps_api_key', 'ha_link_key',
@@ -448,6 +448,21 @@ function _mqttAgeText(ms) {
   const s = Math.round(ms / 1000);
   if (s < 90) return `${s}s ago`;
   return `${Math.round(s / 60)}m ago`;
+}
+
+// Today's billed Tesla Fleet API requests against the daily cap.
+async function loadTeslaCloudUsage() {
+  const el = document.getElementById('tesla-cloud-usage');
+  if (!el) return;
+  try {
+    const data = await api('/api/tesla/cloud-usage');
+    if (!data.ok) return;
+    const capped = data.limit > 0 && data.count >= data.limit;
+    el.textContent = data.limit > 0
+      ? `${data.count} of ${data.limit} today${capped ? ` - limit reached, ${data.refused} blocked` : ''}`
+      : `${data.count} today (no limit set)`;
+    el.style.color = capped ? '#fc814a' : 'var(--text-primary)';
+  } catch (_e) { /* status line only */ }
 }
 
 async function loadMqttStatus() {
@@ -1461,6 +1476,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadRates();
   loadTariffs();
   loadMqttStatus();
+  loadTeslaCloudUsage();
   wireDateEchoes();
 
   document.getElementById('mqtt-out-test-btn')?.addEventListener('click', testMqttOutput);
