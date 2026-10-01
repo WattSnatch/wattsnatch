@@ -974,12 +974,19 @@
             <input type="url" id="setting_tesla_ble_proxy_url" placeholder="e.g. http://192.168.1.50:8080 (a Linux machine on your LAN)">
           </div>
         </div>
-        <p style="font-size:0.8rem;color:var(--text-secondary);margin:0.5rem 0 0">
-          Set <strong style="color:var(--text-primary)">both</strong> to Bluetooth LE for a fully cloud-free setup - no Fleet Telemetry, no Fleet API,
-          no Tesla token needed. In BLE state mode the car's presence is detected over Bluetooth (in range = at home),
-          so it replaces GPS geofencing too. Reading state over Bluetooth takes a few seconds and is polled about every 30s,
-          so it reacts a little slower than Fleet Telemetry's live push.
-        </p>
+        <div style="font-size:0.8rem;color:var(--text-secondary);margin:0.5rem 0 0">
+          <p style="margin:0 0 0.5rem"><strong style="color:var(--text-primary)">Recommended if you have the proxy: Fleet Telemetry state + Bluetooth LE commands.</strong>
+          The car streams its state and GPS location live, so arriving and leaving home show up within seconds (best for
+          Home Assistant presence, such as garage door automations). Every command, and every direct check WattSnatch makes
+          on the car, goes over Bluetooth, so this setup makes no metered Fleet API calls during normal running.</p>
+          <p style="margin:0 0 0.5rem"><strong style="color:var(--text-primary)">Both on Bluetooth LE:</strong> no Fleet Telemetry and no
+          metered Fleet API calls at all. Presence is detected over Bluetooth instead of GPS (in range = at home). It is
+          slower to notice arrivals and departures, typically up to a minute or more, because the car only answers once it
+          is close enough and the proxy has found it.</p>
+          <p style="margin:0"><strong style="color:var(--text-primary)">Fleet API commands:</strong> every command and every direct
+          check on the car is a metered call against your Tesla developer account. Fine for occasional use, but keep an eye
+          on usage.</p>
+        </div>
         <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.5rem">
           <button type="button" id="ble-test-btn" class="btn btn-secondary btn-sm">Test Connection</button>
           <span id="ble-test-result" style="font-size:0.82rem;color:var(--text-secondary)"></span>
