@@ -2,6 +2,213 @@
 
 ---
 
+## 2026-10-01 - v2.6.0: A hard cap on Tesla cloud spend, Home Assistant presence in seconds, and telemetry with Bluetooth commands
+
+In September a path nobody knew was calling Tesla's cloud made about 6,500 billed
+requests a day, until Tesla disabled the developer account. This release closes
+the paths behind that, adds a cap so an unknown one cannot do it again, and makes
+the recommended setup for owners with both Fleet Telemetry and the Bluetooth proxy
+work the way it should.
+
+**New: a daily cap on billed Tesla cloud requests.** Nothing limited how many
+billed requests the app could make. Every request to a Fleet API host or through
+the signing proxy is now counted, in the one place they all pass through, before
+it is sent. Once the day's limit is reached, further cloud requests are refused
+without touching the network until midnight, and a single notification names the
+first request that was blocked. Stopping a charge and setup steps are counted but
+never refused, because blocking a stop could leave the car charging from the grid
+unsupervised, and blocking setup could leave you unable to fix the cause.
+Bluetooth traffic, sign-in token refresh and Fleet Telemetry are not counted. The
+limit defaults to 50 with Bluetooth commands, where normal running makes about
+four, and 1000 with Fleet API commands. It is set in Settings, where today's count
+is shown alongside it.
+
+**Fixed: Fleet Telemetry with Bluetooth commands still called the cloud.** Vehicle
+state and commands have always been separate settings, but the controller's own
+direct reads of the car (a background refresh when the stream goes quiet, the
+check that confirms a charge whose battery percentage has stopped moving, and the
+charge-limit check before stopping) only used Bluetooth when vehicle state was set
+to Bluetooth too. With telemetry for state and Bluetooth for commands, they went
+to Tesla's billed vehicle data endpoint instead, which could have reached several
+hundred requests a day. With Bluetooth commands, all of them now go over
+Bluetooth. The background refresh never blocks the control loop, is skipped while
+GPS says the car is away, checks the wake-free sleep state first so it never wakes
+the car, and never falls back to the cloud. This is now the recommended
+combination for anyone with both.
+
+**New: Home Assistant sees the car arrive and leave within seconds.** Two delays
+stacked up. The car streamed its location every 30 seconds, so it could be in the
+driveway before the first position inside the geofence arrived, and presence was
+only published at the end of a control loop tick, which can wait up to about 35
+seconds on a Bluetooth command to a car that is pulling away. Location now streams
+every second, and a GPS update that crosses the geofence is published straight
+away. Tesla only sends a field when its value changes, so a parked car costs
+nothing extra; driving is roughly 3,600 signals an hour.
+
+**Fixed: changing the telemetry fields never reached the car.** The health check
+only re-sent the telemetry configuration when Tesla had dropped it entirely, so a
+WattSnatch update that changed a field or interval would never have been applied
+to an existing car. It now compares what Tesla holds with what the app needs and
+re-sends when they differ. A configuration it cannot read is left alone rather
+than re-sent, so the check cannot loop.
+
+**Fixed: a fully charged car could leave the dashboard saying "starting charge"
+for hours.** After a restart while the car slept, the cached charge limit stays
+unconfirmed until the car confirms it, by design. A car at its limit reporting
+Complete then fell through every branch of the monitoring state, which knew about
+charging, stopped and asleep but not complete, so nothing was sent and the
+dashboard showed "starting charge" indefinitely while one log line repeated every
+tick. A car reporting Complete is now taken as the car confirming its own limit:
+the controller goes idle and stays there, and a session the car finishes on its
+own is ended rather than having its charge rate adjusted on a full car.
+
+**Fixed: battery health never appeared for owners who charge to 80%.** The health
+figure only counted charges that began at 97% or more, which almost never happens.
+On one install none of 779 charges qualified, so the card was empty for the life
+of the install. It now uses the range at the end of charges that finished at 97%
+or above, normalised to 100% so a 98% reading compares fairly with a 100% one, and
+falls back to the latest full charge rather than the all-time best when none falls
+in the last 90 days. Trip planning reads the same figure.
+
+**Fixed: free Bluetooth commands were counted as billed API calls.** The API usage
+history counted every command and wake, including ones sent over Bluetooth that
+never reach Tesla, which showed hundreds of calls a day on installs that were
+costing nothing. Only real cloud requests are counted now.
+
+**Documentation.** The REST fallback was described as polling about every two
+minutes; it is about every ten. A setup note still claimed the telemetry hostname
+was hardcoded to one domain; it has been a setting for some time. The manual
+telemetry configuration in the server deployment guide used two field names the
+app does not read and the wrong endpoint. Fleet Telemetry was described as free;
+Tesla bills it per signal, though a parked car costs essentially nothing. The
+default home radius was given as 0.1 km; it is 0.5 km.
+
+---
+
+## 2026-09-21 - v2.5.0: Bluetooth without a Tesla account at all, three-phase charging, and a charge that no longer stops without saying so
+
+The largest release so far, and the one that changes what WattSnatch requires of
+you. Bluetooth setups can now avoid Tesla's cloud entirely, three-phase installs
+finally see the headroom they actually have, and several faults found in daily use
+are fixed - including one that quietly exported five kilowatts while reporting
+that it was charging.
+
+**Bluetooth with no Tesla account at all.** TeslaBleHttpProxy generates its own
+key and pairs it with your car over Bluetooth, approved by tapping an NFC key card
+on the console. No Tesla developer application, no public key hosted on a domain,
+no partner registration, no sign-in. WattSnatch required all four anyway, not
+because Tesla demands it, but because it generated the keypair itself and had the
+proxy sign with a copy of it.
+
+Setup now offers both. Choosing local pairing skips the developer app, the key
+hosting and the Tesla pairing steps entirely, and the proxy step carries the
+pairing instructions instead. Existing installs are untouched and keep the setup
+they have. The recommended key role covers waking, starting and stopping, and
+setting the charge rate, and deliberately cannot unlock or drive the car. It also
+cannot change the charge limit, so that control and the solar banking feature are
+unavailable on that path, which the app now states plainly rather than failing
+quietly.
+
+**A charge could stop without anything noticing.** Found on a clear day with five
+kilowatts of surplus going to the grid while the dashboard reported charging. The
+loop had intercepted the grid charge that Tesla starts on plug-in, which stopped
+the car, and the two vehicle reads that followed both timed out. The ten second
+old state still said charging, so the controller took it as a car already charging
+and took control. That path only trims the charge rate, and setting a rate on a
+stopped car does nothing. It ran for 46 minutes with the car drawing zero.
+
+The charging state is now reconciled against what the car actually reports, and a
+car that says it is stopped is started rather than trimmed. A car that reports
+nothing at all is deliberately left alone, because no data is not the same fact as
+a stopped car.
+
+**Solar dropping no longer risks an hour of grid charging.** When surplus falls
+away the car is dropped to minimum amps for a few minutes to see whether the sun
+returns. That instruction was sent once and never re-attempted, so a single failed
+command left the car drawing at its old rate, from the grid, for the whole wait.
+It had happened 52 times on one install. It is now retried on a bounded schedule.
+
+**Three-phase charging.** Charge current is commanded per phase, so a three-phase
+charger at a given amperage draws three times the power a single-phase one does.
+The diversion loop assumed a single phase everywhere, so a three-phase install had
+its available surplus understated threefold and charged well below what the roof
+could carry. Original work contributed by nathanhand in pull request #18.
+
+**Banking solar into the car before a poor stretch of weather.** On a strong day
+the roof can make more than the house uses and the car will take, and the surplus
+is exported for a few cents. If the days ahead are forecast to be poor, that same
+energy is bought back at retail. WattSnatch can now raise the charge limit for one
+strong day and put your own limit back when the car is unplugged or the day ends.
+Off by default, with a configurable ceiling and threshold.
+
+**Setup no longer reports a registration that did not happen.** A success response
+from Tesla's registration endpoint is not evidence that Tesla stored anything. The
+wizard treated it as proof and displayed success while Tesla held no key for the
+domain at all. One person spent days chasing a pairing failure that the green tick
+appeared to rule out, and found the truth only by querying Tesla by hand.
+Registration is now confirmed by reading the key back from Tesla, and a
+registration that cannot be confirmed fails with an explanation rather than
+advancing. Reported as issue #17.
+
+**Bluetooth setups could not pair a virtual key.** Tesla will not add a virtual
+key for an application your account has not authorised. Bluetooth mode skipped the
+Tesla sign-in entirely and said on screen that no login was needed, so every
+Bluetooth setup reached the pairing step unable to finish it. The sign-in is now
+required before pairing, and the screen no longer promises otherwise. Also
+reported as issue #17.
+
+**Sungrow SG string inverters timed out.** The two Sungrow product lines do not
+share a Modbus register map, and the setup wizard never asked which you have, so
+every fresh SG installation silently got the wrong one and simply timed out. The
+only place to correct it was inside the home battery settings, which is the last
+place an owner of a string inverter with no battery would look. The wizard now
+asks. Reported as issue #20.
+
+**A cloud-free setup was still calling the cloud.** Before stopping a charge the
+controller re-checks the car's charge limit, and that check called Tesla's cloud
+even in Bluetooth mode where everything else runs locally. It also retried on
+every tick when it failed, because a failed call never refreshes the value it is
+gated on. One install logged 63,146 of them. It now asks the car over Bluetooth,
+and every attempt is spaced out.
+
+**A scheduled window now wakes a sleeping car.** A car asleep long enough reports
+no charge state, which the scheduled path read as unplugged, so a window opening
+while the car slept did nothing at all. Original work contributed by Georgy Agaev
+in pull request #23.
+
+**Battery health uses the capacity you configured.** Usable capacity was derived
+from range using a fixed efficiency figure taken from one model, which over-read
+badly for any other. It now uses the capacity you entered, scaled by measured
+health. Reported as issue #16.
+
+**The Bluetooth watchdog acts on faults it has never seen.** The watchdog
+recognised the failures it knew about and treated everything else as healthy. One
+unfamiliar error left a car plugged in at 78 percent, one metre from the house,
+with no charging control for eleven hours while nothing reported a problem.
+Classification is now the other way around: a short list of responses known to be
+harmless, and anything else counts as a fault.
+
+**Clearer names for the charging windows.** Three settings sections deal in time
+windows and only two of them affect charging, with nothing on the page saying
+which. They are now named for what they do: allowed grid charging windows, and
+blocked grid charging. The electricity rate section states outright that its rates
+are for cost tracking and never decide when the car charges. Reported as issue
+#14.
+
+**Choosing which AI writes the dashboard briefing.** The briefing used whichever
+API key happened to be present, in a fixed order, so an install with one key could
+never use another that was already configured. The provider is now an explicit
+setting, and choosing Gemini reuses the same key as bill analysis.
+
+**Smaller fixes.** Bluetooth reads now wait longer than the proxy's own scan
+timeout, so a car that is merely slow to answer is no longer mistaken for a stuck
+proxy. Tesla partner token requests go to the documented Fleet Auth host. The two
+Tesla partner registration errors that are self-inflicted now name the actual fix.
+The setup wizard offers Docker as the first way to run the Bluetooth proxy, with
+the source build as the alternative.
+
+---
+
 ## 2026-09-09 - v2.4.0: The Bluetooth path gets its first real run, and virtual key pairing checks its own region
 
 The Bluetooth backend has existed for a while but had not been run end to end on

@@ -1,6 +1,6 @@
 # Setting Up Tesla Fleet Telemetry for WattSnatch
 
-This is an **optional, advanced** setup guide. WattSnatch works completely fine without this - by default it polls the Tesla REST API as a fallback (every ~2 minutes while it's needed), which is enough for solar-diversion charging. Fleet Telemetry gives you real-time (sub-second) car data instead of that polling fallback. Only do this if you want that extra responsiveness and are comfortable with some networking setup.
+This is an **optional, advanced** setup guide. WattSnatch works without this - by default it polls the Tesla REST API as a fallback (about every 10 minutes while it's needed), which keeps solar-diversion charging working. Fleet Telemetry gives you real-time (sub-second) car data instead of that polling fallback, including GPS location every second, which is what makes Home Assistant presence fast. Only do this if you want that extra responsiveness and are comfortable with some networking setup.
 
 **Read this whole document before starting** - the very first section below is a hard architectural constraint that determines whether this is even possible for your setup.
 
@@ -44,11 +44,11 @@ Compared to the REST polling fallback:
 | | REST fallback (default) | Fleet Telemetry |
 |---|---|---|
 | Setup effort | None - works out of the box | Domain, TLS cert, port-forwarding, running an extra service |
-| Update frequency | ~Every 2 minutes while needed | Sub-second, as it happens |
-| Tesla API cost | Occasional `data` calls | None for updates (telemetry is free once configured) |
+| Update frequency | About every 10 minutes while needed | Sub-second, as it happens |
+| Tesla API cost | A billed `data` request each time | Billed per streamed signal (about US$1 per 150,000 at the time of writing), and a field is only sent when its value changes, so a parked car costs essentially nothing. Driving is roughly 3,600 signals an hour, mostly Location. Plus a configuration check about 4 times a day |
 | Reliability | Very simple, few moving parts | One more thing that can silently stop working |
 
-For solar diversion specifically, the 2-minute REST fallback is genuinely fine most of the time - the difference mainly shows up in how quickly the dashboard reflects charge-state changes. Weigh that against the setup effort below before committing to this.
+For solar diversion specifically, the REST fallback keeps charging working, but it reacts in minutes rather than seconds, and home/away presence is only as fresh as the last poll. Weigh that against the setup effort below before committing to this.
 
 ---
 
@@ -204,14 +204,28 @@ the fleet-telemetry log is the sign the new config took effect.
 
 Behind the scenes this calls `POST /api/setup/send-telemetry-config`, which builds the `fleet_telemetry_config` payload from your settings and sends it to Tesla via the local Tesla command proxy (the same signed-command proxy from `INSTALL.md` section 4 - it must be running for this step to work). A success response means Tesla has accepted the config and will push it to your car the next time it's online.
 
-The fields WattSnatch requests, and at what interval, are fixed in code (`src/routes/setup.js`) - currently `ChargeAmps`, `DetailedChargeState`, `Soc`, `ChargeLimitSoc`, `ChargerVoltage`, `ACChargingPower`, and `Location`, which is everything the controller needs and nothing more.
+The fields WattSnatch requests, and the shortest interval for each, are fixed in code (`DESIRED_FIELDS` in `src/services/telemetryHealth.js`), which is everything the controller needs and nothing more:
+
+| Field | Interval | Used for |
+|---|---|---|
+| `ChargeAmps` | 1 s | Current charge rate |
+| `DetailedChargeState` | 1 s | Charging, stopped, complete, unplugged |
+| `ACChargingPower` | 5 s | Power the car is drawing |
+| `Soc` | 30 s | Battery percentage |
+| `ChargerVoltage` | 30 s | Charger voltage |
+| `ChargeLimitSoc` | 60 s | Charge limit |
+| `Location` | 1 s | Home/away geofence and Home Assistant presence |
+
+The interval is the most often a field can be sent; the car only sends it when the value has changed, so these cost nothing while nothing is changing. Location at 1 second is what lets arriving and leaving reach Home Assistant within a second or two.
+
+You only need to send the config once. WattSnatch checks the configuration Tesla holds 90 seconds after starting and every 6 hours after that, and re-sends it automatically if Tesla has dropped it (car software updates do this) or if the fields or intervals no longer match the list above, so a WattSnatch update that changes them reaches the car on its own. A configuration it cannot read is left alone rather than re-sent, so the check cannot loop. These checks are billed Fleet API requests and count towards the daily cap in Settings.
 
 ---
 
 ## 9. Verifying it's working
 
 - Watch your `fleet-telemetry` server's own logs - you should see an incoming connection from your vehicle shortly after it's next awake, followed by a stream of data messages.
-- On the WattSnatch dashboard, the "Tesla: OK" indicator should stay live-updating rather than only refreshing every couple of minutes.
+- On the WattSnatch dashboard, car data should update within seconds of a change rather than only every several minutes.
 - Check WattSnatch's own event log (Logs page) for `Subscribed to ZMQ socket tcp://127.0.0.1:5678` at startup - confirms the app-side subscriber connected to your local fleet-telemetry instance correctly.
 - If the car has been asleep, telemetry won't show anything until it wakes - this is normal, not a fault.
 

@@ -100,7 +100,10 @@ server for live vehicle state) or **Bluetooth LE** (fully cloud-free - no Fleet 
 ongoing Fleet API calls, no Tesla OAuth token needed once set up, but only works while the car is
 within Bluetooth range, i.e. at home). Both still need the same one-time Tesla developer app, EC
 keypair, and virtual key pairing below - that part is Tesla's own security requirement and is
-identical either way.
+identical either way. If the user wants both - Fleet Telemetry running for fast GPS presence and the
+Bluetooth proxy for commands - set `tesla_state_source` to `telemetry` and `tesla_command_backend`
+to `ble`. That is the recommended mix when both exist: direct reads of the car then also go over
+Bluetooth, so normal running makes no billed vehicle data or command requests.
 
 **Fleet API** - build `tesla-http-proxy`:
 ```bash
@@ -441,8 +444,15 @@ Diagnostic notes that are easy to get wrong:
 
 - `fleet-telemetry` typically runs as **root** (low port, cert access). A non-root
   `lsof` will not see its sockets and will look like nothing is listening. Use `sudo`.
-- Commands go through the proxy, but `wake_up` does **not** - it calls Tesla's API
-  directly (`src/services/tesla.js`), because waking needs no signing.
+- With the Fleet command backend, commands go through the signing proxy, but `wake_up`
+  does **not** - it calls Tesla's API directly (`src/services/tesla.js`), because waking
+  needs no signing. With the Bluetooth backend, `wake_up` goes to the Bluetooth proxy like
+  every other command.
+- Every billed Fleet API request is counted against a daily cap
+  (`src/services/teslaCloudBudget.js`, setting `tesla_cloud_daily_limit`, default 50 with
+  Bluetooth commands and 1000 with Fleet commands). Once reached, cloud requests fail with
+  "daily request limit reached" until local midnight. Setup steps and `charge_stop` are
+  never refused. `GET /api/tesla/cloud-usage` shows today's count.
 - `tesla_command_backend` (`fleet` | `ble`) picks the command path; `tesla_state_source`
   picks the read path. They are independent and can be mixed.
 - The app never reads `tesla_public_key_url` at runtime - it is written once at setup.

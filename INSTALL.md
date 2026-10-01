@@ -164,6 +164,8 @@ If you chose OCPP, skip ahead to [section 7, the setup wizard](#7-run-the-setup-
 
 > **⚠️ Bluetooth LE's proxy does not practically run on macOS.** TeslaBleHttpProxy needs macOS's CoreBluetooth framework, which refuses to run unsigned or ad-hoc-signed binaries (`codesign --sign -`) before the OS even offers a Bluetooth permission prompt - confirmed via `~/Library/Diagnostic Reports` crash logs and the unified log showing an AMFI (`AppleMobileFileIntegrityError`, code -423) rejection, not a TCC/permissions issue. A real paid Apple Developer ID signing certificate fixes it in principle; the practical answer for a self-hosted project is to **run TeslaBleHttpProxy on a Linux machine instead** (a Raspberry Pi near the car works well) and point `tesla_ble_proxy_url` at that machine's LAN address - it does not need to be the same machine WattSnatch itself runs on. WattSnatch's own server has no such restriction and runs fine on macOS regardless of which backend you choose.
 
+**The two halves can be mixed.** Commands (`tesla_command_backend`) and vehicle state (`tesla_state_source`) are separate settings in **Settings → Vehicle Command Backend**. If you run Fleet Telemetry and also have the Bluetooth proxy, the recommended combination is Fleet Telemetry for state and Bluetooth LE for commands: GPS presence stays fast (useful for Home Assistant automations such as a garage door), and every command and every direct check WattSnatch makes on the car goes over Bluetooth, so normal running makes no billed vehicle data or command requests. With all-Bluetooth, presence is detected by Bluetooth range instead of GPS, which typically takes up to a minute or more to notice an arrival or departure.
+
 If you're not sure, start with Fleet API - it's simpler to set up (no separate proxy binary to build, no extra machine needed) and works from anywhere. Switch to Bluetooth LE later from Settings if you decide you want a cloud-free setup; nothing about the choice is permanent.
 
 ---
@@ -519,12 +521,12 @@ Two things worth knowing:
 - Publishing the port exposes your TeslaMate database to your whole local network. If that machine is reachable from outside your network, restrict it - for example bind to one interface with `- "192.168.1.50:5432:5432"`, or leave the port closed and run WattSnatch on the same Docker network instead.
 
 ### Real-time telemetry - Tesla Fleet Telemetry (advanced, optional)
-By default, WattSnatch gets vehicle data by **polling the Tesla REST API** as a fallback whenever its faster telemetry path is unavailable (every ~2 minutes while it's needed). This works out of the box with no extra setup and is genuinely fine for most people.
+Without Fleet Telemetry (and with vehicle state not set to Bluetooth), WattSnatch gets vehicle data by **polling the Tesla REST API**, about every 10 minutes while it's needed. This works out of the box with no extra setup, but the dashboard and the controller then see changes in minutes rather than seconds.
 
 For real-time (sub-second) updates instead, Tesla offers a **Fleet Telemetry** push feed - but standing this up yourself requires:
 - Your **own public domain name** with a valid CA-signed TLS certificate (Tesla will not connect to a self-signed cert)
 - Running [Tesla's `fleet-telemetry` server binary](https://github.com/teslamotors/fleet-telemetry), reachable from the internet on port 443
-- Registering that hostname with your Tesla developer app and sending a `fleet_telemetry_config` request (WattSnatch's setup route for this currently has one maintainer's domain **hardcoded** - see [section 16](#16-current-self-hosting-limitations))
+- Registering that hostname with your Tesla developer app and sending a `fleet_telemetry_config` request. The hostname is a normal setting, and WattSnatch sends the request for you from **Settings → Fleet Telemetry (Advanced)**. After that it checks the configuration Tesla holds every 6 hours and re-sends it if Tesla has dropped it (car software updates do this) or if it no longer matches the fields and intervals the app needs
 
 Treat this as a follow-up project once the core app is working, not a day-one requirement.
 
@@ -780,4 +782,10 @@ None of these block the **core** solar-diversion feature - they only affect spec
 
 ## A note on Tesla Fleet API costs
 
-Tesla's Fleet API is not unconditionally free at high call volumes - Tesla publishes a monthly free allowance per developer account, beyond which per-call charges apply (separately for "commands," "data," and "wake" calls, priced per Tesla's own developer pricing page, which varies by region and changes over time - check [developer.tesla.com](https://developer.tesla.com) for current figures rather than relying on any number quoted here). WattSnatch is tuned to stay well inside typical free-tier limits for one vehicle under normal solar-charging patterns (Tesla commands are throttled to a 10-second cadence, and the REST fallback path only polls when telemetry is stale), but it's worth knowing this is a live cloud API with a cost model, not a flat-rate local integration like the Enphase gateway.
+Tesla's Fleet API is not unconditionally free at high call volumes - Tesla publishes a monthly free allowance per developer account, beyond which per-call charges apply (separately for "commands," "data," and "wake" calls, priced per Tesla's own developer pricing page, which varies by region and changes over time - check [developer.tesla.com](https://developer.tesla.com) for current figures rather than relying on any number quoted here). WattSnatch is tuned to stay well inside typical free-tier limits for one vehicle under normal solar-charging patterns (Tesla commands are sent at most every other controller tick, and the REST fallback only polls when telemetry is stale, at most every 10 minutes), but it's worth knowing this is a live cloud API with a cost model, not a flat-rate local integration like the Enphase gateway.
+
+Three things keep the cost bounded:
+
+- **A daily cap.** Every billed Fleet API request is counted, and once the day's limit is reached further requests are blocked until midnight and you are notified. The limit defaults to 50 with Bluetooth commands and 1000 with Fleet API commands, and is set in **Settings → Vehicle Command Backend**, where today's count is shown. Stopping a charge and setup steps are always allowed.
+- **Bluetooth commands.** With the Bluetooth command backend, commands, wakes and the controller's own direct reads of the car go over Bluetooth and cost nothing. Normal running then makes about four billed requests a day if you use Fleet Telemetry (its configuration check), and none if you don't.
+- **Fleet Telemetry is billed per signal, but only when something changes.** Tesla charges a small amount per streamed signal (about US$1 per 150,000 at the time of writing) and only sends a field when its value changes, so a parked car costs essentially nothing. Location streams every second while driving, roughly 3,600 signals an hour. Tesla's monthly discount for individual developers covers this many times over.
