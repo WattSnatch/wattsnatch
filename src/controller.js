@@ -264,6 +264,11 @@ class Controller {
       );
     });
 
+    // Presence goes to Home Assistant the moment a GPS update arrives, not on the next loop
+    // tick. The loop can sit for up to ~35s inside a Bluetooth command to a car that is pulling
+    // away, and garage door automations are waiting on exactly this signal.
+    telemetry.onVehicleUpdate((snap) => this._onVehicleLocation(snap));
+
     this._interval = setInterval(() => this._loop(), intervalMs);
     logger.logEvent('info', `Controller started (Enphase interval ${intervalMs}ms, Fleet Telemetry active)`);
   }
@@ -632,6 +637,26 @@ class Controller {
     } catch (err) {
       logger.logEvent('api_error', `BLE vehicle_data poll failed: ${err.message}`);
     }
+  }
+
+  /**
+   * React to a streamed GPS update straight away. Updates the cached position and, if that
+   * moves the car across the geofence, sets _isAtHome and publishes immediately. Setting
+   * _isAtHome here as well as publishing matters: the loop publishes _isAtHome at the end of
+   * every tick, and a tick that computed it before this update would otherwise send the old
+   * value a moment later, flipping Home Assistant back.
+   */
+  _onVehicleLocation(snap) {
+    if (!snap || snap.latitude == null || snap.longitude == null) return;
+    if ((db.getSetting('tesla_state_source') || 'telemetry') === 'ble') return; // presence is BLE reachability there
+    if (this._lastLatLng && this._lastLatLng.lat === snap.latitude && this._lastLatLng.lon === snap.longitude) return;
+    this._lastLatLng = { lat: snap.latitude, lon: snap.longitude };
+    this._lastLatLngAt = Date.now();
+    const home = this._checkAtHome();
+    if (home === this._isAtHome) return;
+    this._isAtHome = home;
+    logger.logEvent('info', home ? 'Car arrived home (GPS)' : 'Car left home (GPS)');
+    mqttPublisher.publishCar(snap, home);
   }
 
   _checkAtHome() {

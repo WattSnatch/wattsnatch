@@ -56,6 +56,36 @@ function _accessToken() {
   catch (_e) { return null; }
 }
 
+// Fields streamed from the car. Tesla only sends a signal when its value changes, and billing
+// is per signal sent, so a parked car costs nothing whatever the interval. Location at 1s is
+// what makes arriving and leaving home show up within a second or two (Home Assistant
+// presence, garage door automations); at 30s the car could be in the driveway before the
+// first update inside the geofence arrived. Driving costs roughly 3,600 signals an hour,
+// about 2.4 US cents at Tesla's published streaming rate.
+//
+// Changing anything here reaches the car on its own: checkAndRepair() compares this against
+// what Tesla has stored and re-sends when they differ.
+const DESIRED_FIELDS = {
+  ChargeAmps:          { interval_seconds: 1  },
+  DetailedChargeState: { interval_seconds: 1  },
+  Soc:                 { interval_seconds: 30 },
+  ChargeLimitSoc:      { interval_seconds: 60 },
+  ChargerVoltage:      { interval_seconds: 30 },
+  ACChargingPower:     { interval_seconds: 5  },
+  Location:            { interval_seconds: 1  },
+};
+
+// Names of fields whose stored interval differs from DESIRED_FIELDS. Returns null when the
+// stored config has no recognisable fields object, which means "can't tell", never "differs":
+// guessing wrong there would re-send on every check.
+function fieldDrift(storedFields) {
+  if (!storedFields || typeof storedFields !== 'object') return null;
+  return Object.keys(DESIRED_FIELDS).filter((name) => {
+    const stored = storedFields[name];
+    return !stored || Number(stored.interval_seconds) !== DESIRED_FIELDS[name].interval_seconds;
+  });
+}
+
 // GET the car's current telemetry config from Tesla.
 // Returns { synced, hasConfig, keyPaired } on success, or null when we could not ask
 // (no token/VIN, network error) - a null means "unknown", never "missing", so we never
@@ -73,7 +103,8 @@ async function getConfigStatus() {
         if (res.statusCode !== 200) return resolve(null);
         try {
           const r = (JSON.parse(b).response) || {};
-          resolve({ synced: r.synced === true, hasConfig: r.config != null, keyPaired: r.key_paired === true });
+          resolve({ synced: r.synced === true, hasConfig: r.config != null, keyPaired: r.key_paired === true,
+            drift: r.config ? fieldDrift(r.config.fields) : null });
         } catch (_e) { resolve(null); }
       });
     });
@@ -100,15 +131,7 @@ async function sendConfig() {
     vins: [vin],
     config: {
       hostname, port, ca: caCert,
-      fields: {
-        ChargeAmps:          { interval_seconds: 1  },
-        DetailedChargeState: { interval_seconds: 1  },
-        Soc:                 { interval_seconds: 30 },
-        ChargeLimitSoc:      { interval_seconds: 60 },
-        ChargerVoltage:      { interval_seconds: 30 },
-        ACChargingPower:     { interval_seconds: 5  },
-        Location:            { interval_seconds: 30 },
-      },
+      fields: DESIRED_FIELDS,
     },
   });
 
@@ -140,6 +163,9 @@ async function sendConfig() {
   });
 }
 
+// Indirection so tests can stand in for Tesla without a network call.
+const _deps = { getConfigStatus: (...a) => getConfigStatus(...a), sendConfig: (...a) => sendConfig(...a) };
+
 let _lastRepairAt = 0;
 const REPAIR_MIN_GAP_MS = 30 * 60 * 1000;
 
@@ -147,17 +173,23 @@ const REPAIR_MIN_GAP_MS = 30 * 60 * 1000;
 // a failed check (car unreachable, no token) is a no-op, and repairs are rate-limited so a
 // persistent failure cannot storm the proxy.
 async function checkAndRepair() {
-  const status = await getConfigStatus();
+  const status = await _deps.getConfigStatus();
   if (!status) return { checked: false };            // could not ask - try again next cycle
-  if (status.hasConfig) return { checked: true, healthy: true };
+  const drifted = status.hasConfig && Array.isArray(status.drift) && status.drift.length > 0;
+  if (status.hasConfig && !drifted) return { checked: true, healthy: true };
 
   if (Date.now() - _lastRepairAt < REPAIR_MIN_GAP_MS) {
     return { checked: true, healthy: false, repaired: false, throttled: true };
   }
   _lastRepairAt = Date.now();
-  logger.logEvent('api_error',
-    'Fleet Telemetry config missing on Tesla (dropped - usually a car software update) - re-registering automatically');
-  const result = await sendConfig();
+  if (drifted) {
+    logger.logEvent('info',
+      `Fleet Telemetry config on Tesla is out of date (${status.drift.join(', ')}) - sending the current one`);
+  } else {
+    logger.logEvent('api_error',
+      'Fleet Telemetry config missing on Tesla (dropped - usually a car software update) - re-registering automatically');
+  }
+  const result = await _deps.sendConfig();
   if (result.ok) {
     logger.logEvent('command',
       'Fleet Telemetry config re-registered automatically - live streaming should resume within a minute');
@@ -184,4 +216,5 @@ function stop() {
   if (_timer) { clearInterval(_timer); _timer = null; }
 }
 
-module.exports = { start, stop, checkAndRepair, sendConfig, getConfigStatus };
+module.exports = { start, stop, checkAndRepair, sendConfig, getConfigStatus, fieldDrift, DESIRED_FIELDS, _deps,
+  _resetRepairClock: () => { _lastRepairAt = 0; } };
