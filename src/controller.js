@@ -27,6 +27,9 @@ const mqttPublisher = require('./services/mqttPublisher');
 // stop charging on it. Short, because this only triggers at the moment we are
 // about to stop, which is rare and is exactly when being wrong is costly.
 const VERIFY_LIMIT_BEFORE_STOP_MS = 2 * 60 * 1000;
+// How long a charge may go without the battery rising before it stops counting as real. 25 min
+// guarantees a real charge, even at minimum amps (about 1% per 15 min), has moved well within it.
+const PHANTOM_NO_PROGRESS_MS = 25 * 60 * 1000;
 
 // Minimum gap between attempts to restart a charge the car says is not running.
 // Short, because every tick spent in this condition is surplus going to the grid
@@ -155,6 +158,7 @@ class Controller {
     this._lastFallbackAt = 0;
     this._bleRefreshInFlight = false;
     this._lastUnconfirmedLimitLogAt = 0;
+    this._cmdFailLog = new Map();
     this._lastCommandedAmps = null;
     this._lastGatewaySuccessAt = Date.now();
     this._teslaTokenRefreshAt = 0;
@@ -375,6 +379,68 @@ class Controller {
     const oldState = this.state;
     logger.logEvent('state_change', reason || `${oldState} → ${newState}`, oldState, newState);
     this.state = newState;
+  }
+
+  /**
+   * Whether the car's reported charge is real, judged by the battery actually rising.
+   *
+   * With a session this is unchanged: it starts as live and stays live while the battery moves.
+   *
+   * Without one it used to be never, which was wrong for a charge Tesla started on its own (it
+   * starts charging on plug-in) that this controller wanted to stop but could not. The car was
+   * drawing 4.3 kW, but the app recorded 0 W, counted that draw as house load, and calculated
+   * a surplus of minus 1.1 kW when the real figure was about plus 3.2 kW. The dashboard said
+   * the car was not charging while it visibly was. Found live 2026-10-12.
+   *
+   * For a charge with no session, the first sighting only sets a baseline and does NOT count as
+   * live. It becomes live once the battery has risen above that baseline, and stays live for
+   * the same window a session gets. A frozen "Charging" flag from a stale stream or an absent
+   * car never moves the battery, so it never qualifies, which is the whole point of the guard
+   * and why this does not simply trust a fresh-looking frame.
+   */
+  _updateChargeProgress(currentlyCharging, chargeState, batteryPct) {
+    if (this.currentSessionId && chargeState) {
+      if (this._chargeProgressBattery == null || batteryPct > this._chargeProgressBattery) {
+        this._chargeProgressBattery = batteryPct;
+        this._chargeProgressAt = Date.now();
+      }
+    } else if (!this.currentSessionId && currentlyCharging && chargeState) {
+      if (this._chargeProgressBattery == null) {
+        this._chargeProgressBattery = batteryPct;   // baseline only
+        this._chargeProgressAt = 0;
+      } else if (batteryPct > this._chargeProgressBattery) {
+        this._chargeProgressBattery = batteryPct;
+        this._chargeProgressAt = Date.now();
+      }
+    } else if (!this.currentSessionId && !currentlyCharging) {
+      // Not charging and nothing managed: forget the old high-water mark, or the next charge
+      // would have to climb past wherever the last one ended before it could count.
+      this._chargeProgressBattery = null;
+      this._chargeProgressAt = 0;
+    }
+    return this._chargeProgressAt > 0 && (Date.now() - this._chargeProgressAt) < PHANTOM_NO_PROGRESS_MS;
+  }
+
+  /**
+   * Log a command failure, but say the same thing at most once every 5 minutes.
+   *
+   * The loop retries a failing command every tick. When the Bluetooth proxy was stuck on
+   * 2026-10-12 that wrote the same line 133 times in 22 minutes, which buried everything else
+   * in the log without telling the owner anything the first line had not. The count of
+   * suppressed repeats is reported on the next line, so nothing is hidden. Digits are ignored
+   * when comparing, because a back-off message counts down.
+   */
+  _logCommandFailure(prefix, err) {
+    const WINDOW_MS = 5 * 60 * 1000;
+    const now = Date.now();
+    const key = `${prefix}|${String(err && err.message).replace(/\d+/g, 'N')}`;
+    const seen = this._cmdFailLog.get(key);
+    if (seen && now - seen.at < WINDOW_MS) { seen.suppressed += 1; return; }
+    if (this._cmdFailLog.size > 50) this._cmdFailLog.clear();
+    const extra = seen && seen.suppressed
+      ? ` (${seen.suppressed} identical failures since the last report)` : '';
+    this._cmdFailLog.set(key, { at: now, suppressed: 0 });
+    logger.logEvent('api_error', `${prefix}: ${err && err.message}${extra}`);
   }
 
   /** Tag every real Tesla Fleet API call for cost tracking. category: 'command'|'data'|'wake' */
@@ -1080,7 +1146,7 @@ class Controller {
       await stopCharging(vin, token);
       logger.logEvent('command', reason);
     } catch (err) {
-      logger.logEvent('api_error', `Stop charging failed: ${err.message}`);
+      this._logCommandFailure('Stop charging failed', err);
     }
   }
 
@@ -1577,16 +1643,8 @@ class Controller {
       // not actually there. 25 min guarantees a real charge (even at min amps, which
       // adds ~1%/15min) has moved SOC well within the window, so this never fires on
       // a genuine charge.
-      const PHANTOM_NO_PROGRESS_MS = 25 * 60 * 1000;
       const PHANTOM_PROBE_GAP_MS = 3 * 60 * 1000; // min gap between watchdog REST confirmations
-      if (this.currentSessionId && chargeState) {
-        if (this._chargeProgressBattery == null || batteryPct > this._chargeProgressBattery) {
-          this._chargeProgressBattery = batteryPct;
-          this._chargeProgressAt = Date.now();
-        }
-      }
-      const chargeConfirmedLive =
-        this._chargeProgressAt > 0 && (Date.now() - this._chargeProgressAt) < PHANTOM_NO_PROGRESS_MS;
+      const chargeConfirmedLive = this._updateChargeProgress(currentlyCharging, chargeState, batteryPct);
 
       // --- Departure scheduler ---------------------------------------------
       // Fires within ACTIVATION_HOURS of departure when SOC is still below
@@ -2117,7 +2175,7 @@ class Controller {
             } else if (!(await this._wakeIfAsleep(err, vin, teslaToken, 'Solar'))) {
               // Not an asleep-car error, or a wake was already in flight - either
               // way the original failure is what a reader needs to see.
-              logger.logEvent('api_error', `Start charging failed: ${err.message}`);
+              this._logCommandFailure('Start charging failed', err);
             }
           }
         } else if (!chargingState) {
@@ -2152,7 +2210,7 @@ class Controller {
                 this._lastCommandedAmps = minAmps;
                 logger.logEvent('command', `Solar below minimum - holding at ${minAmps}A`);
               } catch (err) {
-                logger.logEvent('api_error', `Hold step-down failed: ${err.message}`);
+                this._logCommandFailure('Hold step-down failed', err);
                 if (err.message && err.message.includes('401')) this._triggerTeslaTokenRefresh();
               }
             }
@@ -2188,7 +2246,7 @@ class Controller {
               logger.logEvent('command',
                 `Car reported ${chargingState} while charging was believed active - restarted at ${targetAmps}A`);
             } catch (err) {
-              logger.logEvent('api_error', `Charge restart failed: ${err.message}`);
+              this._logCommandFailure('Charge restart failed', err);
               if (err.message && err.message.includes('401')) {
                 this._triggerTeslaTokenRefresh();
               } else {
@@ -2201,7 +2259,7 @@ class Controller {
               this._lastCommandedAmps = targetAmps;
               logger.logEvent('command', `Set charging amps: ${targetAmps}A`);
             } catch (err) {
-              logger.logEvent('api_error', `Set amps failed: ${err.message}`);
+              this._logCommandFailure('Set amps failed', err);
               if (err.message && err.message.includes('401')) this._triggerTeslaTokenRefresh();
             }
           }
@@ -2220,7 +2278,7 @@ class Controller {
             // below keys off it being accurate.
             this._lastCommandedAmps = targetAmps;
           } catch (err) {
-            logger.logEvent('api_error', `Set amps on resume failed: ${err.message}`);
+            this._logCommandFailure('Set amps on resume failed', err);
             if (err.message && err.message.includes('401')) this._triggerTeslaTokenRefresh();
           }
         } else if (this.holdTimerStart && (now - this.holdTimerStart) >= holdMs) {
@@ -2251,7 +2309,7 @@ class Controller {
             this._lastCommandedAmps = minAmps;
             logger.logEvent('command', `Hold step-down retried - now holding at ${minAmps}A`);
           } catch (err) {
-            logger.logEvent('api_error', `Hold step-down retry failed: ${err.message}`);
+            this._logCommandFailure('Hold step-down retry failed', err);
             if (err.message && err.message.includes('401')) this._triggerTeslaTokenRefresh();
           }
         }

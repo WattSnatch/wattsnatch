@@ -14,6 +14,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const db = require('../db');
 const cloudBudget = require('./teslaCloudBudget');
+const bleHealth = require('./bleCommandHealth');
 
 // Tesla runs the Fleet API from separate regional deployments, and an account
 // registered in one region is not reachable through another - calls fail with
@@ -214,6 +215,24 @@ function jsonFetch(url, options = {}) {
     }
     req.end();
   });
+}
+
+// Every command goes through here. Fleet API commands pass straight through to jsonFetch.
+// Bluetooth commands are first checked against the proxy-fault back-off and then reported to
+// it, so a stuck proxy is retried on a growing delay instead of every tick, and the owner is
+// told if it persists. See bleCommandHealth.js for what counts as a fault.
+async function commandFetch(url, options) {
+  if (!useBleCommands()) return jsonFetch(url, options);
+  bleHealth.assertNotBackingOff();
+  let res;
+  try {
+    res = await jsonFetch(url, options);
+  } catch (err) {
+    bleHealth.noteError(err);
+    throw err;
+  }
+  bleHealth.noteResponse(res.status, res.body);
+  return res;
 }
 
 function authHeader(accessToken) {
@@ -513,7 +532,7 @@ async function wakeVehicle(vin, accessToken) {
     ? `${commandBaseUrl()}/api/1/vehicles/${vin}/command/wake_up`
     : `${fleetBase()}/api/1/vehicles/${vin}/wake_up`;
 
-  const res = await jsonFetch(url, {
+  const res = await commandFetch(url, {
     method: 'POST',
     headers: commandHeaders(accessToken),
     body: '{}',
@@ -538,7 +557,7 @@ async function setChargingAmps(vin, amps, accessToken) {
   const body = useBleCommands()
     ? JSON.stringify({ charging_amps: String(amps) })
     : JSON.stringify({ charging_amps: amps });
-  const res = await jsonFetch(commandUrl(vin, 'set_charging_amps'), {
+  const res = await commandFetch(commandUrl(vin, 'set_charging_amps'), {
     method: 'POST',
     headers: commandHeaders(accessToken),
     body,
@@ -555,7 +574,7 @@ async function setChargingAmps(vin, amps, accessToken) {
 async function startCharging(vin, accessToken) {
   _assertAccountNotLocked();
   _assertVehicleNotBackingOff();
-  const res = await jsonFetch(commandUrl(vin, 'charge_start'), {
+  const res = await commandFetch(commandUrl(vin, 'charge_start'), {
     method: 'POST',
     headers: commandHeaders(accessToken),
     body: '{}',
@@ -576,7 +595,7 @@ async function setChargeLimit(vin, limitPercent, accessToken) {
   const body = useBleCommands()
     ? JSON.stringify({ percent: String(limitPercent) })
     : JSON.stringify({ percent: limitPercent });
-  const res = await jsonFetch(commandUrl(vin, 'set_charge_limit'), {
+  const res = await commandFetch(commandUrl(vin, 'set_charge_limit'), {
     method: 'POST',
     headers: commandHeaders(accessToken),
     body,
@@ -601,7 +620,7 @@ async function stopCharging(vin, accessToken) {
   // to lose by deferring it, and it keeps the storm shut. A real user STOP press that lands
   // during a backoff window surfaces the "offline or asleep" message, which is accurate.
   _assertVehicleNotBackingOff();
-  const res = await jsonFetch(commandUrl(vin, 'charge_stop'), {
+  const res = await commandFetch(commandUrl(vin, 'charge_stop'), {
     // Never refused by the daily cap: blocking a stop could leave the car charging from
     // the grid unsupervised, which is worse than the cost of one request.
     essential: true,

@@ -2,6 +2,35 @@
 
 ---
 
+## Unreleased: A stuck Bluetooth proxy is now reported, and a charge Tesla started is no longer invisible
+
+On 2026-10-12 the Bluetooth proxy's adapter got stuck and rejected every command.
+WattSnatch retried a stop every 10 seconds, 133 times in 22 minutes, and told
+nobody, while the car charged from the grid. The dashboard also said the car was
+not charging while it was drawing 4.3 kW.
+
+**Fixed: a stuck Bluetooth proxy was retried every tick in silence.** After the
+second consecutive proxy fault WattSnatch now waits 15 seconds, then 30, then 60
+and no longer, with calls during the wait failing at once without touching the
+network. If it lasts two minutes you get a notification, and another when it
+clears. Only definite proxy faults count (the adapter rejecting commands, a broken
+socket, no connection at all). A car that is away, transient contention, a refused
+command and a slow reply never trigger it, so commands to a car that is merely out
+of range are not blocked. The repeated failure is also written to the event log at
+most once every five minutes, with a count of the repeats, instead of 133
+identical lines.
+
+**Fixed: a charge Tesla started, which WattSnatch could not stop, was counted as 0
+W.** A charge only counted as real once WattSnatch had started a session. Tesla
+starts charging on plug-in, so a charge WattSnatch wanted to stop but could not
+was never counted: the car's 4.3 kW was treated as house load, giving a surplus of
+minus 1.1 kW when the real figure was about plus 3.2 kW. A charge with no session
+now counts once the battery has risen above where it was first seen. The first
+sighting is only a baseline and a frozen Charging flag never qualifies, so the
+phantom-charge guard is unchanged where it matters.
+
+---
+
 ## 2026-10-01 - v2.6.0: A hard cap on Tesla cloud spend, Home Assistant presence in seconds, and telemetry with Bluetooth commands
 
 In September a path nobody knew was calling Tesla's cloud made about 6,500 billed
