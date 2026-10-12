@@ -91,6 +91,14 @@ async function assessTripFeasibility(trip) {
   const minimumSocKwh  = usableCapacity * (FLOOR_SOC_PCT / 100);
   const availableKwh   = currentSocKwh - minimumSocKwh;
   const deficit        = required.total - availableKwh;
+  // What the battery can still take before it is full. No plan can add more than this, so a
+  // deficit larger than it means the trip cannot be done on one charge at all, however much
+  // grid or solar is available beforehand: it needs a charging stop on the way (issue #27,
+  // where a 78.6 kWh trip on a smaller pack was told to take 18.6 kWh from the grid into a
+  // battery with room for about 6).
+  const roomKwh        = Math.max(0, usableCapacity - currentSocKwh);
+  const exceedsBattery = deficit > roomKwh;
+  const chargeStopKwh  = exceedsBattery ? deficit - roomKwh : 0;
 
   if (deficit <= 0) {
     return {
@@ -114,6 +122,33 @@ async function assessTripFeasibility(trip) {
     }
   } catch (_) {}
 
+  const destName = trip.location || trip.summary || 'destination';
+
+  if (exceedsBattery) {
+    // Best possible preparation is a full battery. Solar fills what it can of the room left,
+    // the grid the rest, and the remainder has to come from charging on the way.
+    const gridKwh = Math.max(0, roomKwh - Math.min(expectedDiversion, roomKwh));
+    const gridRate = db.getRateAtTimestamp(trip.departureTime || Date.now());
+    const cost = Math.round(gridKwh * gridRate * 100) / 100;
+    return {
+      status: 'NEEDS_ATTENTION',
+      exceedsBattery: true,
+      chargeStopKwh: Math.round(chargeStopKwh * 100) / 100,
+      message: `Even charged to 100%, ${destName} and back needs about ${chargeStopKwh.toFixed(1)} kWh `
+        + `more than the battery holds above 20%, so plan a charging stop on the way. `
+        + (gridKwh > 0
+          ? `Charging to 100% before you leave needs ${gridKwh.toFixed(1)} kWh from the grid (~$${cost}).`
+          : 'Solar should fill the battery before you leave.'),
+      currentSocPct,
+      currentSocKwh:  Math.round(currentSocKwh  * 100) / 100,
+      required,
+      deficit:        Math.round(deficit         * 100) / 100,
+      solarShortfall: Math.round(gridKwh         * 100) / 100,
+      estimatedCost:  cost,
+      expectedSolar:  Math.round(expectedDiversion * 100) / 100,
+    };
+  }
+
   if (expectedDiversion >= deficit) {
     return {
       status: 'SOLAR_WILL_COVER',
@@ -130,15 +165,17 @@ async function assessTripFeasibility(trip) {
   const gridRate       = db.getRateAtTimestamp(trip.departureTime || Date.now());
   const cost           = Math.round(solarShortfall * gridRate * 100) / 100;
 
-  const destName = trip.location || trip.summary || 'destination';
   const depDate  = new Date(trip.departureTime).toLocaleString('en-AU', {
     weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true,
   });
 
   return {
     status: 'NEEDS_ATTENTION',
+    // No "Approve?" here: this text is shown on the dashboard, where scheduling is done with the
+    // trip's own charge button. The push notification keeps its question, because it carries
+    // an Approve action.
     message: `Can't reach ${destName} and back above 20% on solar alone. ` +
-             `Need ${solarShortfall.toFixed(1)} kWh from grid (~$${cost}). Approve?`,
+             `About ${solarShortfall.toFixed(1)} kWh needs to come from the grid (~$${cost}).`,
     currentSocPct,
     currentSocKwh:  Math.round(currentSocKwh  * 100) / 100,
     required,
@@ -182,12 +219,18 @@ async function assessAll() {
           departure_time:   trip.departureTime,
           predicted_kwh:    assessment.required.total,
         });
-        // Send push notification for trip that needs grid top-up
-        notifications.notifyTripNeedsGridTopUp(
-          trip.location || 'destination',
-          assessment.solarShortfall,
-          assessment.estimatedCost
-        ).catch(err => console.warn('[tripPlanner] notification failed:', err.message));
+        // Send push notification for trip that needs grid top-up. Not when solar alone will
+        // fill the battery: "need 0.0 kWh from grid, approve?" would be noise.
+        if (assessment.solarShortfall > 0) {
+          notifications.notifyTripNeedsGridTopUp(
+            trip.location || 'destination',
+            assessment.solarShortfall,
+            assessment.estimatedCost,
+            assessment.exceedsBattery
+              ? `Even at 100% you will need about ${assessment.chargeStopKwh.toFixed(1)} kWh from a charging stop on the way.`
+              : ''
+          ).catch(err => console.warn('[tripPlanner] notification failed:', err.message));
+        }
       }
     }
   } catch (err) {

@@ -83,10 +83,10 @@ async function sendNotification(title, message, priority = 'default', actions = 
   }
 }
 
-async function notifyTripNeedsGridTopUp(destination, gridKwh, estimatedCost) {
+async function notifyTripNeedsGridTopUp(destination, gridKwh, estimatedCost, note = '') {
   const app = db.getSetting('app_base_url') || 'http://localhost:3001';
   const title = 'Grid top-up needed';
-  const message = `Can't make it to ${destination} and back above 20% on solar alone. Need ${gridKwh.toFixed(1)} kWh from grid (~$${estimatedCost.toFixed(2)}). Approve?`;
+  const message = `Can't make it to ${destination} and back above 20% on solar alone. Need ${gridKwh.toFixed(1)} kWh from grid (~$${estimatedCost.toFixed(2)}).${note ? ` ${note}` : ''} Approve?`;
   return sendNotification(title, message, 'high', [
     { label: 'Approve', url: `${app}/api/approve-grid-topup` },
     { label: 'Dismiss', url: app },

@@ -1557,6 +1557,8 @@ router.get('/api/trips', async (req, res) => {
       solarShortfall:assessment.solarShortfall,
       estimatedCost: assessment.estimatedCost,
       expectedSolar: assessment.expectedSolar,
+      exceedsBattery: !!assessment.exceedsBattery,
+      chargeStopKwh: assessment.chargeStopKwh ?? null,
     }));
 
     res.json({ ok: true, trips, configured: true, lastRun });

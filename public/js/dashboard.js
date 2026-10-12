@@ -895,9 +895,12 @@ function buildTripModal(trip) {
   const rows = [
     { label: 'Drive out',      val: r.driveOut   != null ? r.driveOut.toFixed(1)   + ' kWh' : '-' },
     { label: 'Drive home',     val: r.driveHome  != null ? r.driveHome.toFixed(1)  + ' kWh' : '-' },
-    { label: `Sentry (${Math.round(trip.hoursAway)}h)`, val: r.sentry != null ? r.sentry.toFixed(2) + ' kWh' : '-' },
-    { label: '5% buffer',      val: r.buffer     != null ? r.buffer.toFixed(2)     + ' kWh' : '-' },
+    // Sentry is counted for the time parked at the destination, not the time until you leave.
+    { label: `Sentry (${Math.round(trip.eventDurationHours ?? 2)}h parked)`, val: r.sentry != null ? r.sentry.toFixed(2) + ' kWh' : '-' },
   ];
+  // The planner no longer adds a separate buffer (the 20% reserve below is the margin), so only
+  // show the row if one is ever configured again, instead of a permanent "5% buffer: 0.00 kWh".
+  if (r.buffer > 0) rows.push({ label: 'Buffer', val: r.buffer.toFixed(2) + ' kWh' });
 
   const rowsHtml = rows.map((rw) => `
     <div class="trip-breakdown-row">
@@ -917,7 +920,7 @@ function buildTripModal(trip) {
       <span class="trip-breakdown-val">${trip.currentSocPct != null ? trip.currentSocPct.toFixed(0) + '%' : '-'}</span>
     </div>
     <div class="trip-breakdown-row">
-      <span class="trip-breakdown-label">Minimum SoC needed</span>
+      <span class="trip-breakdown-label">Minimum SoC needed (incl. 20% reserve)</span>
       <span class="trip-breakdown-val">${r.minimumSocRequired != null ? r.minimumSocRequired.toFixed(0) + '%' : '-'}</span>
     </div>`;
 
@@ -932,7 +935,8 @@ function buildTripModal(trip) {
       ${trip.message || ''}
     </div>` : '';
 
-  const longTripNote = isLong ? `
+  // A trip bigger than the battery already says so in the alert above, so no second note.
+  const longTripNote = (isLong && !trip.exceedsBattery) ? `
     <div style="margin-top:0.75rem;font-size:0.78rem;color:var(--text-secondary)">
       Long-distance trip - destination charging will be required along the route.
     </div>` : '';
@@ -980,7 +984,14 @@ function renderTrips(trips) {
     let iconChar, iconClass, detailText;
 
     const returnKm = Math.round(trip.distanceKm * 2);
-    if (isLong) {
+    if (trip.exceedsBattery) {
+      iconChar = '⚠';
+      iconClass = 'warning';
+      detailText = `Charging stop needed: about ${(trip.chargeStopKwh || 0).toFixed(1)} kWh short even at 100%`
+        + (trip.solarShortfall > 0
+          ? ` · ${trip.solarShortfall.toFixed(1)} kWh from grid to leave full (~$${(trip.estimatedCost || 0).toFixed(2)})`
+          : '');
+    } else if (isLong) {
       iconChar = '⚠';
       iconClass = 'warning';
       detailText = `${trip.distanceKm.toFixed(0)} km each way · Destination charging required`;

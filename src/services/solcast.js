@@ -100,11 +100,16 @@ async function fetchForecast() {
  * Uses 30-min interval data, sums pv_estimate for intervals within [startTime, endTime].
  */
 function getExpectedKwhInWindow(startMs, endMs) {
+  // Each row is Solcast's average output in kW over its own period (30 minutes), so energy is
+  // power times that period's length, summed - the same as getTomorrowForecast below. This
+  // used to multiply the summed kW by (number of half-hours in the window / 48), which only
+  // equals the right answer for a 12-hour window and grows with the window: a trip 40 hours
+  // away was credited with about 3.3 times the solar Solcast actually forecast, so the trip
+  // planner promised solar that never came and asked for too little grid charging (issue #27).
   const rows = db.getSolcastForecastInWindow(startMs, endMs);
-  const totalKw = rows.reduce((sum, r) => sum + (r.pv_estimate_kw || 0), 0);
-  const intervalHours = (endMs - startMs) / (30 * 60 * 1000);
-  const expectedKwh = Math.round(totalKw * (intervalHours / 48) * 100) / 100; // Rough hourly average
-  return expectedKwh;
+  const totalKwh = rows.reduce(
+    (sum, r) => sum + (r.pv_estimate_kw || 0) * ((r.period_end - r.period_start) / 3600000), 0);
+  return Math.round(totalKwh * 100) / 100;
 }
 
 /**

@@ -2,6 +2,40 @@
 
 ---
 
+## Unreleased: Trip planning that adds up
+
+Two faults in the trip planner, reported in issue #27, and some labels that made
+its numbers harder to follow.
+
+**Fixed: expected solar before a trip was overstated, by more the further away the
+trip was.** Solcast forecasts average output for each half hour, so the energy is
+that output times half an hour. The planner instead scaled the total by the length
+of the window in a way that only came out right for a window of exactly 12 hours.
+A trip 40 hours away was credited with about 3.3 times the solar Solcast actually
+forecast, so the planner counted on solar that would never come and planned too
+little grid charging. Trips less than 12 hours away were understated instead. It
+now uses the same calculation as the Solar Forecast card, so the two agree.
+
+**Fixed: a trip bigger than the battery was given a plan it could not follow.** A
+78.6 kWh trip on a 53.8 kWh usable pack, starting at 89%, was told to take 18.6
+kWh from the grid into a battery with room for about 6, and "need 100% to depart"
+was quietly capped, hiding that even a full battery was not enough. The planner
+now recognises a trip that needs more than the battery holds above the 20%
+reserve, says a charging stop is needed and roughly how much, and plans only what
+can actually go in: solar first, then grid, up to full. No push notification is
+sent asking to approve 0 kWh from the grid.
+
+**Clearer trip breakdown.** The "5% buffer: 0.00 kWh" row is gone: the planner
+deliberately adds no separate buffer, because the 20% reserve is the margin, and
+the minimum charge line now says it includes that reserve. The Sentry line is
+labelled with the time parked at the destination, which is what it is calculated
+from, not the time until you leave. The dashboard message no longer ends in
+"Approve?" with nothing to approve; the phone notification, which has an Approve
+button, still asks.
+
+---
+
+
 ## 2026-10-12 - v2.6.1: Updates survive a rewritten history, the Bluetooth watchdog stops resetting the proxy on every trip, and a stuck proxy is reported
 
 On 2026-10-12 the Bluetooth proxy's adapter got stuck and rejected every command.
