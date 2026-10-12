@@ -451,6 +451,13 @@ Turn it on in **Settings → Calendar → Free power windows**. It is off by def
 **"Tesla cloud request limit reached" notification**
 WattSnatch made more billed Tesla Fleet API requests today than the daily limit allows, so it has stopped making them until midnight. Bluetooth commands and Fleet Telemetry keep working, and stopping a charge is always allowed. This should never happen in normal running, so treat it as a sign something is calling the cloud far more than it should: the first blocked request is named in the notification and in the event log. Today's count is shown in **Settings → Vehicle Command Backend**, next to the limit.
 
+**`npm run update` stops with "Need to specify how to reconcile divergent branches"**
+WattSnatch's published history was rewritten once, in October 2026, to remove information that should never have been committed. The code itself did not change. Installs on v2.6.1 or later move across automatically; an older install stops at this message instead, without changing anything, and keeps running. If you have not edited any of WattSnatch's own files, this moves it across once and `npm run update` works normally afterwards:
+```bash
+git fetch --tags --force && git reset --keep origin/main && npm install
+```
+If you have edited files, `git reset --keep` refuses rather than overwrite them. Keep a copy of your changes first.
+
 **`npm run update` runs but the version never changes**
 Look for lines like `! [rejected] v1.21.1 -> v1.21.1 (would clobber existing tag)`.
 Git refuses to move a tag that already exists locally pointing at different

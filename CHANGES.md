@@ -2,12 +2,24 @@
 
 ---
 
-## Unreleased: The Bluetooth watchdog stops resetting the proxy on every trip, a stuck proxy is reported, and a charge Tesla started is no longer invisible
+## 2026-10-12 - v2.6.1: Updates survive a rewritten history, the Bluetooth watchdog stops resetting the proxy on every trip, and a stuck proxy is reported
 
 On 2026-10-12 the Bluetooth proxy's adapter got stuck and rejected every command.
 WattSnatch retried a stop every 10 seconds, 133 times in 22 minutes, and told
 nobody, while the car charged from the grid. The dashboard also said the car was
 not charging while it was drawing 4.3 kW.
+
+**New: updating keeps working if the published history is ever rewritten.**
+Removing something from a published repository means rewriting its history, which
+gives every later commit a new ID, and the git pull in `npm run update` then
+refuses to continue. The app keeps running, but it cannot update again without a
+manual fix. The updater now recognises a rewritten history strictly, only when
+every commit the install has that GitHub lacks has an exact counterpart there with
+the same author, time and title, and moves the install across when no tracked file
+has been edited. Settings, data, backups and dependencies are never touched.
+Please update to this version: a repository clean-up that rewrites part of the
+history is planned, and installs on this version or later will cross it
+automatically.
 
 **Fixed: a stuck Bluetooth proxy was retried every tick in silence.** After the
 second consecutive proxy fault WattSnatch now waits 15 seconds, then 30, then 60
