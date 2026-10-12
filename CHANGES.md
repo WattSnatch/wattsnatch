@@ -2,7 +2,7 @@
 
 ---
 
-## Unreleased: A stuck Bluetooth proxy is now reported, and a charge Tesla started is no longer invisible
+## Unreleased: The Bluetooth watchdog stops resetting the proxy on every trip, a stuck proxy is reported, and a charge Tesla started is no longer invisible
 
 On 2026-10-12 the Bluetooth proxy's adapter got stuck and rejected every command.
 WattSnatch retried a stop every 10 seconds, 133 times in 22 minutes, and told
@@ -19,6 +19,22 @@ command and a slow reply never trigger it, so commands to a car that is merely o
 of range are not blocked. The repeated failure is also written to the event log at
 most once every five minutes, with a count of the repeats, instead of 133
 identical lines.
+
+**Fixed: the Bluetooth watchdog reset the proxy every time the car left home.**
+The watchdog on the proxy machine was resetting it 10 to 50 times a day. Its log
+turned faulty within a minute of the car leaving and healthy within a minute of it
+returning. Measured directly, a read for a car that is not there takes about 15
+seconds to come back as not in range, longer than the watchdog's 12 second probe,
+and a read that arrives while another is in progress waits behind it, so every
+trip and some charging sessions looked like a dead proxy. The resets used up the
+watchdog's hourly limit, and on 2026-10-12 the adapter got stuck right after one
+of them as the car came home, where the limit then left it for 18 minutes. A probe
+that times out is now followed by a request to the proxy's web root, which never
+touches Bluetooth and answers in about 10 milliseconds even mid-scan. If that
+answers, the proxy is alive and is not reset. If it does not, the proxy has really
+hung and is reset exactly as before. In case the proxy's Bluetooth side ever hangs
+while its web side carries on, three hours without a break still counts as a
+fault. Stuck-adapter and broken-socket errors are handled as before.
 
 **Fixed: a charge Tesla started, which WattSnatch could not stop, was counted as 0
 W.** A charge only counted as real once WattSnatch had started a session. Tesla

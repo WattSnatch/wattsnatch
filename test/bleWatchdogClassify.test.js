@@ -33,8 +33,10 @@ const path = require('path');
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'teslable-watchdog.sh');
 
 /** Run the watchdog's own classification rules over one response. */
-function classify(httpCode, body) {
-  return execFileSync('bash', [SCRIPT, '--classify', String(httpCode), body], {
+function classify(httpCode, body, rootCode) {
+  const args = [SCRIPT, '--classify', String(httpCode), body];
+  if (rootCode !== undefined) args.push(String(rootCode));
+  return execFileSync('bash', args, {
     encoding: 'utf8',
     timeout: 10000,
   }).trim();
@@ -107,4 +109,32 @@ test('errors never seen before are faults rather than silence', () => {
 test('an empty body on a non-200 is still a fault', () => {
   // Degenerate case: nothing to match against at all must not fall through to healthy.
   assert.equal(classify(502, ''), 'unhealthy');
+});
+
+// No answer in time is ambiguous on its own. Measured 2026-10-12: a read for a car that is not
+// there takes about 15s, longer than the 12s probe, and a read queued behind another one took
+// 13.9s. Both look exactly like a dead proxy from the probe alone, which is how this script came
+// to reset the proxy on every trip. The web root never touches Bluetooth and answered in about
+// 10ms even mid-scan, so it settles the question.
+
+test('no answer, but the web root replies: the proxy is alive and Bluetooth is busy', () => {
+  assert.equal(classify('000', '', '404'), 'busy');
+});
+
+test('any reply from the web root counts as alive, not just 404', () => {
+  for (const code of ['200', '404', '500', '503']) assert.equal(classify('000', '', code), 'busy', code);
+});
+
+test('no answer and no web root either: the proxy itself is not answering, a real fault', () => {
+  assert.equal(classify('000', '', '000'), 'no-response');
+});
+
+test('no answer with the web root never asked stays a fault, exactly as before', () => {
+  assert.equal(classify('000', ''), 'no-response');
+});
+
+test('the web root never softens a real error reply', () => {
+  const wedge = '{"response":{"result":false,"reason":"failed to connect to vehicle (A): ble: '
+    + 'failed to scan for 5YJ3E1EA0JF000001: Command Disallowed"}}';
+  assert.equal(classify(503, wedge, '404'), 'firmware-wedge');
 });

@@ -41,6 +41,22 @@
 #     It is one of exactly two entries on the benign allowlist in classify_response below, and that
 #     allowlist is the only thing that stops a response being treated as a fault. Unrecognised
 #     means faulty, never healthy - see the note on the eleven-hour outage down there.
+#   - Never treat a slow Bluetooth answer as a dead proxy. Found 2026-10-12: this script was
+#     resetting the proxy 10 to 50 times a day, nearly all for "no response", and the log flipped
+#     to faulty within a minute of the car leaving and back to healthy within a minute of it
+#     returning. Measured directly: a read for a car that is not there takes about 15s to come
+#     back as "not in range", longer than the 12s probe, and a read that arrives while another
+#     one is in progress waits behind it (13.9s instead of about 1s), which is what happens while
+#     WattSnatch is sending charging commands. So every trip, and some charging sessions, looked
+#     like a dead proxy. The resets used up the hourly cap, and on 2026-10-12 the adapter went
+#     into a firmware wedge right after one of them as the car came home, and the cap then kept
+#     it wedged for 18 minutes. A timed-out probe is now followed by a request to the proxy's web
+#     root, which never touches Bluetooth and answers in about 10ms even mid-scan. If that
+#     answers, the proxy is alive and Bluetooth is just busy or the car is away: not a fault. If
+#     it does not, the proxy really has hung, and that is still acted on exactly as before.
+#     A proxy whose web side stays up while its Bluetooth side hangs would now go unnoticed, so
+#     a long-stop still treats "busy" as a fault once it has lasted LONG_BUSY_SECS without a
+#     break. Every fault seen in the log so far came back as a fast error, which is unchanged.
 #   - Never grep historical container logs. A fixed error stays in a --since window and retriggers.
 #   - Confirm a fault on 2 consecutive checks before acting.
 #   - Hard cooldown plus an actions-per-hour cap, so even a wrong rule cannot thrash production;
@@ -52,18 +68,29 @@
 # brings it up, which is safe because it runs with the container stopped.
 
 VIN="5YJ3E1EA0JF000001"
-PROXY_URL="http://localhost:8080/api/1/vehicles/${VIN}/body_controller_state"
+# The TESLABLE_WD_* variables exist only so test/bleWatchdogFlow.test.js can run this script
+# against a fake proxy with throwaway state. Unset, as they are in production, nothing changes.
+PROXY_BASE="${TESLABLE_WD_PROXY_BASE:-http://localhost:8080}"
+PROXY_URL="${PROXY_BASE}/api/1/vehicles/${VIN}/body_controller_state"
+ROOT_URL="${PROXY_BASE}/"            # the proxy's web root: no Bluetooth involved, any reply = alive
 CONTAINER="tesla-ble-http-proxy"
-LOG_FILE="$HOME/TeslaBleHttpProxy/watchdog.log"
-ADAPTER_MAC="00:11:22:33:44:55"      # TP-Link UB500 dongle - update if the dongle is swapped
+LOG_FILE="${TESLABLE_WD_LOG:-$HOME/TeslaBleHttpProxy/watchdog.log}"
+ADAPTER_MAC="${TESLABLE_WD_ADAPTER_MAC:-00:11:22:33:44:55}"      # TP-Link UB500 dongle - update if the dongle is swapped
 
-STRIKES_FILE="/tmp/teslable_wd_strikes"
-LASTFAULT_FILE="/tmp/teslable_wd_lastfault"
-LASTACTION_FILE="/tmp/teslable_wd_last_action"
-LASTREMEDY_FILE="/tmp/teslable_wd_lastremedy"
-HISTORY_FILE="/tmp/teslable_wd_history"
+STATE_DIR="${TESLABLE_WD_STATE_DIR:-/tmp}"
+STRIKES_FILE="$STATE_DIR/teslable_wd_strikes"
+LASTFAULT_FILE="$STATE_DIR/teslable_wd_lastfault"
+LASTACTION_FILE="$STATE_DIR/teslable_wd_last_action"
+LASTREMEDY_FILE="$STATE_DIR/teslable_wd_lastremedy"
+HISTORY_FILE="$STATE_DIR/teslable_wd_history"
+BUSY_SINCE_FILE="$STATE_DIR/teslable_wd_busy_since"
 
-PROBE_TIMEOUT=12
+PROBE_TIMEOUT="${TESLABLE_WD_PROBE_TIMEOUT:-12}"
+ROOT_TIMEOUT=3
+# Long-stop for "busy" (proxy up, Bluetooth not answering). Long enough that an ordinary day out
+# costs at most a few resets rather than dozens, short enough that a proxy whose Bluetooth side
+# has silently hung while the car is home is caught the same day.
+LONG_BUSY_SECS="${TESLABLE_WD_LONG_BUSY_SECS:-10800}"
 STRIKES_TO_ACT=2          # ~2 min at a 60s loop
 COOLDOWN_SECS=600         # 10 min minimum between actions
 MAX_ACTIONS_PER_HOUR=4
@@ -99,9 +126,15 @@ resolve_hci_container_stopped() {
 classify_response() {
   code="$1"
   body="$2"
+  root_code="$3"   # only set when the Bluetooth probe got no answer: what the web root said
 
   [ "$code" = "200" ] && return 0
-  [ "$code" = "000" ] && { echo "no-response"; return 0; }
+  if [ "$code" = "000" ]; then
+    # No answer in time. If the web root still answers, the proxy is alive and Bluetooth is busy
+    # or the car is away. If it does not (or was never asked), the proxy itself is not answering.
+    if [ -n "$root_code" ] && [ "$root_code" != "000" ]; then echo "busy"; else echo "no-response"; fi
+    return 0
+  fi
 
   printf '%s' "$body" | grep -q "Vehicle is not in range"     && return 0
   printf '%s' "$body" | grep -q "maximum number of BLE devices" && return 0
@@ -118,7 +151,7 @@ classify_response() {
 # exits, touching nothing. test/bleWatchdogClassify.test.js drives the rules above through this
 # against real recorded proxy responses, so the allowlist cannot quietly rot again.
 if [ "$1" = "--classify" ]; then
-  classify_response "$2" "$3"
+  classify_response "$2" "$3" "$4"
   exit 0
 fi
 
@@ -127,7 +160,41 @@ RESP=$(curl -s -m "$PROBE_TIMEOUT" -w $'\n%{http_code}' "$PROXY_URL" 2>/dev/null
 HTTP_CODE=$(printf '%s' "$RESP" | tail -1)
 BODY=$(printf '%s' "$RESP" | sed '$d')
 
-FAULT=$(classify_response "$HTTP_CODE" "$BODY")
+ROOT_CODE=""
+if [ "$HTTP_CODE" = "000" ]; then
+  ROOT_CODE=$(curl -s -o /dev/null -m "$ROOT_TIMEOUT" -w '%{http_code}' "$ROOT_URL" 2>/dev/null)
+  [ -z "$ROOT_CODE" ] && ROOT_CODE="000"
+fi
+
+FAULT=$(classify_response "$HTTP_CODE" "$BODY" "$ROOT_CODE")
+
+# ── Busy: the proxy is up, Bluetooth is slow or the car is away ────────────────────────────
+if [ "$FAULT" = "busy" ]; then
+  BUSY_SINCE=$(cat "$BUSY_SINCE_FILE" 2>/dev/null)
+  if [ -z "$BUSY_SINCE" ]; then
+    BUSY_SINCE=$(now); echo "$BUSY_SINCE" > "$BUSY_SINCE_FILE"
+    log "Bluetooth did not answer within ${PROBE_TIMEOUT}s but the proxy is up (web root HTTP $ROOT_CODE) - car away or proxy busy, not a fault"
+  fi
+  if [ $(( $(now) - BUSY_SINCE )) -lt "$LONG_BUSY_SECS" ]; then
+    echo 0 > "$STRIKES_FILE"; : > "$LASTFAULT_FILE"
+    exit 0
+  fi
+  # Busy without a break for LONG_BUSY_SECS: act on it like any other fault, in case the proxy's
+  # Bluetooth side has hung while its web side carries on. Confirmation, cooldown and the hourly
+  # cap all still apply below.
+  FAULT="busy-too-long"
+else
+  BUSY_SINCE=$(cat "$BUSY_SINCE_FILE" 2>/dev/null)
+  if [ -n "$BUSY_SINCE" ]; then
+    BUSY_MINS=$(( ($(now) - BUSY_SINCE) / 60 ))
+    if [ -z "$FAULT" ]; then
+      log "Bluetooth answering again (HTTP $HTTP_CODE) after ${BUSY_MINS} min busy"
+    else
+      log "busy spell ended after ${BUSY_MINS} min, now '$FAULT' (HTTP $HTTP_CODE)"
+    fi
+    : > "$BUSY_SINCE_FILE"
+  fi
+fi
 
 if [ -z "$FAULT" ]; then
   [ "$(cat "$STRIKES_FILE" 2>/dev/null || echo 0)" != "0" ] && log "no fault (HTTP $HTTP_CODE) - clearing strikes"
@@ -196,5 +263,5 @@ echo "$(now)" > "$LASTACTION_FILE"
 echo "$FAULT"  > "$LASTREMEDY_FILE"
 echo "$(now) $FAULT" >> "$HISTORY_FILE"
 tail -50 "$HISTORY_FILE" > "$HISTORY_FILE.tmp" && mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
-echo 0 > "$STRIKES_FILE"; : > "$LASTFAULT_FILE"
+echo 0 > "$STRIKES_FILE"; : > "$LASTFAULT_FILE"; : > "$BUSY_SINCE_FILE"
 log "action complete"
