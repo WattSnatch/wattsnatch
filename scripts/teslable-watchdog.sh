@@ -67,7 +67,14 @@
 # traffic. A side effect is that the adapter comes up DOWN after a reboot - the reset path below
 # brings it up, which is safe because it runs with the container stopped.
 
-VIN="5YJ3E1EA0JF000001"
+# The car's VIN and the Bluetooth adapter's address are personal, and this repository is public,
+# so neither is ever written in this file. On the proxy machine they live in watchdog.env, next
+# to this script, readable only by its owner:
+#   VIN=<the car's VIN>
+#   ADAPTER_MAC=<the dongle's address, as hciconfig shows it>
+WD_ENV_FILE="${TESLABLE_WD_ENV_FILE:-$(cd "$(dirname "$0")" && pwd)/watchdog.env}"
+env_value() { [ -f "$WD_ENV_FILE" ] && sed -n "s/^$1=//p" "$WD_ENV_FILE" | head -1 | tr -d '\r"'; }
+VIN="${TESLABLE_WD_VIN:-$(env_value VIN)}"
 # The TESLABLE_WD_* variables exist only so test/bleWatchdogFlow.test.js can run this script
 # against a fake proxy with throwaway state. Unset, as they are in production, nothing changes.
 PROXY_BASE="${TESLABLE_WD_PROXY_BASE:-http://localhost:8080}"
@@ -75,7 +82,7 @@ PROXY_URL="${PROXY_BASE}/api/1/vehicles/${VIN}/body_controller_state"
 ROOT_URL="${PROXY_BASE}/"            # the proxy's web root: no Bluetooth involved, any reply = alive
 CONTAINER="tesla-ble-http-proxy"
 LOG_FILE="${TESLABLE_WD_LOG:-$HOME/TeslaBleHttpProxy/watchdog.log}"
-ADAPTER_MAC="${TESLABLE_WD_ADAPTER_MAC:-00:11:22:33:44:55}"      # TP-Link UB500 dongle - update if the dongle is swapped
+ADAPTER_MAC="${TESLABLE_WD_ADAPTER_MAC:-$(env_value ADAPTER_MAC)}"   # TP-Link UB500 dongle: set in watchdog.env
 
 STATE_DIR="${TESLABLE_WD_STATE_DIR:-/tmp}"
 STRIKES_FILE="$STATE_DIR/teslable_wd_strikes"
@@ -154,6 +161,15 @@ if [ "$1" = "--classify" ]; then
   classify_response "$2" "$3" "$4"
   exit 0
 fi
+
+# Without a VIN there is nothing to probe. Say so once rather than every minute, and do nothing:
+# acting on a check that never ran would be worse than not checking.
+NOVIN_FILE="$STATE_DIR/teslable_wd_novin"
+if [ -z "$VIN" ]; then
+  [ -f "$NOVIN_FILE" ] || { log "no VIN configured - add VIN=... to $WD_ENV_FILE. Not checking until then."; touch "$NOVIN_FILE"; }
+  exit 0
+fi
+rm -f "$NOVIN_FILE"
 
 # ── Probe: the proxy's HTTP interface is the sole source of truth ───────────────────────────
 RESP=$(curl -s -m "$PROBE_TIMEOUT" -w $'\n%{http_code}' "$PROXY_URL" 2>/dev/null)

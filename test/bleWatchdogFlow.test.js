@@ -66,6 +66,8 @@ function makeEnv(extra = {}) {
       TESLABLE_WD_PROBE_TIMEOUT: '1',
       TESLABLE_WD_LONG_BUSY_SECS: extra.longBusy || '10800',
       TESLABLE_WD_ADAPTER_MAC: '00:11:22:33:44:55',
+      TESLABLE_WD_VIN: extra.noVin ? '' : '5YJ3E1EA0JF000001',
+      TESLABLE_WD_ENV_FILE: path.join(dir, 'no-such-watchdog.env'),
     },
   };
 }
@@ -164,4 +166,34 @@ test('busy checks clear an earlier strike, so they cannot add up to a reset', as
   ctx.env.TESLABLE_WD_PROXY_BASE = 'http://127.0.0.1:1';
   await run(ctx);                                            // dead again: strike 1, not 2
   assert.deepEqual(dockerCalls(ctx), []);
+});
+
+test('with no VIN configured it checks nothing, does nothing, and says so once', async () => {
+  const ctx = makeEnv({ noVin: true, base: 'http://127.0.0.1:1' });
+  for (let i = 0; i < 3; i++) await run(ctx);
+  assert.deepEqual(dockerCalls(ctx), [], 'a check that never ran must not lead to a restart');
+  const lines = read(ctx.log).trim().split('\n');
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /no VIN configured - add VIN=\.\.\. to .*no-such-watchdog\.env/);
+});
+
+test('the VIN and adapter address are read from watchdog.env next to the script', async () => {
+  const ctx = makeEnv();
+  const envFile = path.join(ctx.dir, 'watchdog.env');
+  fs.writeFileSync(envFile, 'VIN=5YJ3E1EA0JF000002\nADAPTER_MAC=00:11:22:33:44:66\n');
+  delete ctx.env.TESLABLE_WD_VIN;
+  delete ctx.env.TESLABLE_WD_ADAPTER_MAC;
+  ctx.env.TESLABLE_WD_ENV_FILE = envFile;
+  let asked = '';
+  const orig = server.listeners('request')[0];
+  server.removeAllListeners('request');
+  server.on('request', (req, res) => { asked = req.url; orig(req, res); });
+  try { await run(ctx); } finally { server.removeAllListeners('request'); server.on('request', orig); }
+  assert.equal(asked, '/api/1/vehicles/5YJ3E1EA0JF000002/body_controller_state');
+});
+
+test('the script itself contains no VIN and no hardware address, because the repo is public', () => {
+  const src = fs.readFileSync(SCRIPT, 'utf8');
+  assert.doesNotMatch(src, /\b[A-HJ-NPR-Z0-9]{17}\b/, 'no VIN-shaped string anywhere in the script');
+  assert.doesNotMatch(src, /\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b/, 'no MAC address');
 });

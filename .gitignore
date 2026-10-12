@@ -9,3 +9,7 @@ tmp-github-upload/
 *.backup-phase*
 .claude/
 .DS_Store
+
+# Personal settings for the Bluetooth proxy watchdog (VIN, adapter address). Never commit.
+scripts/watchdog.env
+watchdog.env
