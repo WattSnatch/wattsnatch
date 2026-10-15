@@ -105,6 +105,7 @@
           <select id="setting_country">
             <option value="AU">Australia</option>
             <option value="US">United States</option>
+            <option value="FR">France</option>
           </select>
           <span class="text-secondary text-xs mt-1" style="display:block">
             Drives which utility rate plan templates are available below, and how dollar values are labelled. Doesn't change how anything is calculated internally.
@@ -130,7 +131,7 @@
             The dashboard's EV icon shows this manufacturer's website favicon, same trick as the Grid icon above. Leave blank for Tesla's logo on the Tesla backend, or a generic EV icon on the OCPP backend. Purely cosmetic.
           </span>
         </div>
-        <div class="form-group" style="margin-top:1rem">
+        <div class="form-group" id="retailer-distributor-group" style="margin-top:1rem">
           <label for="setting_retailer_network_distributor">Electricity distributor (network area)</label>
           <input type="text" id="setting_retailer_network_distributor" placeholder="e.g. Energex, Ausgrid, CitiPower" style="width:100%">
           <span class="text-secondary text-xs mt-1">
