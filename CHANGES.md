@@ -2,10 +2,11 @@
 
 ---
 
-## Unreleased: Trip planning that adds up, and departure charging that reaches its target
+## 2026-10-23 - v2.6.2: Trip planning that adds up, and departure charging that reaches its target
 
-Two faults in the trip planner, reported in issue #27, and some labels that made
-its numbers harder to follow.
+Departure charging can now reach a target above the car's own charge limit, the
+trip planner's numbers add up (issue #27), and the evening briefing no longer
+misreads what a trip needs.
 
 **Fixed: departure charging could not go past the car's own charge limit.** The
 overnight trip check and a trip's "charge to N%" button start and stop the charge
@@ -19,6 +20,13 @@ departure charging restarting a car that had already stopped at its old limit.
 Local Bluetooth pairing, which cannot change the limit, gets a warning instead.
 The overnight notification now says what will happen to the limit, and says so
 when even 100% is not enough.
+
+**Fixed: a charge limit change the car refused was reported as a success.** Only
+the HTTP status was checked, and the Bluetooth proxy reports a refused command as
+success with a result of false, so a refused change looked like it had worked. It
+is now checked like every other command. A limit that is already at the value
+asked for counts as success, so a restore that is already in place does not retry
+for ever.
 
 **Fixed: the evening briefing could say a trip needed no extra charging when it
 did.** It was given "needs ~N kWh top-up" and read it back as the trip needing

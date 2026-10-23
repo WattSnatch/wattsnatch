@@ -152,7 +152,7 @@ If you chose OCPP, skip ahead to [section 7, the setup wizard](#7-run-the-setup-
 
 | | Fleet API + Fleet Telemetry (default) | Bluetooth LE (no cloud once running) |
 |---|---|---|
-| Vehicle commands (start/stop/amps) | Sent via Tesla's cloud Fleet API | Sent directly to the car over Bluetooth, no cloud hop. Setting the charge limit needs the proxy's Owner key role; the recommended Charging Manager role cannot |
+| Vehicle commands (start/stop/amps) | Sent via Tesla's cloud Fleet API | Sent directly to the car over Bluetooth, no cloud hop. Setting the charge limit needs the proxy's Owner key role; the recommended Charging Manager role cannot, so a trip that needs more than your limit is flagged and you raise the limit yourself |
 | Vehicle state (battery, charging status) | Live push from Fleet Telemetry (needs its own always-on streaming server - see [Real-time telemetry](#real-time-telemetry---tesla-fleet-telemetry-advanced-optional)) | Polled over Bluetooth every ~5 seconds (was ~30 before v2.4.0) |
 | Range | Anywhere the car has signal | Only while the car is within Bluetooth range of whichever machine runs TeslaBleHttpProxy (a few metres, i.e. at home) |
 | Geofencing | GPS-based (home lat/lon + radius) | Automatic - Bluetooth range itself is the geofence |
