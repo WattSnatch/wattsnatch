@@ -35,6 +35,71 @@ const ACTIVATION_HOURS = 6;
 // every existing install.
 const PRICE_SPIKE_MIN_MARGIN_HOURS = 2;
 
+// ── Finishing just before departure ────────────────────────────────────────────────────────
+//
+// Charging used to run at full rate from the moment the window opened, so it finished hours
+// early and the car sat at a high charge until it left. Now the rate is planned to finish
+// FINISH_BUFFER_MS before departure: enough margin for a car that is slow to wake or charges a
+// little slower than expected, without leaving it parked full all morning. Recomputed every
+// tick, so a car that falls behind is sped up and one that gets ahead (solar) can ease off.
+const FINISH_BUFFER_MS = 30 * 60 * 1000;
+// Energy reaching the battery per unit drawn. Errs low on purpose: a lower figure plans a
+// faster rate, so the error is finishing a little early, never late.
+const CHARGE_EFFICIENCY = 0.9;
+// Below roughly this current the car's fixed charging overhead wastes a much bigger share of
+// the energy, so rather than trickle, the start is delayed until it can run at least this.
+const EFFICIENT_MIN_AMPS = 16;
+// Used only if the owner has not entered their battery size. Larger is the safe direction:
+// it plans more energy, so finishes earlier rather than later.
+const DEFAULT_CAPACITY_KWH = 82;
+
+function _capacityKwh() {
+  const v = parseFloat(db.getSetting('tesla_battery_kwh'));
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_CAPACITY_KWH;
+}
+
+// Same rule as the controller's _wattsPerAmp(): voltage times phases, strictly validated.
+function _wattsPerAmp() {
+  const phases  = ({ 1: 1, 2: 2, 3: 3 })[String(db.getSetting('charger_phases') || '').trim()] || 1;
+  const voltage = Number(db.getSetting('charger_voltage'));
+  return (Number.isFinite(voltage) && voltage > 0 ? voltage : 240) * phases;
+}
+
+function _peakWindowsConfigured() {
+  if (db.getSetting('tou_enabled') !== 'true') return false;
+  try { return (JSON.parse(db.getSetting('tou_windows') || '[]') || []).length > 0; } catch (_e) { return false; }
+}
+
+/**
+ * Plan the charge rate that finishes just before departure. Pure, so it can be tested.
+ *
+ * Returns { start, amps, reason }:
+ *   start - grid charging should be running now
+ *   amps  - the rate to run at (0 when not starting)
+ */
+function planCharge({ missingPct, capacityKwh, msUntilDeparture, wattsPerAmp, minAmps, maxAmps,
+                      inProgress = false, peakWindowsConfigured = false }) {
+  if (!(missingPct > 0)) return { start: false, amps: 0, reason: 'target reached' };
+  // Blocked peak-tariff windows would make "as late as possible" land in the most expensive
+  // hours, and this planner does not know the prices. Keep the old behaviour there: full rate
+  // as soon as the window opens.
+  if (peakWindowsConfigured) {
+    return { start: true, amps: maxAmps, reason: 'peak-tariff windows are configured, so charging at full rate' };
+  }
+  const kwhNeeded = (missingPct / 100) * capacityKwh;
+  const hoursToFinish = (msUntilDeparture - FINISH_BUFFER_MS) / 3600000;
+  if (hoursToFinish <= 0) return { start: true, amps: maxAmps, reason: 'inside the finishing margin, so full rate' };
+  const ampsNeeded = Math.ceil(((kwhNeeded / CHARGE_EFFICIENCY) / hoursToFinish) * 1000 / wattsPerAmp);
+  if (ampsNeeded >= maxAmps) return { start: true, amps: maxAmps, reason: 'needs full rate to finish in time' };
+  const floor = Math.min(maxAmps, Math.max(minAmps || 0, EFFICIENT_MIN_AMPS));
+  if (ampsNeeded < floor && !inProgress) {
+    return { start: false, amps: 0,
+      reason: `not needed yet: ${ampsNeeded} A would finish on time; will start once it needs ${floor} A or more` };
+  }
+  const amps = Math.max(ampsNeeded, floor);
+  return { start: true, amps, reason: `${amps} A finishes about 30 minutes before departure` };
+}
+
 const NO_SOC_MESSAGE =
   'Departure scheduling needs the vehicle\'s battery percentage, which the OCPP '
   + 'backend cannot read on typical home AC chargers (it requires ISO 15118 '
@@ -125,7 +190,7 @@ function clearDeparture() {
  * @param {number} currentSoc  Current battery %
  * @param {number} maxAmps     Max charge amps from settings
  */
-function getDepartureDecision(currentSoc, maxAmps) {
+function getDepartureDecision(currentSoc, maxAmps, opts = {}) {
   const dep = db.getActiveDeparture();
   if (!dep) return { active: false };
 
@@ -170,7 +235,21 @@ function getDepartureDecision(currentSoc, maxAmps) {
     };
   }
 
-  let needsGridCharge = missingPct > 0 && hoursUntil <= ACTIVATION_HOURS;
+  const maxA = Number(maxAmps) > 0 ? Number(maxAmps) : parseInt(db.getSetting('max_charge_amps') || '32', 10);
+  const plan = planCharge({
+    missingPct,
+    capacityKwh:      _capacityKwh(),
+    msUntilDeparture: dep.departure_time - now,
+    wattsPerAmp:      opts.wattsPerAmp || _wattsPerAmp(),
+    minAmps:          parseInt(db.getSetting('min_charge_amps') || '5', 10),
+    maxAmps:          maxA,
+    inProgress:       !!opts.inProgress,
+    peakWindowsConfigured: _peakWindowsConfigured(),
+  });
+  // Grid charging still waits for the window to open, unless even full rate from now only just
+  // finishes in time, in which case starting later would miss the target.
+  const fullRateNeeded = plan.start && plan.amps >= maxA && !plan.reason.startsWith('peak');
+  let needsGridCharge = missingPct > 0 && plan.start && (hoursUntil <= ACTIVATION_HOURS || fullRateNeeded);
 
   const priceSpike = ercotPricing.isPriceSpiking();
   if (needsGridCharge && priceSpike && hoursUntil > PRICE_SPIKE_MIN_MARGIN_HOURS) {
@@ -185,12 +264,14 @@ function getDepartureDecision(currentSoc, maxAmps) {
     departureTime:  dep.departure_time,
     hoursUntil:     Math.round(hoursUntil * 10) / 10,
     missingPct,
-    suggestedAmps:  maxAmps,
+    suggestedAmps:  plan.start ? plan.amps : maxA,
+    planReason:     plan.reason,
     notes:          dep.notes,
   };
 }
 
 module.exports = {
   setDeparture, getActiveDeparture, clearDeparture, getDepartureDecision,
-  socAvailable, NO_SOC_MESSAGE,
+  socAvailable, NO_SOC_MESSAGE, planCharge,
+  FINISH_BUFFER_MS, EFFICIENT_MIN_AMPS, CHARGE_EFFICIENCY, ACTIVATION_HOURS,
 };

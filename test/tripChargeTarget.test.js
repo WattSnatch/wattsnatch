@@ -71,7 +71,10 @@ test('overshooting the target still reports targetReached', () => {
 });
 
 test('below target inside the window still asks for grid charge', () => {
-  departureScheduler.setDeparture(Date.now() + 3 * HOURS, 31, 'trip');
+  // One hour out, so the charge is genuinely due. Since charging is planned to finish just
+  // before departure (departureScheduler.planCharge), a small top-up three hours out waits
+  // instead of starting at once; departureFinishTime.test.js covers that.
+  departureScheduler.setDeparture(Date.now() + 1 * HOURS, 31, 'trip');
   const d = departureScheduler.getDepartureDecision(22, 32);
   assert.equal(d.active, true);
   assert.equal(d.needsGridCharge, true);

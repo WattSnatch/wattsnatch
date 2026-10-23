@@ -1057,6 +1057,13 @@ class Controller {
 
     const targetReached = batteryPct > 0 && batteryPct >= departure.targetSoc;
 
+    // The rate planned to finish just before departure (departureScheduler.planCharge), or
+    // faster when solar surplus alone would allow it. Full rate only when the plan needs it.
+    const wattsPerAmp = this._wattsPerAmp();
+    const solarAmps   = Math.floor(((solarExcessW || 0) + (evWatts || 0)) / wattsPerAmp);
+    const plannedAmps = departure.suggestedAmps > 0 ? departure.suggestedAmps : maxAmps;
+    const rateAmps    = Math.max(1, Math.min(maxAmps, Math.max(plannedAmps, solarAmps)));
+
     if (!pluggedIn || targetReached) {
       // Actually stop the car.
       //
@@ -1097,9 +1104,10 @@ class Controller {
           }
         } else if (chargingState === 'Stopped' || chargingState === 'NoPower') {
           if (!this.currentSessionId) this._startSession(batteryPct);
-          this._trackApiCall('command'); await setChargingAmps(vin, maxAmps, teslaToken);
+          this._trackApiCall('command'); await setChargingAmps(vin, rateAmps, teslaToken);
           this._trackApiCall('command'); await startCharging(vin, teslaToken);
-          logger.logEvent('command', `Departure: started charging at ${maxAmps}A (target ${departure.targetSoc}%, ${departure.hoursUntil}h until departure)`);
+          this._lastDepartureAmpsAt = Date.now();
+          logger.logEvent('command', `Departure: started charging at ${rateAmps}A (target ${departure.targetSoc}%, ${departure.hoursUntil}h until departure; ${departure.planReason || 'full rate'})`);
         } else if (chargingState === 'Complete' && chargeLimit > batteryPct + 0.5
                    && (Date.now() - (this._lastDepartureResumeAt || 0)) > 60 * 1000) {
           // The car stopped at its old limit and the limit has since been raised for this
@@ -1108,14 +1116,18 @@ class Controller {
           // a car that cannot go further is not asked every tick.
           this._lastDepartureResumeAt = Date.now();
           if (!this.currentSessionId) this._startSession(batteryPct);
-          this._trackApiCall('command'); await setChargingAmps(vin, maxAmps, teslaToken);
+          this._trackApiCall('command'); await setChargingAmps(vin, rateAmps, teslaToken);
           this._trackApiCall('command'); await startCharging(vin, teslaToken);
+          this._lastDepartureAmpsAt = Date.now();
           logger.logEvent('command', `Departure: resumed charging past the old limit (now ${chargeLimit}%, target ${departure.targetSoc}%)`);
         } else if (chargingState === 'Charging') {
           if (!this.currentSessionId) this._startSession(batteryPct);
-          if (chargeAmps !== maxAmps) {
-            this._trackApiCall('command'); await setChargingAmps(vin, maxAmps, teslaToken);
-            logger.logEvent('command', `Departure: set amps to ${maxAmps}A`);
+          // Re-planned every tick; changed at most every 30 s, because the car takes a few
+          // seconds to report a new rate and resending meanwhile only repeats the command.
+          if (Math.round(chargeAmps) !== rateAmps && (Date.now() - (this._lastDepartureAmpsAt || 0)) > 30 * 1000) {
+            this._lastDepartureAmpsAt = Date.now();
+            this._trackApiCall('command'); await setChargingAmps(vin, rateAmps, teslaToken);
+            logger.logEvent('command', `Departure: set amps to ${rateAmps}A (${solarAmps > plannedAmps ? 'solar surplus' : (departure.planReason || 'full rate')})`);
           }
         }
       } catch (err) {
@@ -1669,7 +1681,8 @@ class Controller {
       // notices until the car is short on the morning of a trip.
       const depSolarExcessW = readings ? readings.solarW - readings.consumptionW : 0;
       const depEvWatts      = currentlyCharging ? chargerPower * 1000 : 0;
-      const departureDecision = departureScheduler.getDepartureDecision(batteryPct, maxAmps);
+      const departureDecision = departureScheduler.getDepartureDecision(batteryPct, maxAmps,
+        { wattsPerAmp: this._wattsPerAmp(), inProgress: this.state === STATES.DEPARTURE });
       if (departureDecision.active && pluggedIn
           && (departureDecision.needsGridCharge || departureDecision.targetReached)) {
         await this._runDeparture({
