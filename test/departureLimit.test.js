@@ -229,3 +229,27 @@ test('it is started with the app, and the briefing spells out trip energy and ex
   assert.match(read('src/controller.js'), /chargingState === 'Complete' && chargeLimit > batteryPct \+ 0\.5/,
     'departure resumes a car that stopped at its old limit once the limit is raised');
 });
+
+// ── The limit command itself ────────────────────────────────────────────────────────────────
+
+test('a limit change the car refuses is reported as a failure, not a success', async () => {
+  const http = require('http');
+  let reply = { code: 200, body: '{"response":{"result":false,"reason":"unauthorized: key role cannot set charge limit"}}' };
+  const srv = http.createServer((req, res) => { res.writeHead(reply.code); res.end(reply.body); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  db.setSetting('tesla_ble_proxy_url', `http://127.0.0.1:${srv.address().port}`);
+  try {
+    await assert.rejects(orig.setChargeLimit('5YJ3E1EA0JF000001', 100, null), /Set charge limit rejected by car/);
+    reply = { code: 200, body: '{"response":{"result":false,"reason":"already_set"}}' };
+    await orig.setChargeLimit('5YJ3E1EA0JF000001', 80, null);   // already there: fine
+    // The real proxy's answer, captured from a car: HTTP 503 with already_set. Also fine.
+    reply = { code: 503, body: '{"response":{"result":false,"reason":"failed to set charge limit to 80 %: car could not execute command: already_set","command":"set_charge_limit"}}' };
+    await orig.setChargeLimit('5YJ3E1EA0JF000001', 80, null);
+    reply = { code: 503, body: '{"response":{"result":false,"reason":"vehicle is sleeping"}}' };
+    await assert.rejects(orig.setChargeLimit('5YJ3E1EA0JF000001', 80, null), /failed with status 503/);
+    reply = { code: 200, body: '{"response":{"result":true,"reason":""}}' };
+    await orig.setChargeLimit('5YJ3E1EA0JF000001', 100, null);
+  } finally {
+    srv.close();
+  }
+});

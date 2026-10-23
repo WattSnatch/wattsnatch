@@ -603,11 +603,15 @@ async function setChargeLimit(vin, limitPercent, accessToken) {
   _noteAccountLockIfPresent(res.body);
   _noteVehicleOfflineIfPresent(res.body);
 
-  if (res.status !== 200) {
-    throw new Error(`Set charge limit failed with status ${res.status}: ${res.body}`);
-  }
-
-  try { return JSON.parse(res.body); } catch (_e) { return { ok: true }; }
+  // Checked like every other command, not just on HTTP status. The Bluetooth proxy reports a
+  // command the car refused (for example a key role that may not change the limit) as HTTP 200
+  // with result:false, and treating that as success would let a departure "raise" the limit that
+  // never moved and leave at the old one. A value already in place is not a failure.
+  // The proxy reports "already_set" as HTTP 503 (confirmed against a real car 2026-10-23). The
+  // car processed it and the limit is exactly what was asked for, so it is a success: treating
+  // it as a failure would make a restore that is already in place retry for ever.
+  if (res.status !== 200 && /already_set/.test(res.body || '')) return { result: true, reason: 'already_set' };
+  return assertCommandOk(res, 'Set charge limit', ['already_set']);
 }
 
 /**
