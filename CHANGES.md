@@ -2,10 +2,29 @@
 
 ---
 
-## Unreleased: Trip planning that adds up
+## Unreleased: Trip planning that adds up, and departure charging that reaches its target
 
 Two faults in the trip planner, reported in issue #27, and some labels that made
 its numbers harder to follow.
+
+**Fixed: departure charging could not go past the car's own charge limit.** The
+overnight trip check and a trip's "charge to N%" button start and stop the charge
+on their own target, but the car still stops itself at its own limit. A trip
+needing 100% on a car limited to 80% left at 80% while the overnight notification
+promised 100%, the night before a long round trip that a full battery only just
+covers. Inside the departure window, a target above the limit now raises the limit
+to the target and puts it back afterwards, with the owner's limit read from the
+car and recorded before the raise, a restore that is retried until it lands, and
+departure charging restarting a car that had already stopped at its old limit.
+Local Bluetooth pairing, which cannot change the limit, gets a warning instead.
+The overnight notification now says what will happen to the limit, and says so
+when even 100% is not enough.
+
+**Fixed: the evening briefing could say a trip needed no extra charging when it
+did.** It was given "needs ~N kWh top-up" and read it back as the trip needing
+N kWh, telling the owner the night before a much larger trip that no extra charging
+was needed. It is now given the trip's energy and the charging still needed,
+spelled out.
 
 **Fixed: expected solar before a trip was overstated, by more the further away the
 trip was.** Solcast forecasts average output for each half hour, so the energy is

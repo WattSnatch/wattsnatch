@@ -237,11 +237,20 @@ async function generateInsight() {
       });
       const dayLabel = trip.departureTime < todayStart.getTime() + 24 * 60 * 60 * 1000
         ? 'Today' : 'Tomorrow';
-      const status = assessment.status === 'SOLAR_WILL_COVER' ? 'solar will cover it'
-        : assessment.status === 'NEEDS_ATTENTION'
-          ? `needs ~${assessment.solarShortfall?.toFixed(1) ?? '?'} kWh top-up`
-          : 'battery is fine';
-      return `${dayLabel} ${time} - ${trip.summary} (${status})`;
+      // Spelled out, because "needs ~N kWh top-up" was read back by the model as the trip
+      // needing N kWh, for a trip that used several times that, and the briefing told the owner no
+      // extra charging was needed the night before a trip a full battery barely covered.
+      const tripKwh = assessment.required?.total;
+      const uses = tripKwh != null ? `the trip uses about ${tripKwh.toFixed(1)} kWh` : 'trip energy unknown';
+      let status;
+      if (assessment.status === 'SOLAR_WILL_COVER') status = `${uses}; solar before departure should cover the extra charging needed`;
+      else if (assessment.status === 'NEEDS_ATTENTION') {
+        status = `${uses}; extra charging IS needed before leaving: about ${assessment.solarShortfall?.toFixed(1) ?? '?'} kWh from the grid`;
+        if (assessment.exceedsBattery) {
+          status += `, and even a full battery is not enough, so a charging stop of about ${assessment.chargeStopKwh?.toFixed(1) ?? '?'} kWh is needed on the way`;
+        }
+      } else status = `${uses}; the current charge already covers it, no extra charging needed`;
+      return `${dayLabel} ${time} - ${trip.summary}: ${status}`;
     });
 
   const solcast      = require('./solcast');

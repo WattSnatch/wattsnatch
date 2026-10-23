@@ -37,6 +37,7 @@ const dayReplay = require('./services/dayReplay');
 const aiInsights    = require('./services/aiInsights');
 const weatherGrid   = require('./services/weatherGrid');
 const solarBanking  = require('./services/solarBanking');
+const departureLimit = require('./services/departureLimit');
 const telemetryHealth = require('./services/telemetryHealth');
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -180,6 +181,7 @@ async function main() {
     aiInsights.start();
     weatherGrid.start();
     solarBanking.start(); // raises the charge limit on a strong day before a weak spell, off by default
+    departureLimit.start(); // lets departure charging go past the car's own limit, and puts it back
     telemetryHealth.start(); // auto-detect + re-register a Fleet Telemetry config Tesla has dropped
 
     // ── Daily notifications ───────────────────────────────────────────────────
@@ -244,6 +246,7 @@ async function main() {
     aiInsights.stop();
     weatherGrid.stop();
     solarBanking.stop();
+    departureLimit.stop();
     telemetryHealth.stop();
     stopTokenScheduler();
     server.close(() => {

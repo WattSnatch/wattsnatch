@@ -1100,6 +1100,17 @@ class Controller {
           this._trackApiCall('command'); await setChargingAmps(vin, maxAmps, teslaToken);
           this._trackApiCall('command'); await startCharging(vin, teslaToken);
           logger.logEvent('command', `Departure: started charging at ${maxAmps}A (target ${departure.targetSoc}%, ${departure.hoursUntil}h until departure)`);
+        } else if (chargingState === 'Complete' && chargeLimit > batteryPct + 0.5
+                   && (Date.now() - (this._lastDepartureResumeAt || 0)) > 60 * 1000) {
+          // The car stopped at its old limit and the limit has since been raised for this
+          // departure (departureLimit.js), but the car has not resumed by itself. Start it.
+          // Only when the limit is genuinely above the battery, and at most once a minute, so
+          // a car that cannot go further is not asked every tick.
+          this._lastDepartureResumeAt = Date.now();
+          if (!this.currentSessionId) this._startSession(batteryPct);
+          this._trackApiCall('command'); await setChargingAmps(vin, maxAmps, teslaToken);
+          this._trackApiCall('command'); await startCharging(vin, teslaToken);
+          logger.logEvent('command', `Departure: resumed charging past the old limit (now ${chargeLimit}%, target ${departure.targetSoc}%)`);
         } else if (chargingState === 'Charging') {
           if (!this.currentSessionId) this._startSession(batteryPct);
           if (chargeAmps !== maxAmps) {

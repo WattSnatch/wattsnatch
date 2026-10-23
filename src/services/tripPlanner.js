@@ -507,8 +507,21 @@ async function runMidnightTripCheck() {
     const departureScheduler = require('./departureScheduler');
     departureScheduler.setDeparture(firstDeparture, targetSocPct, `Overnight: ${chainLabels}`);
 
+    // Say what will happen to a target above the car's own charge limit, instead of promising
+    // a number the car would stop short of.
+    const carLimit  = Number(telemetry.getState().chargeLimit);
+    const limitNote = require('./departureLimit').limitNote(targetSocPct, carLimit);
+    if (limitNote) logger.logEvent('info', `[tripPlanner] Midnight check: ${limitNote}`);
+    // Even a full battery may not be enough; say so rather than implying 100% covers it.
+    const shortAtFull = totalTripKwh + floorKwh - usableCapacity;
+    const fullNote = shortAtFull > 0.5
+      ? `Even at 100% you will be about ${shortAtFull.toFixed(1)} kWh short of keeping 20%, so plan a charging stop.`
+      : '';
+    if (fullNote) logger.logEvent('info', `[tripPlanner] Midnight check: ${fullNote}`);
+
     await notifications.notifyMidnightChargeScheduled(
-      chains, currentSocPct, targetSocPct, firstDeparture, totalTripKwh
+      chains, currentSocPct, targetSocPct, firstDeparture, totalTripKwh,
+      [limitNote, fullNote].filter(Boolean).join(' ')
     ).catch(() => {});
 
   } catch (err) {

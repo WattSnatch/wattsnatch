@@ -272,13 +272,13 @@ async function notifyEveningSummary() {
   return sendNotification('WattSnatch Day Summary', lines.join('\n'), 'default');
 }
 
-async function notifyMidnightChargeScheduled(chains, fromSoc, toSoc, firstDepartureMs, totalTripKwh) {
+async function notifyMidnightChargeScheduled(chains, fromSoc, toSoc, firstDepartureMs, totalTripKwh, note = '') {
   const depTime  = new Date(firstDepartureMs).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
   const journeys = chains.map(c =>
     c.length === 1 ? c[0].summary : c.map(t => t.summary).join(' → ')
   ).join(', ');
   const title   = 'Overnight charge scheduled';
-  const message = `Tomorrow: ${journeys}. Charging ${fromSoc}% → ${toSoc}% (${totalTripKwh.toFixed(1)} kWh for trips). Ready by ${depTime}.`;
+  const message = `Tomorrow: ${journeys}. Charging ${fromSoc}% → ${toSoc}% (${totalTripKwh.toFixed(1)} kWh for trips). Ready by ${depTime}.${note ? ` ${note}` : ''}`;
   return sendNotification(title, message, 'default');
 }
 
