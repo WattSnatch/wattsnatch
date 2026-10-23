@@ -423,20 +423,24 @@ async function runMidnightTripCheck() {
       logger.logEvent('warn', `[tripPlanner] Midnight calendar refresh failed: ${err.message}`)
     );
 
-    // Collect tomorrow's driving events
-    const tomorrowStart = new Date();
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-    tomorrowStart.setHours(0, 0, 0, 0);
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+    // Collect the driving events in the next 24 hours from now.
+    //
+    // This used to take "tomorrow" relative to the moment it runs. It runs at 00:00, by which
+    // point the date has already rolled over, so it was really planning the day after: 24 to 48
+    // hours ahead. A trip added to the calendar during the day for the next morning was never
+    // planned at all, because the run before it had already passed and the run after it looked
+    // a day too far. Found 2026-10-24, when a midday trip added the previous afternoon got no
+    // overnight charge. From 00:00, the next 24 hours is exactly the day that is starting.
+    const windowStart = Date.now();
+    const windowEnd   = windowStart + 24 * 60 * 60 * 1000;
 
     const { trips: allTrips } = calendar.getState();
     const tomorrowTrips = allTrips
-      .filter(t => t.departureTime >= tomorrowStart.getTime() && t.departureTime < tomorrowEnd.getTime())
+      .filter(t => t.departureTime >= windowStart && t.departureTime < windowEnd)
       .sort((a, b) => a.departureTime - b.departureTime);
 
     if (tomorrowTrips.length === 0) {
-      logger.logEvent('info', '[tripPlanner] Midnight check: no driving events tomorrow');
+      logger.logEvent('info', '[tripPlanner] Midnight check: no driving events in the next 24 hours');
       return;
     }
 

@@ -272,20 +272,28 @@ async function notifyEveningSummary() {
   return sendNotification('WattSnatch Day Summary', lines.join('\n'), 'default');
 }
 
-async function notifyMidnightChargeScheduled(chains, fromSoc, toSoc, firstDepartureMs, totalTripKwh, note = '') {
+// The overnight notification's text, separate so the wording can be tested on its own.
+// Today or tomorrow by the departure's own date: the check runs just after midnight, when a
+// trip later that day is "today", not "tomorrow".
+function midnightChargeMessage(chains, fromSoc, toSoc, firstDepartureMs, totalTripKwh, note = '', nowMs = Date.now()) {
   const depTime  = new Date(firstDepartureMs).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
   const journeys = chains.map(c =>
     c.length === 1 ? c[0].summary : c.map(t => t.summary).join(' → ')
   ).join(', ');
-  const title   = 'Overnight charge scheduled';
-  const message = `Tomorrow: ${journeys}. Charging ${fromSoc}% → ${toSoc}% (${totalTripKwh.toFixed(1)} kWh for trips). Ready by ${depTime}.${note ? ` ${note}` : ''}`;
-  return sendNotification(title, message, 'default');
+  const dayLabel = new Date(firstDepartureMs).toDateString() === new Date(nowMs).toDateString() ? 'Today' : 'Tomorrow';
+  return `${dayLabel}: ${journeys}. Charging ${fromSoc}% → ${toSoc}% (${totalTripKwh.toFixed(1)} kWh for trips). Ready by ${depTime}.${note ? ` ${note}` : ''}`;
+}
+
+async function notifyMidnightChargeScheduled(chains, fromSoc, toSoc, firstDepartureMs, totalTripKwh, note = '') {
+  const message = midnightChargeMessage(chains, fromSoc, toSoc, firstDepartureMs, totalTripKwh, note);
+  return sendNotification('Overnight charge scheduled', message, 'default');
 }
 
 module.exports = {
   sendNotification,
   notifyTripNeedsGridTopUp,
   notifyMidnightChargeScheduled,
+  midnightChargeMessage,
   notifyPanelUnderperformance,
   notifyHouseLoadAnomaly,
   notifySolarMilestone,

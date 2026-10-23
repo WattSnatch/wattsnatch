@@ -2,6 +2,21 @@
 
 ---
 
+## Unreleased: The overnight trip check plans the day that is starting
+
+**Fixed: a trip added to the calendar during the day for the next day got no
+overnight charge.** The check runs at 00:00 and planned "tomorrow" relative to the
+moment it ran. By then the date has already rolled over, so it was really planning
+24 to 48 hours ahead: the run before a next-morning trip had already passed, and
+the run after it looked a day too far and logged that there were no driving
+events. It now plans the trips departing in the next 24 hours, which from 00:00 is
+exactly the day that is starting, and the notification says Today or Tomorrow by
+the departure's own date. The documentation also said the check ran at sunset; it
+runs at midnight.
+
+---
+
+
 ## 2026-10-23 - v2.6.2: Trip planning that adds up, and departure charging that reaches its target
 
 Departure charging can now reach a target above the car's own charge limit, the
