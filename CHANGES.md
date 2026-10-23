@@ -2,7 +2,20 @@
 
 ---
 
-## Unreleased: The overnight trip check plans the day that is starting
+## Unreleased: Departure charging finishes just before you leave, and the overnight check plans the right day
+
+**New: departure charging finishes just before departure.** It used to run at full
+rate as soon as the six-hour window opened, so a charge needing four hours
+finished two hours early and the car sat at a high charge until it left. The rate
+is now planned to finish about 30 minutes before departure and re-planned every
+cycle: raised if the car falls behind, faster whenever solar surplus allows. A
+small top-up waits and starts later at 16 A or more rather than trickling, since
+below that the car's fixed overhead wastes too much energy; once started it keeps
+going. A charge too big to finish in six hours even at full rate now starts early
+instead of missing the target. Installs with blocked peak-tariff windows keep
+full-rate charging, so it is never pushed into peak prices. Amp changes are sent
+at most every 30 seconds, because the car takes a few seconds to report a new
+rate.
 
 **Fixed: a trip added to the calendar during the day for the next day got no
 overnight charge.** The check runs at 00:00 and planned "tomorrow" relative to the
