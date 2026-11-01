@@ -4,6 +4,20 @@
 
 ## Unreleased: Departure charging finishes just before you leave, and the overnight check plans the right day
 
+**Fixed: the Data page took up to a minute to switch time frames.** Every click
+re-requested all five period statistics, even though each response already holds
+every period, and the energy breakdown behind them read a year of telemetry
+through a database window function with every row built as an object: about 6.5
+seconds for a year, during which the charging loop could not run. The short cache
+in front of these statistics never hit for a period ending now, because it keyed
+on the exact millisecond. Switching time frames now reuses the responses for a
+minute and makes no requests, the breakdown streams its rows and works out each
+row's interval itself (about five times faster, with figures byte-identical to
+before), and the cache keys a period ending now as "now", kept for a minute for
+periods longer than two days and five seconds for today. Measured on a copy of a
+real install: the first load went from 17 seconds to 6, a repeat within a minute
+takes a tenth of a second, and switching time frames is instant.
+
 **New: departure charging finishes just before departure.** It used to run at full
 rate as soon as the six-hour window opened, so a charge needing four hours
 finished two hours early and the car sat at a high charge until it left. The rate

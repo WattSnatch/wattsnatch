@@ -951,13 +951,24 @@ function getMonthlyStats(year, month) {
 // touching any of the underlying math.
 const _periodStatsCache = new Map();
 const PERIOD_STATS_CACHE_TTL_MS = 5000;
+// Periods longer than this are cached for a minute: a month or a year does not visibly change
+// in sixty seconds, and recomputing one is the expensive part of the Data page. Today stays at
+// 5 s because the charging loop refreshes the live daily totals from it every tick.
+const LONG_PERIOD_MS = 2 * 86400000;
+const LONG_PERIOD_CACHE_TTL_MS = 60 * 1000;
 
 function _memoizeShortTtl(fn, name) {
   return (startTs, endTs) => {
-    const key = `${name}:${startTs}:${endTs}`;
     const now = Date.now();
+    const ttl = (endTs - startTs) > LONG_PERIOD_MS ? LONG_PERIOD_CACHE_TTL_MS : PERIOD_STATS_CACHE_TTL_MS;
+    // A period ending "now" arrives with a fresh millisecond end on every request, so keying
+    // on it made every key unique and this cache never hit for exactly the periods it exists
+    // for. Any end within the cache lifetime of the present is the same "now" for the key; the
+    // value returned is then at most that lifetime old.
+    const liveEnd = endTs != null && Math.abs(now - endTs) <= ttl;
+    const key = `${name}:${startTs}:${liveEnd ? 'now' : endTs}`;
     const hit = _periodStatsCache.get(key);
-    if (hit && (now - hit.at) < PERIOD_STATS_CACHE_TTL_MS) return hit.value;
+    if (hit && (now - hit.at) < ttl) return hit.value;
 
     const value = fn(startTs, endTs);
     _periodStatsCache.set(key, { value, at: now });
@@ -967,7 +978,7 @@ function _memoizeShortTtl(fn, name) {
     // matter (the working set here is normally under a dozen distinct keys).
     if (_periodStatsCache.size > 50) {
       for (const [k, v] of _periodStatsCache) {
-        if ((now - v.at) >= PERIOD_STATS_CACHE_TTL_MS) _periodStatsCache.delete(k);
+        if ((now - v.at) >= LONG_PERIOD_CACHE_TTL_MS) _periodStatsCache.delete(k);
       }
     }
 
@@ -1508,17 +1519,21 @@ function _getEnergyBreakdownUncached(startMs, endMs) {
     .map((c) => `MAX(0.0, COALESCE(${c.column}, 0)) AS load_${c.key}`)
     .join(',\n        ');
 
-  const rows = db.prepare(`
+  // Rows are streamed as plain arrays, in time order, and each row's interval is worked out
+  // here from the next row's timestamp. This used to be a LEAD() window function over the
+  // whole period, with every row materialised as an object first: for a year that was 1.4
+  // million objects and about 6.5 seconds, nearly all of the Data page's load time, during
+  // which the charging loop could not run. The rule is unchanged: the gap to the next row
+  // in the window, capped at 2 minutes, and 5 seconds for the last row. The arithmetic below
+  // is unchanged too, so every figure is identical (test/energyBreakdownFast.test.js).
+  const stmt = db.prepare(`
     SELECT recorded_at, grid_w,
       MAX(0.0, consumption_w) AS consumption_w${submeters.length ? ',' : ''}
-      ${submeterCols},
-      MIN(
-        COALESCE(LEAD(recorded_at) OVER (ORDER BY recorded_at) - recorded_at, 5000),
-        120000
-      ) / 3600000.0 AS interval_h
+      ${submeterCols}
     FROM telemetry_log
     WHERE recorded_at >= ? AND recorded_at < ?
-  `).all(startMs, now);
+    ORDER BY recorded_at
+  `).raw(true);
 
   // Matches getGridSummaryForPeriod so the two functions cannot disagree. Flow
   // under 50W in either direction is meter noise around zero, not real trade.
@@ -1530,32 +1545,35 @@ function _getEnergyBreakdownUncached(startMs, endMs) {
   // Reverse solar priority. See the note above on why the measured import is
   // what gets allocated.
   const gridOrder = [...ENERGY_CATEGORIES].reverse();
+  const nSub = submeters.length;
 
   let kwhImported = 0, kwhExported = 0, importCost = 0, exportCredit = 0;
   let unexplainedKwh = 0;
   let coveredHours = 0;
   const daysSeen = new Set();
+  const load = new Map();
 
-  for (const r of rows) {
-    const h = r.interval_h;
+  // r = [recorded_at, grid_w, consumption_w, ...submeter loads]; h = interval in hours.
+  const processRow = (r, h) => {
+    const recordedAt = r[0];
     coveredHours += h;
     // UTC day bucket, matching the UTC-ms window this is called with.
-    daysSeen.add(Math.floor(r.recorded_at / 86400000));
+    daysSeen.add(Math.floor(recordedAt / 86400000));
 
-    const gridW = r.grid_w || 0;
-    const rate  = resolveRate(r.recorded_at);
+    const gridW = r[1] || 0;
+    const rate  = resolveRate(recordedAt);
 
     if (gridW < -DEADBAND_W) {
       const kwh = -gridW * h / 1000.0;
       kwhExported  += kwh;
-      exportCredit += kwh * resolveExportRate(r.recorded_at);
+      exportCredit += kwh * resolveExportRate(recordedAt);
     }
 
     let submeterW = 0;
-    const load = new Map();
-    for (const c of submeters) {
-      const w = Math.max(0, r[`load_${c.key}`] || 0);
-      load.set(c.key, w);
+    load.clear();
+    for (let i = 0; i < nSub; i++) {
+      const w = Math.max(0, r[3 + i] || 0);
+      load.set(submeters[i].key, w);
       submeterW += w;
     }
 
@@ -1564,7 +1582,7 @@ function _getEnergyBreakdownUncached(startMs, endMs) {
     // Import the meter saw that no measured load accounts for. This is real
     // consumption we cannot see, so it goes to the residual rather than being
     // dropped - dropping it is what would let the totals drift from the bill.
-    let houseW = Math.max(0, r.consumption_w - submeterW);
+    let houseW = Math.max(0, r[2] - submeterW);
     const unexplainedW = Math.max(0, importW - (houseW + submeterW));
     houseW += unexplainedW;
     unexplainedKwh += unexplainedW * h / 1000.0;
@@ -1594,7 +1612,15 @@ function _getEnergyBreakdownUncached(startMs, endMs) {
       kwhImported += kwh;
       importCost  += kwh * rate;
     }
+  };
+
+  // One row behind: a row is processed once the next one is known, exactly as LEAD() did.
+  let prev = null;
+  for (const r of stmt.iterate(startMs, now)) {
+    if (prev) processRow(prev, Math.min(r[0] - prev[0], 120000) / 3600000.0);
+    prev = r;
   }
+  if (prev) processRow(prev, Math.min(5000, 120000) / 3600000.0);
 
   const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -3104,6 +3130,7 @@ module.exports = {
   getFlatRateAtDate,
   getRateAtTimestamp,
   createRateResolver,
+  _getEnergyBreakdownUncached,
   getExportConfigs,
   addExportConfig,
   deleteExportConfig,

@@ -705,6 +705,9 @@ function setupWrappedStory() {
 
 let activePeriod = 'month';
 let customRange = { from: null, to: null };
+// Last set of period-stat responses, shared by every time-frame button (see loadPeriodData).
+let _periodFetch = null;
+const PERIOD_FETCH_TTL_MS = 60 * 1000;
 
 const PERIOD_LABELS = {
   today:        'Today',
@@ -732,13 +735,28 @@ async function loadPeriodData(period) {
   if (spinner) spinner.style.display = 'inline-block';
 
   try {
-    const [evRes, hwRes, houseRes, masterRes, solarKmRes] = await Promise.all([
-      api('/api/stats/periods' + qs),
-      api('/api/stats/eddi/periods' + qs),
-      api('/api/stats/house/periods' + qs),
-      api('/api/stats/master/periods' + qs),
-      api('/api/stats/solar-km' + qs),
-    ]);
+    // Every one of these responses already holds every period (today, week, month, ...), so
+    // switching between time frames needs no new request at all. They are fetched once and
+    // reused for a minute; only a different custom range, or older data, fetches again.
+    // Re-fetching on every click is what made the page take up to a minute, because each
+    // click recomputed a year of telemetry five times over.
+    const fresh = _periodFetch && _periodFetch.qs === qs && (Date.now() - _periodFetch.at) < PERIOD_FETCH_TTL_MS;
+    if (!fresh) {
+      _periodFetch = {
+        qs,
+        at: Date.now(),
+        promise: Promise.all([
+          api('/api/stats/periods' + qs),
+          api('/api/stats/eddi/periods' + qs),
+          api('/api/stats/house/periods' + qs),
+          api('/api/stats/master/periods' + qs),
+          api('/api/stats/solar-km' + qs),
+        ]),
+      };
+      // A failed fetch must not be reused for the next minute.
+      _periodFetch.promise.catch(() => { _periodFetch = null; });
+    }
+    const [evRes, hwRes, houseRes, masterRes, solarKmRes] = await _periodFetch.promise;
 
     const ev     = evRes?.ok     ? evRes.periods[activePeriod]     : {};
     const hw     = hwRes?.ok     ? hwRes.periods[activePeriod]     : {};
