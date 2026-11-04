@@ -312,7 +312,14 @@ MQTT works in **both directions**, and both are fully editable at any time from
   boost, house usage - all kWh, resetting at midnight) as `state_class: total_increasing`, so they plug directly into
   Home Assistant's own Energy Dashboard rather than needing template sensors or utility meters built on the HA side.
   These reuse the exact same daily totals already computed for WattSnatch's own dashboard/embed view (no extra query),
-  so the HA numbers can never drift from what WattSnatch itself shows for the same day. Entities are
+  so the HA numbers can never drift from what WattSnatch itself shows for the same day. A third device,
+  **WattSnatch Costs**, adds what the car, hot water and house each cost from the grid and what solar saved each of
+  them, plus total spent, total saved, export credit, supply charge and net cost, for today, this month and this
+  year (33 monetary sensors, `state_class: total` with a `last_reset` at the start of each period). They come from
+  the same reconciled breakdown as the Data page's Saved/Spent panel, so the two always agree and the per-load spend
+  adds up to the metered import cost. Today and this month refresh every minute and this year every 15 minutes
+  (the year takes well under a second to work out), and a period is republished straight away when it rolls over.
+  Entities are
   auto-created via HA's MQTT Discovery convention, nothing to configure on the HA side beyond having its own
   Settings → Devices & Services → MQTT integration already connected to the same broker.
   **Setup:** Settings → Home Assistant / MQTT → Publish to Home Assistant. Enter the broker URL (usually the same

@@ -66,6 +66,45 @@ const CAR_BINARY_SENSORS = [
 const CAR_DEVICE_TRACKER_TOPIC       = 'wattsnatch/car/tracker/state';
 const CAR_DEVICE_TRACKER_ATTRS_TOPIC = 'wattsnatch/car/tracker/attributes';
 
+// Money - what each load cost from the grid and what solar saved it, for today, this month
+// and this year, grouped under their own HA device ("WattSnatch Costs"). Every figure comes
+// from db.getEnergyBreakdownForPeriod, the same reconciled breakdown the Data page's
+// Saved/Spent panel reads, so HA shows the same numbers to the cent, and the per-load spend
+// adds up to the metered import cost rather than to three separate estimates.
+//
+// One retained JSON message per period carries every figure plus the period start; each
+// sensor picks its field out with a value_template. state_class 'total' with a last_reset is
+// what HA requires for a monetary counter that starts again each day, month or year (it does
+// not accept 'total_increasing' for money, and net cost can go negative on a sunny day).
+//
+// The year takes about 0.6 s to work out on a year of 10-second readings, during which the
+// charging loop waits, so it is refreshed every 15 minutes; today and this month take
+// milliseconds and are refreshed every minute.
+const COST_PERIODS = [
+  { key: 'today', label: 'Today',      refreshMs: 60 * 1000,      start: (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()) },
+  { key: 'month', label: 'This Month', refreshMs: 60 * 1000,      start: (d) => new Date(d.getFullYear(), d.getMonth(), 1) },
+  { key: 'year',  label: 'This Year',  refreshMs: 15 * 60 * 1000, start: (d) => new Date(d.getFullYear(), 0, 1) },
+];
+const COST_FIGURES = [
+  { key: 'car_spent',       name: 'Car Spent' },
+  { key: 'car_saved',       name: 'Car Saved' },
+  { key: 'hot_water_spent', name: 'Hot Water Spent' },
+  { key: 'hot_water_saved', name: 'Hot Water Saved' },
+  { key: 'house_spent',     name: 'House Spent' },
+  { key: 'house_saved',     name: 'House Saved' },
+  { key: 'total_spent',     name: 'Total Spent' },      // grid import cost, all loads
+  { key: 'total_saved',     name: 'Total Saved' },      // solar used on site, at the import rate
+  { key: 'export_credit',   name: 'Export Credit' },
+  { key: 'supply_charge',   name: 'Supply Charge' },
+  { key: 'net_cost',        name: 'Net Cost' },         // import + supply - export credit: the bill
+];
+const COST_CHECK_MS = 60 * 1000;
+const costTopic = (period) => `wattsnatch/costs/${period}`;
+
+let _costTimer = null;
+let _costPublished = {};   // period key -> { start, at }
+let _lastCostError = null;
+
 function _publishDiscovery() {
   const device = {
     identifiers: ['wattsnatch'],
@@ -150,6 +189,84 @@ function _publishDiscovery() {
     source_type: 'gps',
     device: carDevice,
   }), { retain: true });
+
+  const costDevice = {
+    identifiers: ['wattsnatch_costs'],
+    name: 'WattSnatch Costs',
+    manufacturer: 'WattSnatch',
+  };
+  for (const p of COST_PERIODS) {
+    for (const f of COST_FIGURES) {
+      _client.publish(`homeassistant/sensor/wattsnatch_cost_${p.key}_${f.key}/config`,
+        JSON.stringify(_costDiscoveryConfig(p, f, costDevice)), { retain: true });
+    }
+  }
+}
+
+function _currencyCode() {
+  return db.getSetting('country') === 'US' ? 'USD' : 'AUD';
+}
+
+function _costDiscoveryConfig(period, figure, device) {
+  return {
+    name: `${figure.name} ${period.label}`,
+    unique_id: `wattsnatch_cost_${period.key}_${figure.key}`,
+    state_topic: costTopic(period.key),
+    value_template: `{{ value_json.${figure.key} }}`,
+    last_reset_value_template: '{{ value_json.last_reset }}',
+    unit_of_measurement: _currencyCode(),
+    device_class: 'monetary',
+    state_class: 'total',
+    suggested_display_precision: 2,
+    device,
+  };
+}
+
+// The message for one period, from a getEnergyBreakdownForPeriod result. Pure, for testing.
+// A load with nothing recorded in the period (no Eddi, or the car never charged) is absent
+// from the breakdown's categories and reads 0 here rather than leaving the sensor unknown.
+function _costPayload(b, startMs) {
+  const cat = (key) => b.categories.find((c) => c.key === key) || {};
+  const car = cat('car');
+  const hw = cat('hot_water');
+  const house = cat('house');
+  return {
+    last_reset:      new Date(startMs).toISOString(),
+    car_spent:       car.grid_cost_aud     || 0,
+    car_saved:       car.est_savings_aud   || 0,
+    hot_water_spent: hw.grid_cost_aud      || 0,
+    hot_water_saved: hw.est_savings_aud    || 0,
+    house_spent:     house.grid_cost_aud   || 0,
+    house_saved:     house.est_savings_aud || 0,
+    total_spent:     b.grid.import_cost,
+    total_saved:     b.est_savings_aud,
+    export_credit:   b.grid.export_credit,
+    supply_charge:   b.supply_charge_aud,
+    net_cost:        b.net_cost_aud,
+  };
+}
+
+// Publishes each period that is due: on its refresh interval, or straight away when the period
+// itself has rolled over (midnight, the 1st, 1 January). `force` republishes everything, used
+// on (re)connect so HA never waits for the next interval.
+function publishCosts({ force = false, now = new Date() } = {}) {
+  if (!_connected) return;
+  for (const p of COST_PERIODS) {
+    const startMs = p.start(now).getTime();
+    const last = _costPublished[p.key];
+    const due = force || !last || last.start !== startMs || (now.getTime() - last.at) >= p.refreshMs;
+    if (!due) continue;
+    try {
+      const b = db.getEnergyBreakdownForPeriod(startMs, now.getTime());
+      _client.publish(costTopic(p.key), JSON.stringify(_costPayload(b, startMs)), { retain: true });
+      _costPublished[p.key] = { start: startMs, at: now.getTime() };
+      _lastCostError = null;
+    } catch (err) {
+      // Best effort, like every other publish here: a failed calculation must never touch
+      // charging. Kept for getState() so it is visible, and retried on the next check.
+      _lastCostError = err.message;
+    }
+  }
 }
 
 function _getClient() {
@@ -163,7 +280,7 @@ function _getClient() {
     reconnectPeriod: 5000,
     connectTimeout: 10000,
   });
-  _client.on('connect', () => { _connected = true; _lastError = null; _publishDiscovery(); });
+  _client.on('connect', () => { _connected = true; _lastError = null; _publishDiscovery(); publishCosts({ force: true }); });
   _client.on('close',   () => { _connected = false; });
   // Publishing stays best-effort (a broker outage must never affect charging),
   // but the error itself is now kept for getState() rather than discarded,
@@ -175,6 +292,10 @@ function _getClient() {
 // Call once at startup to establish the connection proactively.
 function start() {
   _getClient();
+  if (!_costTimer) {
+    _costTimer = setInterval(() => publishCosts(), COST_CHECK_MS);
+    _costTimer.unref();
+  }
 }
 
 // Tear down and reconnect against whatever mqtt_broker_url/username/password
@@ -192,6 +313,7 @@ function getState() {
     connected:  _connected,
     brokerUrl:  db.getSetting('mqtt_broker_url') || null,
     lastError:  _lastError,
+    costError:  _lastCostError,
   };
 }
 
@@ -298,6 +420,11 @@ function publishDailyTotals(todayKwh) {
 }
 
 function stop() {
+  if (_costTimer) {
+    clearInterval(_costTimer);
+    _costTimer = null;
+  }
+  _costPublished = {};
   if (_client) {
     _client.end();
     _client = null;
@@ -305,4 +432,8 @@ function stop() {
   }
 }
 
-module.exports = { start, stop, restart, publish, publishCar, publishDailyTotals, getState, testConnection };
+module.exports = {
+  start, stop, restart, publish, publishCar, publishDailyTotals, publishCosts, getState, testConnection,
+  COST_PERIODS, COST_FIGURES, _costPayload, _costDiscoveryConfig,
+  _setClientForTests: (client) => { _client = client; _connected = !!client; _costPublished = {}; },
+};

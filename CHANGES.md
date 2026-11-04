@@ -4,6 +4,16 @@
 
 ## Unreleased: Departure charging finishes just before you leave, and the overnight check plans the right day
 
+**New: spent and saved in Home Assistant.** A third Home Assistant device,
+WattSnatch Costs, shows what the car, hot water and house each cost from the grid
+and what solar saved each of them, plus total spent, total saved, export credit,
+supply charge and net cost, for today, this month and this year (33 sensors). The
+figures are the Data page's own, so the two always agree, and the per-load spend
+adds up to the metered import cost. They are monetary sensors in your currency
+that start again each day, month or year. Today and this month refresh every
+minute, this year every 15 minutes, and each is republished straight away when its
+period rolls over.
+
 **Fixed: the Data page took up to a minute to switch time frames.** Every click
 re-requested all five period statistics, even though each response already holds
 every period, and the energy breakdown behind them read a year of telemetry

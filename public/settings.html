@@ -1068,7 +1068,8 @@
           <span id="mqtt-out-status" class="text-secondary text-xs">Not configured</span>
         </div>
         <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 0.75rem">
-          Publishes solar/grid/EV power and a full car device (battery, location, charging state) to your MQTT broker,
+          Publishes solar/grid/EV power, a full car device (battery, location, charging state) and what each load cost
+          and saved (today, this month, this year) to your MQTT broker,
           using Home Assistant's MQTT Discovery convention, so entities appear automatically in HA. The only thing needed
           on the HA side is its own <strong>Settings → Devices &amp; Services → MQTT</strong> integration, already
           connected to this same broker.
