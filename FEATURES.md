@@ -319,6 +319,10 @@ MQTT works in **both directions**, and both are fully editable at any time from
   the same reconciled breakdown as the Data page's Saved/Spent panel, so the two always agree and the per-load spend
   adds up to the metered import cost. Today and this month refresh every minute and this year every 15 minutes
   (the year takes well under a second to work out), and a period is republished straight away when it rolls over.
+  An opt-in **Charge Mode** select on the car device (Solar, Charge Now, Stop) lets Home Assistant change what
+  WattSnatch is doing, running exactly the dashboard's STOP / AUTO / CHARGE NOW commands. It is off by default,
+  because anyone who can publish to the broker could then start a grid charge; turning it off removes the entity.
+  It shows the mode in force, with departure and scheduled charging under Solar, and ignores retained commands.
   Entities are
   auto-created via HA's MQTT Discovery convention, nothing to configure on the HA side beyond having its own
   Settings → Devices & Services → MQTT integration already connected to the same broker.

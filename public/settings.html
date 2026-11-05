@@ -1093,6 +1093,18 @@
           <button type="button" id="mqtt-out-test-btn" class="btn btn-secondary btn-sm">Test Connection</button>
           <span id="mqtt-out-test-result" class="text-xs"></span>
         </div>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin:1rem 0 0.4rem">
+          <label class="toggle-switch" style="flex-shrink:0">
+            <input type="checkbox" id="mqtt_ha_charge_mode_enabled_toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:0.85rem;font-weight:600">Let Home Assistant change the charge mode</span>
+        </div>
+        <p style="font-size:0.78rem;color:var(--text-secondary);margin:0">
+          Adds a <strong>Charge Mode</strong> select to the WattSnatch Car device in Home Assistant: Solar, Charge Now
+          or Stop, the same as the buttons on the dashboard. Off by default, because anyone who can publish to your
+          broker could then start a grid charge. Turning it off removes the entity from Home Assistant.
+        </p>
 
         <div style="margin:1.5rem 0;border-top:1px solid var(--border)"></div>
 

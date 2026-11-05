@@ -663,6 +663,18 @@ async function loadSettings() {
     const solarBankingToggle = document.getElementById('opportunistic_charge_limit_enabled_toggle');
     if (solarBankingToggle) solarBankingToggle.checked = data.settings.opportunistic_charge_limit_enabled === 'true';
 
+    // Opt-in, so anything other than an explicit 'true' is off.
+    const haChargeModeToggle = document.getElementById('mqtt_ha_charge_mode_enabled_toggle');
+    if (haChargeModeToggle) haChargeModeToggle.checked = data.settings.mqtt_ha_charge_mode_enabled === 'true';
+    if (haChargeModeToggle && !haChargeModeToggle.dataset.bound) {
+      haChargeModeToggle.dataset.bound = '1';
+      haChargeModeToggle.addEventListener('change', async () => {
+        const ok = await saveToggleNow('mqtt_ha_charge_mode_enabled', haChargeModeToggle.checked,
+          'Home Assistant charge mode control');
+        if (ok) loadMqttStatus();
+      });
+    }
+
     // Both switches in this card save the moment they are changed. See
     // saveToggleNow for why. Bound once, on the first load.
     if (autoTripToggle && !autoTripToggle.dataset.bound) {
@@ -757,6 +769,9 @@ async function saveSettings(e) {
 
   const freePowerToggle = document.getElementById('free_power_enabled_toggle');
   if (freePowerToggle) body.free_power_enabled = freePowerToggle.checked ? 'true' : 'false';
+
+  const haChargeModeToggle = document.getElementById('mqtt_ha_charge_mode_enabled_toggle');
+  if (haChargeModeToggle) body.mqtt_ha_charge_mode_enabled = haChargeModeToggle.checked ? 'true' : 'false';
 
   const solarBankingToggle = document.getElementById('opportunistic_charge_limit_enabled_toggle');
   if (solarBankingToggle) body.opportunistic_charge_limit_enabled = solarBankingToggle.checked ? 'true' : 'false';

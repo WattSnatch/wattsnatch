@@ -212,6 +212,9 @@ class Controller {
     this._lastBleOutageReminderAt = 0;
     this._lastZmqEmitAt = 0;   // throttle ZMQ-triggered SSE to once per second
     this._lastFinancialLedgerUpdateDate = null;  // track which date was last updated
+
+    // The Charge Mode select in Home Assistant (opt-in, see mqttPublisher) arrives here.
+    mqttPublisher.setChargeModeHandler((mode) => this.setChargeModeFromHomeAssistant(mode));
   }
 
   start() {
@@ -316,6 +319,34 @@ class Controller {
     db.setSetting('manual_charge_enabled', 'true');
     this._setState(STATES.OVERRIDE, 'User commanded CHARGE NOW');
     logger.logEvent('command', 'User commanded CHARGE NOW');
+  }
+
+  /**
+   * The mode the owner has chosen, as the dashboard's STOP / AUTO / CHARGE NOW buttons and the
+   * Home Assistant Charge Mode select show it. Departure and scheduled charging are automatic
+   * and sit under Solar: choosing Solar is what lets them run.
+   */
+  chargeMode() {
+    if (this.state === STATES.STOPPED) return 'Stop';
+    if (this.state === STATES.OVERRIDE || db.getSetting('manual_charge_enabled') === 'true') return 'Charge Now';
+    return 'Solar';
+  }
+
+  /**
+   * Home Assistant's Charge Mode select: the same three commands as the dashboard buttons.
+   * Choosing the mode already in force does nothing, because AUTO resets the controller to IDLE
+   * and would interrupt a solar charge that is running.
+   */
+  async setChargeModeFromHomeAssistant(mode) {
+    if (mode === this.chargeMode()) {
+      mqttPublisher.publishChargeMode(mode, { force: true });
+      return;
+    }
+    logger.logEvent('command', `Home Assistant set the charge mode to ${mode}`);
+    if (mode === 'Stop') await this.commandStop();
+    else if (mode === 'Charge Now') this.commandChargeNow();
+    else this.commandAuto();
+    mqttPublisher.publishChargeMode(this.chargeMode(), { force: true });
   }
 
   /** Charging Control master toggle. */
@@ -2555,6 +2586,7 @@ class Controller {
     const _eddi  = eddi.divertW || 0;
     mqttPublisher.publish(_solar, _grid, _cons, _ev, _eddi);
     mqttPublisher.publishCar(telemetry.getState(), this._isAtHome);
+    mqttPublisher.publishChargeMode(this.chargeMode());
 
     // Today's cumulative kWh - included in SSE so the embed doesn't need a separate fetch
     let todayKwh = { solar: 0, gridImport: 0, gridExport: 0, ev: 0, hw: 0, house: 0 };

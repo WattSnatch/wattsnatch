@@ -395,7 +395,7 @@ router.post('/api/settings', (req, res) => {
       'myenergi_serial', 'myenergi_api_key', 'myenergi_poll_seconds',
       'teslamate_database_url',
       'gemini_api_key', 'cf_worker_url', 'cf_worker_secret', 'bill_email_local', 'bill_email_domain', 'gemini_model',
-      'mqtt_broker_url', 'mqtt_username', 'mqtt_password',
+      'mqtt_broker_url', 'mqtt_username', 'mqtt_password', 'mqtt_ha_charge_mode_enabled',
       'anthropic_api_key',
       'openrouter_api_key', 'openrouter_model', 'ai_insight_provider',
       'feed_in_tariff_aud', 'supply_charge_daily_aud', 'solar_install_cost_aud',
@@ -456,7 +456,10 @@ router.post('/api/settings', (req, res) => {
         if (myenergiKeys.has(key))  myenergiChanged  = true;
         if (teslaMateKeys.has(key)) teslaMateChanged = true;
         if (key === 'inverter_brand' || key.startsWith('mqtt_in_')) mqttInChanged = true;
-        if (key === 'mqtt_broker_url' || key === 'mqtt_username' || key === 'mqtt_password') mqttOutChanged = true;
+        // The charge mode switch republishes discovery (adding or removing the HA entity) and
+        // subscribes or unsubscribes, so it needs the same reconnect as a broker change.
+        if (key === 'mqtt_broker_url' || key === 'mqtt_username' || key === 'mqtt_password'
+            || key === 'mqtt_ha_charge_mode_enabled') mqttOutChanged = true;
       }
     }
     if (myenergiChanged) {

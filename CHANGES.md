@@ -4,6 +4,15 @@
 
 ## Unreleased: Departure charging finishes just before you leave, and the overnight check plans the right day
 
+**New: change the charge mode from Home Assistant.** An opt-in Charge Mode select
+on the WattSnatch Car device offers Solar, Charge Now and Stop, the same as the
+dashboard's buttons, so automations and dashboards in Home Assistant can switch
+it. Turn it on in Settings, Home Assistant / MQTT. It is off by default because
+anyone who can publish to the broker could then start a grid charge, and turning
+it off removes the entity. Choosing the mode already in force does nothing, so it
+cannot interrupt a running solar charge, and a retained command is ignored rather
+than replayed on every reconnect.
+
 **New: spent and saved in Home Assistant.** A third Home Assistant device,
 WattSnatch Costs, shows what the car, hot water and house each cost from the grid
 and what solar saved each of them, plus total spent, total saved, export credit,

@@ -101,6 +101,20 @@ const COST_FIGURES = [
 const COST_CHECK_MS = 60 * 1000;
 const costTopic = (period) => `wattsnatch/costs/${period}`;
 
+// Charge mode - a select on the car device that changes what WattSnatch is doing, the same
+// three choices as the dashboard's STOP / AUTO / CHARGE NOW buttons. The only entity here that
+// controls anything, so it is opt-in (Settings -> Home Assistant / MQTT): anyone who can
+// publish to the broker can then start a grid charge. Off, its discovery config is cleared, so
+// the entity disappears from HA rather than lingering as a control that no longer works.
+const CHARGE_MODES = ['Solar', 'Charge Now', 'Stop'];
+const CHARGE_MODE_STATE_TOPIC   = 'wattsnatch/car/charge_mode';
+const CHARGE_MODE_COMMAND_TOPIC = 'wattsnatch/car/charge_mode/set';
+const CHARGE_MODE_DISCOVERY_TOPIC = 'homeassistant/select/wattsnatch_car_charge_mode/config';
+
+let _chargeModeHandler = null;   // set by the controller
+let _lastChargeMode = null;
+let _lastCommandError = null;
+
 let _costTimer = null;
 let _costPublished = {};   // period key -> { start, at }
 let _lastCostError = null;
@@ -190,6 +204,11 @@ function _publishDiscovery() {
     device: carDevice,
   }), { retain: true });
 
+  // An empty retained config is how MQTT Discovery removes an entity.
+  _client.publish(CHARGE_MODE_DISCOVERY_TOPIC,
+    _chargeModeControlEnabled() ? JSON.stringify(_chargeModeDiscoveryConfig(carDevice)) : '',
+    { retain: true });
+
   const costDevice = {
     identifiers: ['wattsnatch_costs'],
     name: 'WattSnatch Costs',
@@ -200,6 +219,53 @@ function _publishDiscovery() {
       _client.publish(`homeassistant/sensor/wattsnatch_cost_${p.key}_${f.key}/config`,
         JSON.stringify(_costDiscoveryConfig(p, f, costDevice)), { retain: true });
     }
+  }
+}
+
+function _chargeModeControlEnabled() {
+  return db.getSetting('mqtt_ha_charge_mode_enabled') === 'true';
+}
+
+function _chargeModeDiscoveryConfig(device) {
+  return {
+    name: 'Charge Mode',
+    unique_id: 'wattsnatch_car_charge_mode',
+    state_topic: CHARGE_MODE_STATE_TOPIC,
+    command_topic: CHARGE_MODE_COMMAND_TOPIC,
+    options: CHARGE_MODES,
+    icon: 'mdi:ev-station',
+    device,
+  };
+}
+
+// Publishes the chosen mode when it changes (every tick calls this), or always with `force`.
+function publishChargeMode(mode, { force = false } = {}) {
+  if (!_connected || !CHARGE_MODES.includes(mode)) return;
+  if (!force && mode === _lastChargeMode) return;
+  _client.publish(CHARGE_MODE_STATE_TOPIC, mode, { retain: true });
+  _lastChargeMode = mode;
+}
+
+function setChargeModeHandler(fn) {
+  _chargeModeHandler = fn;
+}
+
+async function _onMessage(topic, buf, packet) {
+  if (topic !== CHARGE_MODE_COMMAND_TOPIC) return;
+  // A retained command would be replayed on every reconnect, re-applying whatever someone
+  // chose last time (a grid charge, say) long after the fact. HA never retains these.
+  if (packet && packet.retain) return;
+  if (!_chargeModeControlEnabled() || !_chargeModeHandler) return;
+  const mode = buf.toString().trim();
+  if (!CHARGE_MODES.includes(mode)) {
+    _lastCommandError = `Unknown charge mode "${mode.slice(0, 40)}"`;
+    return;
+  }
+  try {
+    await _chargeModeHandler(mode);
+    _lastCommandError = null;
+  } catch (err) {
+    _lastCommandError = err.message;
   }
 }
 
@@ -280,7 +346,15 @@ function _getClient() {
     reconnectPeriod: 5000,
     connectTimeout: 10000,
   });
-  _client.on('connect', () => { _connected = true; _lastError = null; _publishDiscovery(); publishCosts({ force: true }); });
+  _client.on('connect', () => {
+    _connected = true;
+    _lastError = null;
+    _lastChargeMode = null;   // republished on the next tick
+    _publishDiscovery();
+    publishCosts({ force: true });
+    if (_chargeModeControlEnabled()) _client.subscribe(CHARGE_MODE_COMMAND_TOPIC, { qos: 1 });
+  });
+  _client.on('message', (topic, buf, packet) => { _onMessage(topic, buf, packet).catch(() => {}); });
   _client.on('close',   () => { _connected = false; });
   // Publishing stays best-effort (a broker outage must never affect charging),
   // but the error itself is now kept for getState() rather than discarded,
@@ -314,6 +388,8 @@ function getState() {
     brokerUrl:  db.getSetting('mqtt_broker_url') || null,
     lastError:  _lastError,
     costError:  _lastCostError,
+    chargeModeControl: _chargeModeControlEnabled(),
+    commandError: _lastCommandError,
   };
 }
 
@@ -434,6 +510,9 @@ function stop() {
 
 module.exports = {
   start, stop, restart, publish, publishCar, publishDailyTotals, publishCosts, getState, testConnection,
+  publishChargeMode, setChargeModeHandler,
   COST_PERIODS, COST_FIGURES, _costPayload, _costDiscoveryConfig,
-  _setClientForTests: (client) => { _client = client; _connected = !!client; _costPublished = {}; },
+  CHARGE_MODES, CHARGE_MODE_COMMAND_TOPIC, CHARGE_MODE_STATE_TOPIC, CHARGE_MODE_DISCOVERY_TOPIC,
+  _chargeModeDiscoveryConfig, _onMessage, _publishDiscovery,
+  _setClientForTests: (client) => { _client = client; _connected = !!client; _costPublished = {}; _lastChargeMode = null; },
 };
