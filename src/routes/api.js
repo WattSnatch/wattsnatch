@@ -396,6 +396,7 @@ router.post('/api/settings', (req, res) => {
       'teslamate_database_url',
       'gemini_api_key', 'cf_worker_url', 'cf_worker_secret', 'bill_email_local', 'bill_email_domain', 'gemini_model',
       'mqtt_broker_url', 'mqtt_username', 'mqtt_password', 'mqtt_ha_charge_mode_enabled',
+      'dashboard_house_flow',
       'anthropic_api_key',
       'openrouter_api_key', 'openrouter_model', 'ai_insight_provider',
       'feed_in_tariff_aud', 'supply_charge_daily_aud', 'solar_install_cost_aud',

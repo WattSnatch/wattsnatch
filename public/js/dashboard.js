@@ -601,6 +601,40 @@ function updateFlowDiagram(d) {
   setNodeVal('grid-node-val',   formatWatts(Math.abs(d.grid)));
   setNodeVal('ev-node-val',     formatWatts(d.evWatts));
   setNodeVal('ac-node-val',     (d.acLoadW || 0) > 0 ? '~' + formatWatts(d.acLoadW) : formatWatts(0));
+  updateHouseFlow(d, houseNodeW);
+}
+
+// ─── House view (Settings -> Dashboard) - drawn by houseFlow.js ──────────────
+
+let _houseLive  = null;   // last live readings, redrawn when today's totals arrive
+let _houseToday = {};
+
+function applyFlowView(houseView) {
+  const section = document.querySelector('.flow-section');
+  if (!section || typeof HouseFlow === 'undefined') return;
+  if (section.classList.contains('house-view') === houseView) return;
+  section.classList.toggle('house-view', houseView);
+  // The classic curves are measured from the node layout, which had no size while hidden.
+  if (!houseView) drawFlowCurves();
+}
+
+function renderHouseFlow(inputs) {
+  const el = document.getElementById('house-flow');
+  if (!el || !inputs || typeof HouseFlow === 'undefined') return;
+  if (!el.closest('.flow-section').classList.contains('house-view')) return;
+  el.innerHTML = HouseFlow.render({ ...inputs, today: _houseToday, compact: el.clientWidth < 520 });
+}
+
+function updateHouseFlow(d, houseNodeW) {
+  if (typeof d.houseFlowView === 'boolean') applyFlowView(d.houseFlowView);
+  _houseLive = {
+    solarW: d.solar, homeW: houseNodeW, evW: d.evWatts, hwW: d.eddiDivertW, gridW: d.grid,
+    batteryPct: d.batteryPct, carHome: d.isAtHome !== false,
+    night: (d.solar || 0) < 20,   // no generation: lit windows and the garage light on
+  };
+  // A running or paused day replay owns the picture until it is stopped.
+  if (typeof replayState !== 'undefined' && (replayState.isPlaying || replayState.isPaused)) return;
+  renderHouseFlow(_houseLive);
 }
 
 // ─── Flow Curves - SVG bezier lines from Home to each bottom branch ───────────
@@ -810,6 +844,12 @@ async function loadFlowTotals() {
     const exp = fmtEnergy(data.grid_export_kwh);
     const imp = fmtEnergy(data.grid_import_kwh);
     set('grid-node-today', `↑${exp}  ↓${imp}`);
+
+    _houseToday = {
+      solar: data.solar_kwh, home: data.house_kwh, ev: data.ev_kwh, hw: hwTotal,
+      gridImport: data.grid_import_kwh, gridExport: data.grid_export_kwh,
+    };
+    renderHouseFlow(_houseLive);
 
     // AC and Battery: not tracked by db, leave as dash
     set('ac-node-today', '-');
@@ -1825,7 +1865,7 @@ document.addEventListener('DOMContentLoaded', () => {
       controllerState: s.controllerState, holdRemaining: null,
       gatewayOk: s.gatewayOk, teslaOk: s.teslaOk,
       isAtHome: s.isAtHome, manualOverride: s.manualOverride,
-      controlEnabled: s.controlEnabled,
+      controlEnabled: s.controlEnabled, houseFlowView: s.houseFlowView,
     };
     if (s.solarW !== undefined) {
       handleTelemetry({ ts: s.lastUpdated || Date.now(), ...base,

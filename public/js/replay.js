@@ -237,6 +237,15 @@ function updateFlowDiagramForReplay(snapshot) {
   updateNode('grid-node-val',  snapshot.grid_w);
 
   updateFlowPipes(snapshot);
+
+  // House view: the same frame drawn on the house (dashboard.js skips it when that view is off).
+  if (typeof renderHouseFlow === 'function') {
+    renderHouseFlow({
+      solarW: snapshot.solar_w, homeW: snapshot.house_w, evW: snapshot.tesla_w,
+      hwW: snapshot.hotwater_w, gridW: snapshot.grid_w, batteryPct: null, carHome: true,
+      night: snapshot.solar_w < 20,
+    });
+  }
 }
 
 function updateFlowPipes(snapshot) {

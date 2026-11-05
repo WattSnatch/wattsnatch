@@ -664,6 +664,14 @@ async function loadSettings() {
     if (solarBankingToggle) solarBankingToggle.checked = data.settings.opportunistic_charge_limit_enabled === 'true';
 
     // Opt-in, so anything other than an explicit 'true' is off.
+    const houseFlowToggle = document.getElementById('dashboard_house_flow_toggle');
+    if (houseFlowToggle) houseFlowToggle.checked = data.settings.dashboard_house_flow === 'true';
+    if (houseFlowToggle && !houseFlowToggle.dataset.bound) {
+      houseFlowToggle.dataset.bound = '1';
+      houseFlowToggle.addEventListener('change', () =>
+        saveToggleNow('dashboard_house_flow', houseFlowToggle.checked, 'House view of the Energy Flow'));
+    }
+
     const haChargeModeToggle = document.getElementById('mqtt_ha_charge_mode_enabled_toggle');
     if (haChargeModeToggle) haChargeModeToggle.checked = data.settings.mqtt_ha_charge_mode_enabled === 'true';
     if (haChargeModeToggle && !haChargeModeToggle.dataset.bound) {
@@ -769,6 +777,9 @@ async function saveSettings(e) {
 
   const freePowerToggle = document.getElementById('free_power_enabled_toggle');
   if (freePowerToggle) body.free_power_enabled = freePowerToggle.checked ? 'true' : 'false';
+
+  const houseFlowToggle = document.getElementById('dashboard_house_flow_toggle');
+  if (houseFlowToggle) body.dashboard_house_flow = houseFlowToggle.checked ? 'true' : 'false';
 
   const haChargeModeToggle = document.getElementById('mqtt_ha_charge_mode_enabled_toggle');
   if (haChargeModeToggle) body.mqtt_ha_charge_mode_enabled = haChargeModeToggle.checked ? 'true' : 'false';

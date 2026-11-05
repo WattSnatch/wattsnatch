@@ -1703,3 +1703,17 @@
   /* Metrics row: tighter */
   .metric-card { padding: 0.5rem 0.625rem; }
 }
+
+/* ─── House view of the Energy Flow card (Settings -> Dashboard) ─── */
+.house-flow { display: none; }
+.flow-section.house-view .house-flow { display: block; margin: 0.25rem -0.5rem 0.25rem; }
+.flow-section.house-view .flow-diagram,
+.flow-section.house-view .flow-curves-svg,
+.flow-section.house-view .flow-bottom { display: none; }
+.hf-svg { display: block; width: 100%; height: auto; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
+.hf-fade-stop { stop-color: var(--bg-card); }
+.hf-flow { animation: hfFlow 0.9s linear infinite; }
+@keyframes hfFlow { from { stroke-dashoffset: 13.02; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .hf-flow { animation: none; stroke-dasharray: none; stroke-opacity: 0.7; }
+}

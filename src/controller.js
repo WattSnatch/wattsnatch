@@ -2633,6 +2633,7 @@ class Controller {
       chargerPhases: parseInt(db.getSetting('charger_phases') || '1', 10),
       manualOverride: db.getSetting('manual_charge_enabled') === 'true',
       controlEnabled: db.getSetting('charging_control_enabled') !== 'false',
+      houseFlowView: db.getSetting('dashboard_house_flow') === 'true',
       inSchedule:    this._scheduleActive || false,
       inTouPeak:     this._touPeakActive  || false,
       inFreePower:   this._freePowerActive || false,
@@ -2680,6 +2681,7 @@ class Controller {
       isAtHome:      this._isAtHome,
       locationKnown: this._lastLatLng !== null,
       ...(t || {}),
+      houseFlowView: db.getSetting('dashboard_house_flow') === 'true',   // after the spread, so it is read fresh rather than from the last tick
       lastUpdated: Date.now(),
     };
   }

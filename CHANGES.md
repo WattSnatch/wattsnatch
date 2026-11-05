@@ -4,6 +4,15 @@
 
 ## Unreleased: Departure charging finishes just before you leave, and the overnight check plans the right day
 
+**New: a house view for the Energy Flow.** Settings, Dashboard has a switch that
+draws the dashboard's Energy Flow card as a house: solar panels on the roof, the
+car in the garage, the hot water cylinder and the grid connection, with animated
+lines wherever power is moving and the grid line running backwards while you
+export. Each callout shows the live figure and today's total, and the car's shows
+its battery percentage. The windows and garage light up once the solar stops. Turn
+the switch off for the classic diagram, which also shows a home battery and air
+conditioning. The dashboard changes over within a few seconds, no reload needed.
+
 **New: change the charge mode from Home Assistant.** An opt-in Charge Mode select
 on the WattSnatch Car device offers Solar, Charge Now and Stop, the same as the
 dashboard's buttons, so automations and dashboards in Home Assistant can switch
