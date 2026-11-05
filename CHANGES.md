@@ -2,7 +2,7 @@
 
 ---
 
-## Unreleased: Departure charging finishes just before you leave, and the overnight check plans the right day
+## 2026-11-05 - v2.6.3: A house view with your own panels and sky, costs and charge mode in Home Assistant, and departure charging that finishes just in time
 
 **New: a house view for the Energy Flow.** Settings, Dashboard has a switch that
 draws the dashboard's Energy Flow card as a house: solar panels on the roof, the
