@@ -1956,6 +1956,15 @@ router.get('/api/panels/health', (req, res) => {
   }
 });
 
+// GET /api/house-scene - panels, weather and sun for the dashboard's house view
+router.get('/api/house-scene', (req, res) => {
+  try {
+    res.json({ ok: true, ...require('../services/houseScene').getScene() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // POST /api/panels/poll - manually trigger a poll (useful for testing)
 router.post('/api/panels/poll', async (req, res) => {
   try {

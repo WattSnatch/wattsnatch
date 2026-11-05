@@ -1717,3 +1717,9 @@
 @media (prefers-reduced-motion: reduce) {
   .hf-flow { animation: none; stroke-dasharray: none; stroke-opacity: 0.7; }
 }
+.hf-cloud { animation: hfDrift 240s linear infinite; }
+@keyframes hfDrift { from { transform: translateX(0); } to { transform: translateX(680px); } }
+.hf-rain { animation: hfRain 0.7s linear infinite; }
+@keyframes hfRain { from { transform: translate(0, -8px); opacity: 0.2; } 50% { opacity: 1; } to { transform: translate(-3px, 10px); opacity: 0.2; } }
+.hf-panel polygon { transition: fill-opacity 1.5s ease; }
+@media (prefers-reduced-motion: reduce) { .hf-cloud, .hf-rain { animation: none; } }

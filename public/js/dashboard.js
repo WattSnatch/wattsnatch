@@ -612,21 +612,37 @@ function updateFlowDiagram(d) {
 
 let _houseLive  = null;   // last live readings, redrawn when today's totals arrive
 let _houseToday = {};
+let _houseScene = null;   // panels, weather and sun from /api/house-scene
+let _houseSceneTimer = null;
+
+// Panels report every 5 minutes and the weather every 15, so once a minute is plenty.
+async function loadHouseScene() {
+  try {
+    const data = await api('/api/house-scene');
+    if (data && data.ok) { _houseScene = data; renderHouseFlow(_houseLive); }
+  } catch (_e) {}
+}
 
 function applyFlowView(houseView) {
   const section = document.querySelector('.flow-section');
   if (!section || typeof HouseFlow === 'undefined') return;
   if (section.classList.contains('house-view') === houseView) return;
   section.classList.toggle('house-view', houseView);
-  // The classic curves are measured from the node layout, which had no size while hidden.
-  if (!houseView) drawFlowCurves();
+  clearInterval(_houseSceneTimer);
+  if (houseView) {
+    loadHouseScene();
+    _houseSceneTimer = setInterval(loadHouseScene, 60 * 1000);
+  } else {
+    // The classic curves are measured from the node layout, which had no size while hidden.
+    drawFlowCurves();
+  }
 }
 
 function renderHouseFlow(inputs) {
   const el = document.getElementById('house-flow');
   if (!el || !inputs || typeof HouseFlow === 'undefined') return;
   if (!el.closest('.flow-section').classList.contains('house-view')) return;
-  el.innerHTML = HouseFlow.render({ ...inputs, today: _houseToday, compact: el.clientWidth < 520 });
+  el.innerHTML = HouseFlow.render({ ...inputs, today: _houseToday, scene: _houseScene, compact: el.clientWidth < 520 });
 }
 
 function updateHouseFlow(d, houseNodeW) {

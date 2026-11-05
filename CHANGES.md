@@ -13,6 +13,15 @@ its battery percentage. The windows and garage light up once the solar stops. Tu
 the switch off for the classic diagram, which also shows a home battery and air
 conditioning. The dashboard changes over within a few seconds, no reload needed.
 
+The house has a four-sided hip roof with your actual panels on it. With Enphase
+per-panel data, each panel sits on the face its nickname names (North, East,
+South or West, set under Panel Nicknames) and glows with its own live output, so
+shade moving across the roof or a weak panel shows at a glance. Hover a panel for
+its name and watts; one the health check has confirmed faulty gets a red outline.
+The sky follows the weather: clouds drifting with the wind, rain when it rains, and
+a sun arc from sunrise to sunset with the sun where it is now and how today
+compares with a clear day at this time.
+
 **New: change the charge mode from Home Assistant.** An opt-in Charge Mode select
 on the WattSnatch Car device offers Solar, Charge Now and Stop, the same as the
 dashboard's buttons, so automations and dashboards in Home Assistant can switch
