@@ -71,6 +71,10 @@ const elTodaySavings   = document.getElementById('today-savings');
 const elHwNodeVal      = document.getElementById('hw-node-val');
 const elAcNodeVal      = document.getElementById('ac-node-val');
 
+// Solar forecast (drawn by loadForecast)
+const elChart          = document.getElementById('forecast-chart');
+const elAccuracyBanner = document.getElementById('forecast-accuracy-banner');
+
 // Banners
 const elHoldingBanner   = document.getElementById('holding-banner');
 const elHoldTimer       = document.getElementById('hold-timer');

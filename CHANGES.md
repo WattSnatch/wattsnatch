@@ -32,6 +32,13 @@ that start again each day, month or year. Today and this month refresh every
 minute, this year every 15 minutes, and each is republished straight away when its
 period rolls over.
 
+**Fixed: the Solar Forecast card stopped partway through every refresh.** The
+dashboard drew the forecast bars and the accuracy note through two page elements
+it never looked up, so after the daily summary every load stopped with
+"elChart is not defined" in the browser console. The bars were never drawn and
+the "Generating better (or less) than expected" note never appeared. Both
+elements are now looked up with the others when the page loads.
+
 **Fixed: the Data page took up to a minute to switch time frames.** Every click
 re-requested all five period statistics, even though each response already holds
 every period, and the energy breakdown behind them read a year of telemetry
